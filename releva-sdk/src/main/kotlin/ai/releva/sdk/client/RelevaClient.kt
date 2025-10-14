@@ -128,8 +128,11 @@ class RelevaClient(
         val deviceId = storage.getDeviceId()
             ?: throw Exception("Please provide deviceId using client.setDeviceId() before using the client!")
 
+        val profileId = storage.getProfileId()
+            ?: throw Exception("Please provide profileId using client.setProfileId() before registering push token!")
+
         val request = JSONObject().apply {
-            put("profileId", storage.getProfileId())
+            put("profileId", profileId)
             put("deviceType", type.toApiValue())
             put("deviceId", deviceId)
             put("pushToken", token)
