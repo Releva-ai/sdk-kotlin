@@ -23,6 +23,4 @@ data class CartProduct(
         "quantity" to quantity,
         "custom" to custom.toMap()
     )
-
-    fun toJson(): JSONObject = JSONObject(toMap())
 }

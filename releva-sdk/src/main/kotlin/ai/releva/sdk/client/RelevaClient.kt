@@ -11,6 +11,7 @@ import ai.releva.sdk.types.filter.AbstractFilter
 import ai.releva.sdk.types.response.BannerResponse
 import ai.releva.sdk.types.response.RelevaResponse
 import ai.releva.sdk.types.tracking.*
+import ai.releva.sdk.types.product.ViewedProduct
 import ai.releva.sdk.types.wishlist.WishlistProduct
 import android.content.Context
 import android.util.Log
@@ -191,15 +192,33 @@ class RelevaClient(
         val deviceId = storage.getDeviceId()
             ?: throw Exception("Please provide deviceId using client.setDeviceId() before using the client!")
 
-        val context = JSONObject(request.toMap()).apply {
+        val context = JSONObject().apply {
             put("deviceId", deviceId)
             put("deviceIdChanged", deviceIdChanged)
             put("sessionId", sessionId)
             put("profile", JSONObject().apply {
                 put("id", storage.getProfileId())
             })
+
+            request.viewedProduct?.let { put("product", JSONObject(it.toMap())) }
+
             put("profileChanged", profileChanged)
-            put("cart", cart?.let { JSONObject(it) })
+
+            // Add page object with url, optional token, and product/category lists
+            put("page", JSONObject().apply {
+                request.pageUrl?.let { put("url", it) }
+                request.getScreenToken()?.let { put("token", it) }
+                request.pageProductIds?.let { put("ids", JSONArray(it)) }
+                request.pageCategories?.let { put("categories", JSONArray(it)) }
+                request.pageQuery?.let { put("query", it) }
+                request.pageFilter?.let { put("filter", it.toMap()) }
+            })
+
+            // Only include cart if it exists
+            cart?.let {
+                val cartJson = JSONObject(it)
+                put("cart", cartJson)
+            }
             put("cartChanged", cartChanged)
             put("wishlist", JSONObject().apply {
                 put("products", wishlistProducts?.let {
@@ -208,6 +227,13 @@ class RelevaClient(
             })
             put("wishlistChanged", wishlistChanged)
             put("mergeProfileIds", JSONArray(mergeProfileIds))
+
+            // Add custom events if present
+            request.getCustomEvents()?.let { events ->
+                put("events", JSONArray(events.map { event ->
+                    JSONObject(event.toMap())
+                }))
+            }
         }
 
         val requestBody = JSONObject().apply {
@@ -240,12 +266,11 @@ class RelevaClient(
      * Track screen view
      */
     suspend fun trackScreenView(
-        screenToken: String,
-        screenName: String? = null,
+        pageUrl: String,
+        screenToken: String? = null,
         productIds: List<String>? = null,
         categories: List<String>? = null,
         filter: AbstractFilter? = null,
-        blocks: Map<String, List<String>>? = null,
         locale: String? = null,
         currency: String? = null
     ): RelevaResponse {
@@ -253,16 +278,43 @@ class RelevaClient(
             return RelevaResponse(emptyList(), emptyList())
         }
 
-        val request = ScreenViewRequest(
-            screenToken = screenToken,
-            productIds = productIds,
-            categories = categories,
-            filter = filter,
-            blocks = blocks
-        )
+        val request = PushRequest().url(pageUrl)
 
+        screenToken?.let { request.screenToken(it) }
         locale?.let { request.locale(it) }
         currency?.let { request.currency(it) }
+        productIds?.let { request.pageProductIds(it) }
+        categories?.let { request.pageCategories(it) }
+        filter?.let { request.pageFilter(it) }
+
+        return push(request)
+    }
+
+    /**
+     * Track screen view with custom events
+     */
+    suspend fun trackScreenViewWithEvents(
+        pageUrl: String,
+        customEvents: List<ai.releva.sdk.types.event.CustomEvent>,
+        screenToken: String? = null,
+        productIds: List<String>? = null,
+        categories: List<String>? = null,
+        filter: AbstractFilter? = null,
+        locale: String? = null,
+        currency: String? = null
+    ): RelevaResponse {
+        if (!config.enableTracking) {
+            return RelevaResponse(emptyList(), emptyList())
+        }
+
+        val request = PushRequest().url(pageUrl).customEvents(customEvents)
+
+        screenToken?.let { request.screenToken(it) }
+        locale?.let { request.locale(it) }
+        currency?.let { request.currency(it) }
+        productIds?.let { request.pageProductIds(it) }
+        categories?.let { request.pageCategories(it) }
+        filter?.let { request.pageFilter(it) }
 
         return push(request)
     }
@@ -271,8 +323,9 @@ class RelevaClient(
      * Track product view
      */
     suspend fun trackProductView(
-        screenToken: String,
+        pageUrl: String,
         productId: String,
+        screenToken: String? = null,
         customFields: Map<String, Any?>? = null,
         categories: List<String>? = null,
         locale: String? = null,
@@ -282,20 +335,17 @@ class RelevaClient(
             return RelevaResponse(emptyList(), emptyList())
         }
 
-        val request = ScreenViewRequest(
-            screenToken = screenToken,
-            categories = categories
-        )
+        val request = PushRequest().url(pageUrl)
 
+        categories?.let { request.pageCategories(it) }
+        screenToken?.let { request.screenToken(it) }
         locale?.let { request.locale(it) }
         currency?.let { request.currency(it) }
 
-        // Add product view
-        val viewedProduct = ViewedProduct(
+        request.productView(ViewedProduct(
             productId = productId,
             custom = customFields?.let { CustomFields.fromMap(it) } ?: CustomFields.empty()
-        )
-        request.productView(viewedProduct)
+        ))
 
         return push(request)
     }
@@ -304,11 +354,11 @@ class RelevaClient(
      * Track search view
      */
     suspend fun trackSearchView(
-        screenToken: String,
+        pageUrl: String,
         query: String? = null,
+        screenToken: String? = null,
         resultProductIds: List<String>? = null,
         filter: AbstractFilter? = null,
-        blocks: Map<String, List<String>>? = null,
         locale: String? = null,
         currency: String? = null
     ): RelevaResponse {
@@ -316,16 +366,16 @@ class RelevaClient(
             return RelevaResponse(emptyList(), emptyList())
         }
 
-        val request = SearchRequest(
-            screenToken = screenToken,
-            query = query,
-            resultProductIds = resultProductIds,
-            filter = filter,
-            blocks = blocks
-        )
+        val request = PushRequest().url(pageUrl)
 
+        resultProductIds?.let { request.pageProductIds(it) }
+
+        screenToken?.let { request.screenToken(it) }
         locale?.let { request.locale(it) }
         currency?.let { request.currency(it) }
+        filter?.let { request.pageFilter(it) }
+        query?.let { request.pageQuery(it) }
+
 
         return push(request)
     }
@@ -334,13 +384,9 @@ class RelevaClient(
      * Track checkout success
      */
     suspend fun trackCheckoutSuccess(
-        screenToken: String,
+        pageUrl: String,
         orderedCart: Cart,
-        userEmail: String? = null,
-        userPhoneNumber: String? = null,
-        userFirstName: String? = null,
-        userLastName: String? = null,
-        userRegisteredAt: Date? = null,
+        screenToken: String? = null,
         locale: String? = null,
         currency: String? = null
     ): RelevaResponse {
@@ -351,16 +397,9 @@ class RelevaClient(
         // Temporarily set the ordered cart to ensure it's included in the push
         setCart(orderedCart)
 
-        val request = CheckoutSuccessRequest(
-            screenToken = screenToken,
-            orderedCart = orderedCart,
-            userEmail = userEmail,
-            userPhoneNumber = userPhoneNumber,
-            userFirstName = userFirstName,
-            userLastName = userLastName,
-            userRegisteredAt = userRegisteredAt
-        )
+        val request = PushRequest().url(pageUrl).cart(orderedCart)
 
+        screenToken?.let { request.screenToken(it) }
         locale?.let { request.locale(it) }
         currency?.let { request.currency(it) }
 

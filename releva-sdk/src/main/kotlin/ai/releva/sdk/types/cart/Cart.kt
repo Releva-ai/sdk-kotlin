@@ -36,12 +36,4 @@ data class Cart(
         "orderId" to orderId,
         "cartPaid" to cartPaid
     )
-
-    fun toJson(): JSONObject {
-        return JSONObject().apply {
-            put("products", JSONArray(products.map { JSONObject(it.toMap()) }))
-            put("orderId", orderId)
-            put("cartPaid", cartPaid)
-        }
-    }
 }

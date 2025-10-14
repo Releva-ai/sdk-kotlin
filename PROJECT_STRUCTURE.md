@@ -106,9 +106,6 @@ Configuration class for SDK features. Provides:
 
 #### Tracking Models (`types/tracking/`)
 - `PushRequest` - Base class for tracking requests
-- `ScreenViewRequest` - Screen/page view tracking
-- `SearchRequest` - Search tracking
-- `CheckoutSuccessRequest` - Checkout completion tracking
 - `ViewedProduct` - Product view data
 
 #### Other Models

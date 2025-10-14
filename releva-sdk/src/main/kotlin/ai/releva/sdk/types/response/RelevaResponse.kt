@@ -28,7 +28,22 @@ data class RelevaResponse(
 
         fun fromJson(json: String): RelevaResponse {
             val jsonObject = JSONObject(json)
-            return fromMap(jsonObject.toMap())
+            return fromMap(jsonObjectToMap(jsonObject))
+        }
+
+        private fun jsonObjectToMap(jsonObject: JSONObject): Map<String, Any?> {
+            val map = mutableMapOf<String, Any?>()
+            val keys = jsonObject.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val value = jsonObject.get(key)
+                map[key] = when (value) {
+                    is JSONObject -> jsonObjectToMap(value)
+                    JSONObject.NULL -> null
+                    else -> value
+                }
+            }
+            return map
         }
     }
 
@@ -96,13 +111,4 @@ data class PushInfo(
     fun toMap(): Map<String, Any?> = mapOf(
         "vapidPublicKey" to vapidPublicKey
     )
-}
-
-// Extension function to convert JSONObject to Map
-private fun JSONObject.toMap(): Map<String, Any?> {
-    val map = mutableMapOf<String, Any?>()
-    keys().forEach { key ->
-        map[key] = get(key)
-    }
-    return map
 }
