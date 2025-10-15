@@ -47,6 +47,12 @@ class NavigationService private constructor() {
 
         Log.d(TAG, "Handling notification navigation with target: $target")
 
+        // Track callback URL (notification was tapped)
+        val callbackUrl = intent.getStringExtra("callbackUrl")
+        if (!callbackUrl.isNullOrEmpty()) {
+            trackNotificationClick(callbackUrl)
+        }
+
         // Check if this came from action button and dismiss notification
         val fromActionButton = intent.getBooleanExtra("from_action_button", false)
         if (fromActionButton) {
@@ -206,5 +212,33 @@ class NavigationService private constructor() {
                 putExtra(key, value)
             }
         }
+    }
+
+    /**
+     * Track notification click by calling the callback URL in background
+     */
+    private fun trackNotificationClick(callbackUrl: String) {
+        Log.d(TAG, "Tracking notification click: $callbackUrl")
+
+        // Launch thread in background to make HTTP request
+        Thread {
+            try {
+                val url = java.net.URL(callbackUrl)
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
+
+                val responseCode = connection.responseCode
+                if (responseCode == java.net.HttpURLConnection.HTTP_OK) {
+                    Log.d(TAG, "Successfully tracked notification click: $responseCode")
+                } else {
+                    Log.w(TAG, "Failed to track notification click: $responseCode")
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error tracking notification click", e)
+            }
+        }.start()
     }
 }

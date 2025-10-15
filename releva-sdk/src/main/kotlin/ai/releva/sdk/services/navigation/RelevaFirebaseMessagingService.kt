@@ -103,24 +103,37 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
         // Generate unique notification ID
         val notificationId = System.currentTimeMillis().toInt()
 
-        // Create intent using NavigationService
-        val navigationService = NavigationService.getInstance()
+        // Create intent for notification tap
         val target = data["target"]
         Log.e(TAG, "Creating notification intent with target: $target")
 
-        val intent = try {
-            val createdIntent = navigationService.createNotificationIntent(
-                context = this,
-                activityClass = getMainActivityClass(),
-                data = data
-            )
-            Log.e(TAG, "Intent created - Action: ${createdIntent.action}, Data: ${createdIntent.data}, Flags: ${createdIntent.flags}")
-            createdIntent
-        } catch (e: Exception) {
-            Log.e(TAG, "Error creating notification intent", e)
-            // Fallback to default app open
-            android.content.Intent(this, getMainActivityClass()).apply {
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+        val intent = if (target == "url") {
+            // For URL navigation, use trampoline activity to track callback before opening URL
+            android.content.Intent(this, NotificationTrampolineActivity::class.java).apply {
+                putExtra(NotificationTrampolineActivity.EXTRA_NOTIFICATION_ID, notificationId)
+                putExtra(NotificationTrampolineActivity.EXTRA_TARGET, target)
+                putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_URL, data["navigate_to_url"])
+                putExtra(NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS, getMainActivityClass().name)
+                putExtra(NotificationTrampolineActivity.EXTRA_CALLBACK_URL, data["callbackUrl"])
+                Log.e(TAG, "Created trampoline intent for URL navigation")
+            }
+        } else {
+            // For app/screen navigation, use NavigationService
+            try {
+                val navigationService = NavigationService.getInstance()
+                val createdIntent = navigationService.createNotificationIntent(
+                    context = this,
+                    activityClass = getMainActivityClass(),
+                    data = data
+                )
+                Log.e(TAG, "Intent created - Action: ${createdIntent.action}, Data: ${createdIntent.data}, Flags: ${createdIntent.flags}")
+                createdIntent
+            } catch (e: Exception) {
+                Log.e(TAG, "Error creating notification intent", e)
+                // Fallback to default app open
+                android.content.Intent(this, getMainActivityClass()).apply {
+                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+                }
             }
         }
 
@@ -176,6 +189,7 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
                 putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_SCREEN, data["navigate_to_screen"])
                 putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_PARAMETERS, data["navigate_to_parameters"])
                 putExtra(NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS, getMainActivityClass().name)
+                putExtra(NotificationTrampolineActivity.EXTRA_CALLBACK_URL, data["callbackUrl"])
             }
 
             val buttonPendingIntent = PendingIntent.getActivity(
@@ -197,12 +211,6 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
         notificationManager.notify(notificationId, notificationBuilder.build())
 
         Log.e(TAG, "Notification displayed: $title - $body")
-
-        // Track notification display by calling callbackUrl
-        val callbackUrl = data["callbackUrl"]
-        if (!callbackUrl.isNullOrEmpty()) {
-            trackNotificationDisplay(callbackUrl)
-        }
     }
 
     /**

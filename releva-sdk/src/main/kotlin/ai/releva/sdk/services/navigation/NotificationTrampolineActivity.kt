@@ -22,6 +22,7 @@ class NotificationTrampolineActivity : Activity() {
         const val EXTRA_NAVIGATE_TO_SCREEN = "navigate_to_screen"
         const val EXTRA_NAVIGATE_TO_PARAMETERS = "navigate_to_parameters"
         const val EXTRA_ACTIVITY_CLASS = "activity_class"
+        const val EXTRA_CALLBACK_URL = "callbackUrl"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,6 +36,12 @@ class NotificationTrampolineActivity : Activity() {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.cancel(notificationId)
             Log.d(TAG, "Notification dismissed: $notificationId")
+        }
+
+        // Track callback URL (notification was tapped)
+        val callbackUrl = intent.getStringExtra(EXTRA_CALLBACK_URL)
+        if (!callbackUrl.isNullOrEmpty()) {
+            trackNotificationClick(callbackUrl)
         }
 
         // Get navigation target
@@ -109,5 +116,33 @@ class NotificationTrampolineActivity : Activity() {
 
         // Finish this trampoline activity immediately
         finish()
+    }
+
+    /**
+     * Track notification click by calling the callback URL in background
+     */
+    private fun trackNotificationClick(callbackUrl: String) {
+        Log.d(TAG, "Tracking notification click: $callbackUrl")
+
+        // Launch coroutine in background to make HTTP request
+        Thread {
+            try {
+                val url = java.net.URL(callbackUrl)
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
+
+                val responseCode = connection.responseCode
+                if (responseCode == java.net.HttpURLConnection.HTTP_OK) {
+                    Log.d(TAG, "Successfully tracked notification click: $responseCode")
+                } else {
+                    Log.w(TAG, "Failed to track notification click: $responseCode")
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error tracking notification click", e)
+            }
+        }.start()
     }
 }
