@@ -147,8 +147,6 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true) // Dismiss when tapped
             .setContentIntent(pendingIntent)
-            // Use full-screen intent to bypass BAL restrictions on Android 10+
-            .setFullScreenIntent(pendingIntent, false)
 
         // Load and display image if provided
         val imageUrl = data["imageUrl"] ?: data["image"]
