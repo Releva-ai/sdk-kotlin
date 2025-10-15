@@ -244,67 +244,290 @@ class CartManager(private val relevaClient: RelevaClient) {
 }
 ```
 
-## Step 5: Implement Push Notifications (Optional)
+## Step 5: Implement Push Notifications with Navigation (Recommended)
 
-### Add Firebase
+The Releva SDK provides a complete push notification solution with automatic navigation handling. This is the easiest and recommended approach.
+
+### 5.1: Add Firebase
 
 1. Add Firebase to your project following [Firebase setup guide](https://firebase.google.com/docs/android/setup)
 
-2. Implement FirebaseMessagingService:
+2. Add dependencies to `build.gradle.kts`:
 
 ```kotlin
-class MyFirebaseMessagingService : FirebaseMessagingService() {
+dependencies {
+    // Firebase
+    implementation("com.google.firebase:firebase-messaging:23.4.0")
 
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    // Required for push notifications
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+}
+```
 
-    override fun onNewToken(token: String) {
-        super.onNewToken(token)
+3. Add POST_NOTIFICATIONS permission to AndroidManifest.xml (Android 13+):
 
-        // Register token with Releva
-        scope.launch {
-            try {
-                val relevaClient = (application as MyApplication).relevaClient
-                relevaClient.registerPushToken(DeviceType.ANDROID, token)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error registering push token", e)
-            }
-        }
+```xml
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+```
+
+### 5.2: Extend RelevaFirebaseMessagingService
+
+Create your FCM service by extending the SDK's base service:
+
+```kotlin
+// MyFirebaseMessagingService.kt
+package com.example.myapp.push
+
+import ai.releva.sdk.services.navigation.RelevaFirebaseMessagingService
+import com.example.myapp.R
+import com.example.myapp.ui.MainActivity
+
+class MyFirebaseMessagingService : RelevaFirebaseMessagingService() {
+
+    // Return your main activity class
+    override fun getMainActivityClass(): Class<*> {
+        return MainActivity::class.java
     }
 
-    override fun onMessageReceived(message: RemoteMessage) {
-        super.onMessageReceived(message)
+    // Return your notification icon resource
+    override fun getNotificationIcon(): Int {
+        return R.drawable.ic_notification
+    }
 
+    // Optional: Customize default notification title
+    override fun getDefaultNotificationTitle(): String {
+        return "My App"
+    }
+
+    // Handle token registration with Releva
+    override fun onPushTokenGenerated(token: String) {
         val relevaClient = (application as MyApplication).relevaClient
-        val engagementService = relevaClient.engagementTrackingService
-
-        // Track Releva push notification engagement
-        if (engagementService?.isRelevaMessage(message.data) == true) {
-            scope.launch {
-                engagementService.trackEngagement(message.data)
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                relevaClient.registerPushToken(
+                    ai.releva.sdk.types.device.DeviceType.ANDROID,
+                    token
+                )
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Error registering push token", e)
             }
         }
-
-        // Show notification
-        showNotification(message)
     }
 
-    private fun showNotification(message: RemoteMessage) {
-        // Implement notification display
+    companion object {
+        private const val TAG = "MyFCMService"
     }
 }
 ```
 
-3. Register service in AndroidManifest.xml:
+### 5.3: Register Service in AndroidManifest.xml
 
 ```xml
 <service
-    android:name=".MyFirebaseMessagingService"
+    android:name=".push.MyFirebaseMessagingService"
     android:exported="false">
     <intent-filter>
         <action android:name="com.google.firebase.MESSAGING_EVENT" />
     </intent-filter>
 </service>
 ```
+
+### 5.4: Create NavigationHandler
+
+Implement the `NavigationHandler` interface to handle screen navigation from notifications:
+
+```kotlin
+// AppNavigationHandler.kt
+package com.example.myapp.navigation
+
+import android.os.Bundle
+import android.util.Log
+import androidx.navigation.NavController
+import ai.releva.sdk.services.navigation.NavigationHandler
+import com.example.myapp.R
+
+class AppNavigationHandler(private val navController: NavController) : NavigationHandler {
+
+    override fun navigateToScreen(screenName: String, parameters: Bundle) {
+        Log.d("AppNavigation", "Navigating to: $screenName")
+
+        val destinationId = getScreenMappings()[screenName] as? Int
+
+        if (destinationId != null) {
+            navController.navigate(destinationId, parameters)
+        } else {
+            // Fallback to home
+            navController.navigate(R.id.homeFragment, parameters)
+        }
+    }
+
+    override fun getScreenMappings(): Map<String, Any> {
+        return mapOf(
+            // Map notification screen names to navigation IDs
+            "home" to R.id.homeFragment,
+            "/" to R.id.homeFragment,
+            "profile" to R.id.profileFragment,
+            "cart" to R.id.cartFragment,
+            "product" to R.id.productDetailsFragment,
+            "product_details" to R.id.productDetailsFragment,
+            "orders" to R.id.ordersFragment,
+            "search" to R.id.searchFragment
+        )
+    }
+}
+```
+
+### 5.5: Set Up Navigation in MainActivity
+
+Register the navigation handler and handle notification navigation:
+
+```kotlin
+// MainActivity.kt
+import ai.releva.sdk.services.navigation.NavigationService
+import com.example.myapp.navigation.AppNavigationHandler
+
+class MainActivity : AppCompatActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        // Set up your navigation controller
+        val navController = findNavController(R.id.nav_host_fragment)
+
+        // Register navigation handler with SDK
+        val navigationHandler = AppNavigationHandler(navController)
+        NavigationService.getInstance().setNavigationHandler(navigationHandler)
+
+        // Handle notification navigation (if opened from notification)
+        NavigationService.getInstance().handleNotificationNavigation(this, intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Handle navigation when app is already running
+        NavigationService.getInstance().handleNotificationNavigation(this, intent)
+    }
+}
+```
+
+### 5.6: Push Notification Payload Examples
+
+The SDK supports three types of navigation:
+
+#### Navigate to Screen with Parameters
+
+```json
+{
+  "notification": {
+    "title": "New Message",
+    "body": "You have a new message"
+  },
+  "data": {
+    "target": "screen",
+    "navigate_to_screen": "chat",
+    "navigate_to_parameters": "{\"userId\":\"123\",\"messageId\":\"456\"}",
+    "callbackUrl": "https://api.example.com/track/impression/abc123"
+  },
+  "android": {
+    "channelId": "default_channel"
+  }
+}
+```
+
+#### Open External URL
+
+```json
+{
+  "notification": {
+    "title": "Special Offer",
+    "body": "50% off today only"
+  },
+  "data": {
+    "target": "url",
+    "navigate_to_url": "https://example.com/offers",
+    "callbackUrl": "https://api.example.com/track/impression/xyz789"
+  }
+}
+```
+
+#### Default (Open App to Home)
+
+```json
+{
+  "notification": {
+    "title": "Welcome Back",
+    "body": "Check out what's new"
+  },
+  "data": {
+    "callbackUrl": "https://api.example.com/track/impression/def456"
+  }
+}
+```
+
+### 5.7: What the SDK Handles Automatically
+
+✅ **Notification Display** - Shows notifications with proper icons and styling
+✅ **Navigation** - Routes to screens or URLs based on `target` field
+✅ **Parameter Parsing** - Converts JSON parameters to Bundle automatically
+✅ **Callback Tracking** - Makes GET requests to track impressions
+✅ **Channel Management** - Creates and manages notification channels
+✅ **Token Registration** - Handles FCM token lifecycle
+
+### 5.8: Advanced Configuration
+
+#### Custom Notification Channel
+
+```kotlin
+override fun getNotificationChannelId(): String {
+    return "my_custom_channel"
+}
+```
+
+#### Handle Complex Parameters
+
+Access parameters in your fragments/activities:
+
+```kotlin
+class ProductDetailsFragment : Fragment() {
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        // Get parameters from notification
+        val productId = arguments?.getString("productId")
+        val fromNotification = arguments?.getBoolean("fromNotification", false)
+
+        if (fromNotification) {
+            // Handle notification-specific logic
+        }
+    }
+}
+```
+
+### 5.9: Testing Push Notifications
+
+Use Firebase Console or API to test:
+
+```bash
+# Test screen navigation
+curl -X POST https://fcm.googleapis.com/fcm/send \
+  -H "Authorization: key=YOUR_FCM_SERVER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "DEVICE_TOKEN",
+    "notification": {
+      "title": "Test",
+      "body": "Testing screen navigation"
+    },
+    "data": {
+      "target": "screen",
+      "navigate_to_screen": "profile"
+    }
+  }'
+```
+
+For complete push notification documentation, see [PUSH_NOTIFICATION_INTEGRATION.md](./PUSH_NOTIFICATION_INTEGRATION.md)
 
 ## Step 6: Handle User Authentication
 
