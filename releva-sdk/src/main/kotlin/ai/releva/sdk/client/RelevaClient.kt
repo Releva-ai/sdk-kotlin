@@ -51,6 +51,10 @@ class RelevaClient(
     private var deviceIdChanged = false
     private var profileChanged = false
 
+    // Track if cart/wishlist have been initialized to avoid duplicate initial pushes
+    private var cartInitialized = false
+    private var wishlistInitialized = false
+
     var engagementTrackingService: EngagementTrackingService? = null
         private set
 
@@ -97,27 +101,90 @@ class RelevaClient(
 
     /**
      * Set cart
+     * Automatically sends a push request with updated cart and wishlist state if cart was previously initialized
      */
-    suspend fun setCart(cart: Cart) = withContext(Dispatchers.IO) {
-        val currentCart = JSONObject(cart.toMap()).toString()
-        val previousCart = storage.getCartData()
+    suspend fun setCart(cart: Cart) {
+        withContext(Dispatchers.IO) {
+            val currentCart = JSONObject(cart.toMap()).toString()
+            val previousCart = storage.getCartData()
 
-        if (previousCart == null || previousCart != currentCart) {
-            storage.setCartData(currentCart)
-            cartChanged = true
+            if (previousCart == null || previousCart != currentCart) {
+                storage.setCartData(currentCart)
+                cartChanged = true
+
+                // Only send automatic push if cart was already initialized (not first load)
+                if (cartInitialized) {
+                    // Send push with current state (cart + wishlist) without page context
+                    trackScreenView(
+                        pageUrl = null,
+                        screenToken = null,
+                        productIds = null,
+                        categories = null
+                    )
+                    Log.d(TAG, "Automatic cart state push sent")
+                } else {
+                    cartInitialized = true
+                    Log.d(TAG, "Cart initialized (no automatic push on first load)")
+                }
+            }
+
+            // Mark as initialized if cart data didn't change but not yet initialized
+            if (!cartInitialized) {
+                cartInitialized = true
+                Log.d(TAG, "Cart initialized with existing data (no automatic push on first load)")
+            }
+        }
+    }
+
+    /**
+     * Clear cart storage without triggering an API call
+     * Use this after checkout success to prevent stale cart data from being sent on subsequent screen views
+     * Resets initialization flag so next cart update is treated as initialization (no automatic push)
+     * Marks cart as changed so next screen view tracks the cart state change
+     */
+    suspend fun clearCartStorage() {
+        withContext(Dispatchers.IO) {
+            storage.setCartData(JSONObject(Cart.active(emptyList()).toMap()).toString())
+            cartChanged = true  // Cart state changed from paid to empty
+            cartInitialized = false
+            Log.d(TAG, "Cart storage cleared, marked as changed, and initialization flag reset (no API call)")
         }
     }
 
     /**
      * Set wishlist
+     * Automatically sends a push request with updated cart and wishlist state if wishlist was previously initialized
      */
-    suspend fun setWishlist(wishlistProducts: List<WishlistProduct>) = withContext(Dispatchers.IO) {
-        val currentWishlist = wishlistProducts.map { JSONObject(it.toMap()).toString() }
-        val previousWishlist = storage.getWishlistData()
+    suspend fun setWishlist(wishlistProducts: List<WishlistProduct>) {
+        withContext(Dispatchers.IO) {
+            val currentWishlist = wishlistProducts.map { JSONObject(it.toMap()).toString() }
+            val previousWishlist = storage.getWishlistData()
 
-        if (previousWishlist == null || currentWishlist != previousWishlist) {
-            storage.setWishlistData(currentWishlist)
-            wishlistChanged = true
+            if (previousWishlist == null || currentWishlist != previousWishlist) {
+                storage.setWishlistData(currentWishlist)
+                wishlistChanged = true
+
+                // Only send automatic push if wishlist was already initialized (not first load)
+                if (wishlistInitialized) {
+                    // Send push with current state (cart + wishlist) without page context
+                    trackScreenView(
+                        pageUrl = null,
+                        screenToken = null,
+                        productIds = null,
+                        categories = null
+                    )
+                    Log.d(TAG, "Automatic wishlist state push sent")
+                } else {
+                    wishlistInitialized = true
+                    Log.d(TAG, "Wishlist initialized (no automatic push on first load)")
+                }
+            }
+
+            // Mark as initialized if wishlist data didn't change but not yet initialized
+            if (!wishlistInitialized) {
+                wishlistInitialized = true
+                Log.d(TAG, "Wishlist initialized with existing data (no automatic push on first load)")
+            }
         }
     }
 
@@ -190,7 +257,16 @@ class RelevaClient(
 
         val sessionId = getSessionId()
         val wishlistProducts = storage.getWishlistData()
-        val cart = storage.getCartData()
+
+        // Use cart from request if explicitly set (e.g., for checkout success),
+        // otherwise load from storage for regular screen views
+        val cartToSend = if (request.cart != null) {
+            // Cart explicitly provided in request (checkout success case)
+            JSONObject(request.cart!!.toMap()).toString()
+        } else {
+            // Load from storage for regular tracking
+            storage.getCartData()
+        }
 
         val deviceId = storage.getDeviceId()
             ?: throw Exception("Please provide deviceId using client.setDeviceId() before using the client!")
@@ -217,8 +293,8 @@ class RelevaClient(
                 request.pageFilter?.let { put("filter", it.toMap()) }
             })
 
-            // Only include cart if it exists
-            cart?.let {
+            // Include cart if it exists (either from request or storage)
+            cartToSend?.let {
                 val cartJson = JSONObject(it)
                 put("cart", cartJson)
             }
@@ -269,7 +345,7 @@ class RelevaClient(
      * Track screen view
      */
     suspend fun trackScreenView(
-        pageUrl: String,
+        pageUrl: String? = null,
         screenToken: String? = null,
         productIds: List<String>? = null,
         categories: List<String>? = null,
@@ -281,7 +357,8 @@ class RelevaClient(
             return RelevaResponse(emptyList(), emptyList())
         }
 
-        val request = PushRequest().url(pageUrl)
+        val request = PushRequest()
+        pageUrl?.let { request.url(it) }
 
         screenToken?.let { request.screenToken(it) }
         locale?.let { request.locale(it) }
@@ -297,7 +374,7 @@ class RelevaClient(
      * Track screen view with custom events
      */
     suspend fun trackScreenViewWithEvents(
-        pageUrl: String,
+        pageUrl: String? = null,
         customEvents: List<ai.releva.sdk.types.event.CustomEvent>,
         screenToken: String? = null,
         productIds: List<String>? = null,
@@ -310,7 +387,8 @@ class RelevaClient(
             return RelevaResponse(emptyList(), emptyList())
         }
 
-        val request = PushRequest().url(pageUrl).customEvents(customEvents)
+        val request = PushRequest().customEvents(customEvents)
+        pageUrl?.let { request.url(it) }
 
         screenToken?.let { request.screenToken(it) }
         locale?.let { request.locale(it) }
@@ -326,7 +404,7 @@ class RelevaClient(
      * Track product view
      */
     suspend fun trackProductView(
-        pageUrl: String,
+        pageUrl: String? = null,
         productId: String,
         screenToken: String? = null,
         customFields: Map<String, Any?>? = null,
@@ -338,7 +416,8 @@ class RelevaClient(
             return RelevaResponse(emptyList(), emptyList())
         }
 
-        val request = PushRequest().url(pageUrl)
+        val request = PushRequest()
+        pageUrl?.let { request.url(it) }
 
         categories?.let { request.pageCategories(it) }
         screenToken?.let { request.screenToken(it) }
@@ -357,7 +436,7 @@ class RelevaClient(
      * Track search view
      */
     suspend fun trackSearchView(
-        pageUrl: String,
+        pageUrl: String? = null,
         query: String? = null,
         screenToken: String? = null,
         resultProductIds: List<String>? = null,
@@ -369,7 +448,8 @@ class RelevaClient(
             return RelevaResponse(emptyList(), emptyList())
         }
 
-        val request = PushRequest().url(pageUrl)
+        val request = PushRequest()
+        pageUrl?.let { request.url(it) }
 
         resultProductIds?.let { request.pageProductIds(it) }
 
@@ -387,7 +467,7 @@ class RelevaClient(
      * Track checkout success
      */
     suspend fun trackCheckoutSuccess(
-        pageUrl: String,
+        pageUrl: String? = null,
         orderedCart: Cart,
         screenToken: String? = null,
         locale: String? = null,
@@ -397,16 +477,25 @@ class RelevaClient(
             return RelevaResponse(emptyList(), emptyList())
         }
 
-        // Temporarily set the ordered cart to ensure it's included in the push
-        setCart(orderedCart)
+        // Mark cart as changed since we're explicitly tracking a paid cart
+        cartChanged = true
 
-        val request = PushRequest().url(pageUrl).cart(orderedCart)
+        val request = PushRequest().cart(orderedCart)
+        pageUrl?.let { request.url(it) }
 
         screenToken?.let { request.screenToken(it) }
         locale?.let { request.locale(it) }
         currency?.let { request.currency(it) }
 
-        return push(request)
+        val response = push(request)
+
+        // After successfully tracking checkout with cartPaid: true,
+        // clear cart storage to prevent stale cart data from being sent on subsequent screen views
+        // The backend automatically clears the cart after checkout, so we just sync local state
+        clearCartStorage()
+        Log.d(TAG, "Cart storage automatically cleared after checkout success")
+
+        return response
     }
 
     /**
