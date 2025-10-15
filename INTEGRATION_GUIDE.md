@@ -248,6 +248,21 @@ class CartManager(private val relevaClient: RelevaClient) {
 
 The Releva SDK provides a complete push notification solution with automatic navigation handling. This is the easiest and recommended approach.
 
+### Overview
+
+The SDK's push notification system includes:
+- **Automatic Notification Handling** - Displays push notifications automatically with proper styling
+- **Smart Navigation** - Routes to app screens or external URLs based on notification data
+- **Callback Tracking** - Automatically tracks notification impressions via callback URLs
+- **Easy Integration** - Minimal code required, just extend base service and implement navigation handler
+
+### Navigation Target Types
+
+The SDK supports three types of navigation:
+- **`screen`** - Navigate to a specific app screen with optional parameters
+- **`url`** - Open external URL in browser
+- **default** - Open app to home screen (when no target specified)
+
 ### 5.1: Add Firebase
 
 1. Add Firebase to your project following [Firebase setup guide](https://firebase.google.com/docs/android/setup)
@@ -527,7 +542,59 @@ curl -X POST https://fcm.googleapis.com/fcm/send \
   }'
 ```
 
-For complete push notification documentation, see [PUSH_NOTIFICATION_INTEGRATION.md](./PUSH_NOTIFICATION_INTEGRATION.md)
+### 5.10: Troubleshooting Push Notifications
+
+#### Notifications Not Appearing
+
+1. **Check POST_NOTIFICATIONS permission** (Android 13+)
+   - Verify permission is declared in AndroidManifest.xml
+   - Request runtime permission if targeting API 33+
+2. **Verify notification channels are created**
+   - Check logs for channel creation
+   - Ensure channel ID matches between SDK and notification payload
+3. **Check FCM token is registered**
+   - Verify `onPushTokenGenerated()` is called
+   - Ensure token is sent to Releva backend
+4. **Look for logs** with tag `RelevaFCMService` for debugging info
+
+#### Screen Navigation Not Working
+
+1. **Verify NavigationHandler is set**
+   - Check logs for "Navigation handler set" message
+   - Ensure `setNavigationHandler()` is called in MainActivity.onCreate()
+2. **Check screen name mapping**
+   - Verify screen name in notification matches mapping in `getScreenMappings()`
+   - Screen names are case-sensitive
+3. **Verify NavController is available**
+   - NavigationHandler must have valid NavController reference
+   - NavController must be set up before handling navigation
+
+#### URL Not Opening
+
+1. **Check URL format**
+   - Must be valid HTTP/HTTPS URL
+   - Verify no typos in `navigate_to_url` field
+2. **Verify `navigate_to_url` field exists** in notification payload
+3. **Check browser availability** - Device must have a browser app installed
+
+#### Parameters Not Received
+
+1. **Verify JSON format** in `navigate_to_parameters` field
+2. **Check parameter types** - Ensure correct Bundle methods are used to retrieve values
+3. **Look for parsing errors** in logs
+
+### 5.11: Migration from App-Level Implementation
+
+If you previously had custom notification handling in your app:
+
+1. **Remove** your custom FirebaseMessagingService implementation
+2. **Extend** SDK's `RelevaFirebaseMessagingService` instead
+3. **Create** NavigationHandler implementation for your app's navigation structure
+4. **Register** NavigationHandler in MainActivity
+5. **Remove** custom notification display logic - SDK handles this automatically
+6. **Update** notification payload format to match SDK expectations
+
+The SDK handles all notification display and navigation automatically, significantly reducing boilerplate code!
 
 ## Step 6: Handle User Authentication
 
