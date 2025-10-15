@@ -38,14 +38,23 @@ class NavigationService private constructor() {
 
     /**
      * Handle notification navigation based on intent data
+     *
+     * This method works for both:
+     * 1. SDK-created intents (data-only messages, app in any state)
+     * 2. FCM automatic intents (notification payload, app in background)
+     *
+     * When FCM displays notification automatically (background + notification payload),
+     * the data payload is delivered as intent extras, so this method can extract them.
+     *
      * @param context Android context
-     * @param intent Intent from notification tap
+     * @param intent Intent from notification tap or activity start
      * @return true if navigation was handled, false otherwise
      */
     fun handleNotificationNavigation(context: Context, intent: Intent): Boolean {
         val target = intent.getStringExtra("target")
 
         Log.d(TAG, "Handling notification navigation with target: $target")
+        Log.d(TAG, "Intent extras: ${intent.extras?.keySet()?.joinToString()}")
 
         // Track callback URL (notification was tapped)
         val callbackUrl = intent.getStringExtra("callbackUrl")

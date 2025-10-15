@@ -81,12 +81,16 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
         // Handle push notification and display it
         message.notification?.let { notification ->
             Log.e(TAG, "Has notification payload - Title: ${notification.title}, Body: ${notification.body}")
+            Log.e(TAG, "NOTE: This callback is only triggered when app is in FOREGROUND.")
+            Log.e(TAG, "When app is in BACKGROUND, FCM displays notification automatically.")
+            Log.e(TAG, "Navigation is handled in MainActivity.onCreate()/onNewIntent() via intent extras.")
             showNotification(notification.title, notification.body, message.data)
         } ?: run {
-            // If no notification payload, create one from data payload
+            // If no notification payload, create one from data payload (recommended approach)
             val title = message.data["title"] ?: getDefaultNotificationTitle()
             val body = message.data["body"] ?: message.data["message"] ?: "You have a new notification"
             Log.e(TAG, "Data-only message - Title: $title, Body: $body")
+            Log.e(TAG, "Data-only messages trigger onMessageReceived in BOTH foreground and background.")
             showNotification(title, body, message.data)
         }
     }

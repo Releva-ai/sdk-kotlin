@@ -522,25 +522,142 @@ class ProductDetailsFragment : Fragment() {
 
 ### 5.9: Testing Push Notifications
 
-Use Firebase Console or API to test:
+The SDK supports **two notification payload formats** depending on your requirements:
+
+#### Option 1: Data-Only Messages (Recommended for Maximum Control)
+
+**Best for:** Full SDK control over notification display and navigation in all app states.
+
+**Characteristics:**
+- ✅ `onMessageReceived()` called in BOTH foreground and background
+- ✅ SDK controls notification display, icons, channels, images
+- ✅ Navigation works reliably in all scenarios
+- ✅ Recommended for new integrations
 
 ```bash
-# Test screen navigation
+# Test data-only screen navigation
+curl -X POST https://fcm.googleapis.com/fcm/send \
+  -H "Authorization: key=YOUR_FCM_SERVER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "DEVICE_TOKEN",
+    "data": {
+      "title": "New Product Available",
+      "body": "Check out our latest products",
+      "imageUrl": "https://example.com/product.jpg",
+      "target": "screen",
+      "navigate_to_screen": "product",
+      "navigate_to_parameters": "{\"productId\":\"123\"}",
+      "callbackUrl": "https://api.example.com/track/abc"
+    }
+  }'
+
+# Test data-only URL navigation
+curl -X POST https://fcm.googleapis.com/fcm/send \
+  -H "Authorization: key=YOUR_FCM_SERVER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "DEVICE_TOKEN",
+    "data": {
+      "title": "Visit Our Website",
+      "body": "Check out the latest deals",
+      "target": "url",
+      "navigate_to_url": "https://example.com/offers",
+      "callbackUrl": "https://api.example.com/track/xyz"
+    }
+  }'
+```
+
+#### Option 2: Notification + Data Payloads (Cross-Platform Compatible)
+
+**Best for:** Cross-platform compatibility with Flutter SDK, simpler backend.
+
+**Characteristics:**
+- ✅ Compatible with existing Flutter SDK implementations
+- ✅ Single payload format for both Android and Flutter
+- ⚠️ Foreground: SDK displays notification
+- ⚠️ Background: FCM displays automatically, MainActivity handles navigation
+- ⚠️ Less control over notification appearance in background
+
+**⚠️ IMPORTANT - Required for Android 12+:**
+When using notification payloads, you **MUST** add `android.notification.click_action` to avoid Background Activity Launch restrictions:
+
+```bash
+# Test notification + data screen navigation
 curl -X POST https://fcm.googleapis.com/fcm/send \
   -H "Authorization: key=YOUR_FCM_SERVER_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "to": "DEVICE_TOKEN",
     "notification": {
-      "title": "Test",
-      "body": "Testing screen navigation"
+      "title": "New Product Available",
+      "body": "Check out our latest products",
+      "image": "https://example.com/product.jpg"
     },
     "data": {
+      "click_action": "RELEVA_NOTIFICATION_CLICK",
       "target": "screen",
-      "navigate_to_screen": "profile"
+      "navigate_to_screen": "product",
+      "navigate_to_parameters": "{\"productId\":\"123\"}",
+      "callbackUrl": "https://api.example.com/track/abc"
+    },
+    "android": {
+      "notification": {
+        "click_action": "RELEVA_NOTIFICATION_CLICK"
+      }
+    }
+  }'
+
+# Test notification + data URL navigation
+curl -X POST https://fcm.googleapis.com/fcm/send \
+  -H "Authorization: key=YOUR_FCM_SERVER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "DEVICE_TOKEN",
+    "notification": {
+      "title": "Visit Our Website",
+      "body": "Check out the latest deals"
+    },
+    "data": {
+      "click_action": "RELEVA_NOTIFICATION_CLICK",
+      "target": "url",
+      "navigate_to_url": "https://example.com/offers",
+      "callbackUrl": "https://api.example.com/track/xyz"
+    },
+    "android": {
+      "notification": {
+        "click_action": "RELEVA_NOTIFICATION_CLICK"
+      }
     }
   }'
 ```
+
+**Why `click_action` is required:**
+- Android 12+ blocks "trampoline" activity launches from notifications (Background Activity Launch restrictions)
+- Without `click_action`, FCM launches your app's launcher activity which gets blocked
+- With `click_action: "RELEVA_NOTIFICATION_CLICK"`, FCM sends intent to MainActivity which bypasses the restriction
+- Flutter SDK ignores this field (no breaking changes for Flutter apps)
+
+#### How Notification Payloads Work
+
+**With Data-Only Messages:**
+1. FCM delivers message → `onMessageReceived()` called (foreground AND background)
+2. SDK builds notification with custom PendingIntent
+3. User taps → NavigationService routes to screen/URL
+
+**With Notification + Data Payloads:**
+1. **App in Foreground:**
+   - `onMessageReceived()` called → SDK builds notification with custom navigation
+2. **App in Background:**
+   - FCM displays notification automatically
+   - User taps → MainActivity receives `data` payload as intent extras
+   - `NavigationService.handleNotificationNavigation()` extracts extras and routes
+
+**Important:** When using notification payloads, MainActivity MUST call:
+```kotlin
+NavigationService.getInstance().handleNotificationNavigation(this, intent)
+```
+in both `onCreate()` and `onNewIntent()` methods.
 
 ### 5.10: Troubleshooting Push Notifications
 
