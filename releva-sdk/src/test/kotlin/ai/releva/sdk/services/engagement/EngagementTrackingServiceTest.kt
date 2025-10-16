@@ -357,12 +357,11 @@ class EngagementTrackingServiceTest {
 
     @Test
     fun `handle null callbackUrl value`() = runTest(testDispatcher) {
+        // Test with no callbackUrl in the map (simulating null value)
         val data = mapOf(
-            "click_action" to "RELEVA_NOTIFICATION_CLICK",
-            "callbackUrl" to null as String?
-        ).filterValues { it != null } as Map<String, String>
+            "click_action" to "RELEVA_NOTIFICATION_CLICK"
+        )
 
-        // If callbackUrl is null, it won't be in the map
         engagementService.trackEngagement(data)
         advanceUntilIdle()
 
