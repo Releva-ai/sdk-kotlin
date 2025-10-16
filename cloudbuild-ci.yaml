@@ -1,0 +1,16 @@
+steps:
+  - id: test
+    name: gradle:8.9-jdk17
+    entrypoint: sh
+    args:
+      - -c
+      - ./gradlew :releva-sdk:test
+  - id: build
+    name: gradle:8.9-jdk17
+    entrypoint: sh
+    args:
+      - -c
+      - ./gradlew :releva-sdk:build
+options:
+  defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET
+timeout: '1200s'

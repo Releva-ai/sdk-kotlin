@@ -1,20 +1,14 @@
 .PHONY: help build test clean release check-version update-version tag-release
 
-# Colors for output
-RED=\033[0;31m
-GREEN=\033[0;32m
-YELLOW=\033[1;33m
-NC=\033[0m # No Color
-
 # Default target
 help:
-	@echo "$(GREEN)Releva SDK Release Makefile$(NC)"
+	@echo "Releva SDK Release Makefile"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  $(YELLOW)make build$(NC)           - Build the SDK"
-	@echo "  $(YELLOW)make test$(NC)            - Run tests"
-	@echo "  $(YELLOW)make clean$(NC)           - Clean build artifacts"
-	@echo "  $(YELLOW)make release VERSION=x.y.z$(NC) - Release a new version"
+	@echo "  make build           - Build the SDK"
+	@echo "  make test            - Run tests"
+	@echo "  make clean           - Clean build artifacts"
+	@echo "  make release VERSION=x.y.z - Release a new version"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make release VERSION=1.0.1"
@@ -24,92 +18,92 @@ help:
 
 # Build the SDK
 build:
-	@echo "$(GREEN)Building SDK...$(NC)"
+	@echo "Building SDK..."
 	./gradlew :releva-sdk:build
-	@echo "$(GREEN)✓ Build complete!$(NC)"
+	@echo "✓ Build complete!"
 
 # Run tests
 test:
-	@echo "$(GREEN)Running tests...$(NC)"
+	@echo "Running tests..."
 	./gradlew :releva-sdk:test
-	@echo "$(GREEN)✓ Tests passed!$(NC)"
+	@echo "✓ Tests passed!"
 
 # Clean build artifacts
 clean:
-	@echo "$(YELLOW)Cleaning build artifacts...$(NC)"
+	@echo "Cleaning build artifacts..."
 	./gradlew clean
-	@echo "$(GREEN)✓ Clean complete!$(NC)"
+	@echo "✓ Clean complete!"
 
 # Check if VERSION is provided
 check-version:
 ifndef VERSION
-	@echo "$(RED)ERROR: VERSION is required!$(NC)"
+	@echo "ERROR: VERSION is required!"
 	@echo "Usage: make release VERSION=x.y.z"
 	@echo "Example: make release VERSION=1.0.1"
 	@exit 1
 endif
-	@echo "$(GREEN)Version: $(VERSION)$(NC)"
+	@echo "Version: $(VERSION)"
 
 # Update version in build.gradle.kts
 update-version: check-version
-	@echo "$(YELLOW)Updating version to $(VERSION)...$(NC)"
+	@echo "Updating version to $(VERSION)..."
 	@sed -i 's/version = "[0-9]*\.[0-9]*\.[0-9]*"/version = "$(VERSION)"/' releva-sdk/build.gradle.kts
 	@sed -i 's/Current version: \*\*[0-9]*\.[0-9]*\.[0-9]*\*\*/Current version: **$(VERSION)**/' README.md
-	@echo "$(GREEN)✓ Version updated in build.gradle.kts and README.md$(NC)"
+	@echo "✓ Version updated in build.gradle.kts and README.md"
 
 # Create and push git tag
 tag-release: check-version
-	@echo "$(YELLOW)Creating git tag $(VERSION)...$(NC)"
+	@echo "Creating git tag $(VERSION)..."
 	@if git rev-parse $(VERSION) >/dev/null 2>&1; then \
-		echo "$(RED)ERROR: Tag $(VERSION) already exists!$(NC)"; \
+		echo "ERROR: Tag $(VERSION) already exists!"; \
 		exit 1; \
 	fi
 	git tag -a $(VERSION) -m "Release version $(VERSION)"
-	@echo "$(GREEN)✓ Git tag created$(NC)"
-	@echo "$(YELLOW)Pushing tag to GitHub...$(NC)"
+	@echo "✓ Git tag created"
+	@echo "Pushing tag to GitHub..."
 	git push origin $(VERSION)
-	@echo "$(GREEN)✓ Tag pushed to GitHub$(NC)"
+	@echo "✓ Tag pushed to GitHub"
 
 # Main release target
 release: check-version
-	@echo "$(GREEN)========================================$(NC)"
-	@echo "$(GREEN)  Releasing Releva SDK $(VERSION)$(NC)"
-	@echo "$(GREEN)========================================$(NC)"
+	@echo "========================================"
+	@echo "  Releasing Releva SDK $(VERSION)"
+	@echo "========================================"
 	@echo ""
 
-	@echo "$(YELLOW)Step 1/6: Cleaning build artifacts...$(NC)"
+	@echo "Step 1/6: Cleaning build artifacts..."
 	@$(MAKE) -s clean
 	@echo ""
 
-	@echo "$(YELLOW)Step 2/6: Running tests...$(NC)"
+	@echo "Step 2/6: Running tests..."
 	@$(MAKE) -s test
 	@echo ""
 
-	@echo "$(YELLOW)Step 3/6: Building SDK...$(NC)"
+	@echo "Step 3/6: Building SDK..."
 	@$(MAKE) -s build
 	@echo ""
 
-	@echo "$(YELLOW)Step 4/6: Updating version numbers...$(NC)"
+	@echo "Step 4/6: Updating version numbers..."
 	@$(MAKE) -s update-version VERSION=$(VERSION)
 	@echo ""
 
-	@echo "$(YELLOW)Step 5/6: Committing changes...$(NC)"
+	@echo "Step 5/6: Committing changes..."
 	@git add releva-sdk/build.gradle.kts README.md
-	@git commit -m "Release version $(VERSION)" || echo "$(YELLOW)No changes to commit$(NC)"
+	@git commit -m "Release version $(VERSION)" || echo "No changes to commit"
 	@git push origin main
-	@echo "$(GREEN)✓ Changes committed and pushed$(NC)"
+	@echo "✓ Changes committed and pushed"
 	@echo ""
 
-	@echo "$(YELLOW)Step 6/6: Creating and pushing git tag...$(NC)"
+	@echo "Step 6/6: Creating and pushing git tag..."
 	@$(MAKE) -s tag-release VERSION=$(VERSION)
 	@echo ""
 
-	@echo "$(GREEN)========================================$(NC)"
-	@echo "$(GREEN)  ✓ Release $(VERSION) Complete!$(NC)"
-	@echo "$(GREEN)========================================$(NC)"
+	@echo "========================================"
+	@echo "  ✓ Release $(VERSION) Complete!"
+	@echo "========================================"
 	@echo ""
 	@echo "Next steps:"
 	@echo "  1. Verify build on JitPack: https://jitpack.io/#Releva-ai/sdk-kotlin/$(VERSION)"
-	@echo "  2. Wait for green ✓ checkmark"
+	@echo "  2. Wait for green checkmark"
 	@echo "  3. Update your apps to use version $(VERSION)"
 	@echo ""

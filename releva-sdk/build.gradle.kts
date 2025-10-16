@@ -6,11 +6,11 @@ plugins {
 
 android {
     namespace = "ai.releva.sdk"
-    compileSdk = 36
+    compileSdk = 35
 
     defaultConfig {
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 35
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")

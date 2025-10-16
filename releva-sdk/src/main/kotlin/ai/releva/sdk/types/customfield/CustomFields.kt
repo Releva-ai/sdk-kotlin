@@ -12,6 +12,9 @@ data class CustomFields(
     val string: List<StringField> = emptyList(),
     val date: List<DateField> = emptyList()
 ) {
+    val isEmpty: Boolean
+        get() = numeric.isEmpty() && string.isEmpty() && date.isEmpty()
+
     companion object {
         fun empty() = CustomFields()
 
