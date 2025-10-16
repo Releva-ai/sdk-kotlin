@@ -1,16 +1,50 @@
 steps:
+  # Install Android SDK
+  - id: setup-android-sdk
+    name: gradle:8.9-jdk17
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        apt-get update -qq
+        apt-get install -y wget unzip
+        mkdir -p /opt/android-sdk/cmdline-tools
+        cd /opt/android-sdk/cmdline-tools
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+        unzip -q commandlinetools-linux-11076708_latest.zip
+        mv cmdline-tools latest
+        export ANDROID_HOME=/opt/android-sdk
+        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+        yes | sdkmanager --licenses || true
+        sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+        echo "Android SDK installed at $ANDROID_HOME"
+
+  # Run tests
   - id: test
     name: gradle:8.9-jdk17
     entrypoint: sh
+    env:
+      - 'ANDROID_HOME=/opt/android-sdk'
     args:
       - -c
-      - ./gradlew :releva-sdk:test
+      - |
+        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+        ./gradlew :releva-sdk:test
+
+  # Build SDK
   - id: build
     name: gradle:8.9-jdk17
     entrypoint: sh
+    env:
+      - 'ANDROID_HOME=/opt/android-sdk'
     args:
       - -c
-      - ./gradlew :releva-sdk:build
+      - |
+        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+        ./gradlew :releva-sdk:build
+
 options:
   defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET
+  machineType: 'E2_HIGHCPU_8'
+
 timeout: '1200s'
