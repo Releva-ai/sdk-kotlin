@@ -39,11 +39,26 @@ data class RelevaResponse(
                 val value = jsonObject.get(key)
                 map[key] = when (value) {
                     is JSONObject -> jsonObjectToMap(value)
+                    is org.json.JSONArray -> jsonArrayToList(value)
                     JSONObject.NULL -> null
                     else -> value
                 }
             }
             return map
+        }
+
+        private fun jsonArrayToList(jsonArray: org.json.JSONArray): List<Any?> {
+            val list = mutableListOf<Any?>()
+            for (i in 0 until jsonArray.length()) {
+                val value = jsonArray.get(i)
+                list.add(when (value) {
+                    is JSONObject -> jsonObjectToMap(value)
+                    is org.json.JSONArray -> jsonArrayToList(value)
+                    JSONObject.NULL -> null
+                    else -> value
+                })
+            }
+            return list
         }
     }
 

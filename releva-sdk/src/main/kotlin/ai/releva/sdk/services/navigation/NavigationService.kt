@@ -37,6 +37,15 @@ class NavigationService private constructor() {
     }
 
     /**
+     * Clear the navigation handler
+     * Primarily for testing purposes
+     */
+    fun clearNavigationHandler() {
+        this.navigationHandler = null
+        Log.d(TAG, "Navigation handler cleared")
+    }
+
+    /**
      * Handle notification navigation based on intent data
      * @param context Android context
      * @param intent Intent from notification tap

@@ -9,22 +9,27 @@ Complete guide for releasing new versions of the Releva SDK.
 ### TL;DR
 
 ```bash
-make release VERSION=1.0.1
+# 1. Update version in build.gradle.kts
+vim releva-sdk/build.gradle.kts  # Change version = "1.0.1"
+
+# 2. Release
+make release
 ```
 
-That's it! The Makefile handles everything: clean, test, build, version update, commit, tag, and push.
+That's it! The Makefile reads the version from `build.gradle.kts` and handles everything: clean, test, build, README update, commit, tag, and push.
 
 ### What Happens
 
-When you run `make release VERSION=x.y.z`:
+When you run `make release`:
 
-1. ✓ Cleans build artifacts
-2. ✓ Runs all tests
-3. ✓ Builds the SDK
-4. ✓ Updates version in `build.gradle.kts` and `README.md`
-5. ✓ Commits and pushes changes
-6. ✓ Creates and pushes git tag
-7. ✓ Triggers JitPack to build and publish
+1. ✓ Reads version from `build.gradle.kts`
+2. ✓ Cleans build artifacts
+3. ✓ Runs all tests
+4. ✓ Builds the SDK
+5. ✓ Updates version in `README.md`
+6. ✓ Commits and pushes changes
+7. ✓ Creates and pushes git tag
+8. ✓ Triggers JitPack to build and publish
 
 ### Verification
 
@@ -54,29 +59,37 @@ The Releva SDK is distributed through [JitPack](https://jitpack.io), which build
 ### Using Make (Recommended)
 
 ```bash
-make release VERSION=1.0.1
+# 1. Update version in build.gradle.kts
+vim releva-sdk/build.gradle.kts  # Change version = "1.0.1"
+
+# 2. Release
+make release
 ```
+
+The Makefile automatically reads the version from `build.gradle.kts`, so you don't need to pass it as a parameter.
 
 ### Manual Release
 
 If you need manual control:
 
 ```bash
-# 1. Clean and test
+# 1. Update version in build.gradle.kts
+vim releva-sdk/build.gradle.kts  # Update version = "1.0.1"
+
+# 2. Clean and test
 make clean
 make test
 make build
 
-# 2. Update version numbers
-vim releva-sdk/build.gradle.kts  # Update version
-vim README.md                     # Update version
+# 3. Update README.md
+vim README.md  # Update version to 1.0.1
 
-# 3. Commit and push
+# 4. Commit and push
 git add .
 git commit -m "Release version 1.0.1"
 git push origin main
 
-# 4. Create and push tag
+# 5. Create and push tag
 git tag -a 1.0.1 -m "Release version 1.0.1"
 git push origin 1.0.1
 ```
@@ -108,16 +121,20 @@ Follow [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`
 
 ```bash
 # Patch release (bug fix)
-make release VERSION=1.0.1
+# 1. Edit releva-sdk/build.gradle.kts: version = "1.0.1"
+# 2. Run: make release
 
 # Minor release (new feature)
-make release VERSION=1.1.0
+# 1. Edit releva-sdk/build.gradle.kts: version = "1.1.0"
+# 2. Run: make release
 
 # Major release (breaking changes)
-make release VERSION=2.0.0
+# 1. Edit releva-sdk/build.gradle.kts: version = "2.0.0"
+# 2. Run: make release
 
 # Pre-release (beta testing)
-make release VERSION=1.1.0-beta
+# 1. Edit releva-sdk/build.gradle.kts: version = "1.1.0-beta"
+# 2. Run: make release
 ```
 
 ### Version Examples
@@ -181,11 +198,11 @@ After a successful release:
 ## Makefile Commands
 
 ```bash
-make help                  # Show available commands
-make build                 # Build SDK
-make test                  # Run tests
-make clean                 # Clean artifacts
-make release VERSION=x.y.z # Release new version
+make help     # Show available commands
+make build    # Build SDK
+make test     # Run tests
+make clean    # Clean artifacts
+make release  # Release version from build.gradle.kts
 ```
 
 ---
@@ -215,26 +232,29 @@ git push
 git tag -d 1.0.1
 git push origin :refs/tags/1.0.1
 
-# Re-release
-make release VERSION=1.0.1
+# Re-release (version still in build.gradle.kts)
+make release
 ```
 
-### Wrong Version in build.gradle.kts
+### Wrong Version Released
+
+If you released with the wrong version:
 
 ```bash
-# Update manually
-sed -i 's/version = "[0-9.]*"/version = "1.0.1"/' releva-sdk/build.gradle.kts
+# 1. Delete the wrong tag
+git tag -d 1.0.1
+git push origin :refs/tags/1.0.1
 
-# Commit and re-tag
+# 2. Update version in build.gradle.kts
+vim releva-sdk/build.gradle.kts  # Update to correct version
+
+# 3. Commit the version change
 git add releva-sdk/build.gradle.kts
 git commit -m "Update version to 1.0.1"
 git push
 
-# Delete and recreate tag
-git tag -d 1.0.1
-git push origin :refs/tags/1.0.1
-git tag -a 1.0.1 -m "Release version 1.0.1"
-git push origin 1.0.1
+# 4. Re-release
+make release
 ```
 
 ### Tag Already Exists
@@ -276,7 +296,8 @@ Use this checklist for every release:
 - [ ] Release notes prepared
 
 ### Release
-- [ ] Run: `make release VERSION=x.y.z`
+- [ ] Update version in `releva-sdk/build.gradle.kts`
+- [ ] Run: `make release`
 - [ ] Verify tag pushed to GitHub
 - [ ] Check JitPack build status
 
@@ -333,7 +354,8 @@ git push -u origin release/1.x
 
 # Release from specific branch
 git checkout release/1.x
-make release VERSION=1.0.5
+vim releva-sdk/build.gradle.kts  # Update version = "1.0.5"
+make release
 ```
 
 ### Hotfix Releases
@@ -347,8 +369,11 @@ git checkout -b hotfix/1.0.1 1.0.0
 # Fix bug
 git commit -am "Fix critical bug"
 
+# Update version
+vim releva-sdk/build.gradle.kts  # version = "1.0.1"
+
 # Release hotfix
-make release VERSION=1.0.1
+make release
 
 # Merge back to main
 git checkout main
