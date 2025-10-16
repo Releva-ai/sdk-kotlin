@@ -77,7 +77,7 @@ release:
 	@echo "Step 5/5: Committing and tagging release..."
 	@git add README.md
 	@git commit -m "Release version $(VERSION)" || echo "No changes to commit"
-	@git push origin main
+	@git push origin master
 	@$(MAKE) -s tag-release
 	@echo ""
 
