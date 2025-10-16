@@ -1,11 +1,12 @@
 steps:
-  # Install Android SDK
-  - id: setup-android-sdk
+  # Install Android SDK, run tests, and build
+  - id: build-and-test
     name: gradle:8.9-jdk17
     entrypoint: sh
     args:
       - -c
       - |
+        echo "=== Installing Android SDK ==="
         apt-get update -qq
         apt-get install -y wget unzip
         mkdir -p /opt/android-sdk/cmdline-tools
@@ -13,35 +14,27 @@ steps:
         wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
         unzip -q commandlinetools-linux-11076708_latest.zip
         mv cmdline-tools latest
+
         export ANDROID_HOME=/opt/android-sdk
         export PATH=$$PATH:$$ANDROID_HOME/cmdline-tools/latest/bin:$$ANDROID_HOME/platform-tools
+
+        echo "=== Accepting SDK licenses ==="
         yes | sdkmanager --licenses || true
+
+        echo "=== Installing SDK components ==="
         sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
         echo "Android SDK installed at $$ANDROID_HOME"
 
-  # Run tests
-  - id: test
-    name: gradle:8.9-jdk17
-    entrypoint: sh
-    env:
-      - 'ANDROID_HOME=/opt/android-sdk'
-    args:
-      - -c
-      - |
-        export PATH=$$PATH:$$ANDROID_HOME/cmdline-tools/latest/bin:$$ANDROID_HOME/platform-tools
+        cd /workspace
+
+        echo "=== Running tests ==="
         ./gradlew :releva-sdk:test
 
-  # Build SDK
-  - id: build
-    name: gradle:8.9-jdk17
-    entrypoint: sh
-    env:
-      - 'ANDROID_HOME=/opt/android-sdk'
-    args:
-      - -c
-      - |
-        export PATH=$$PATH:$$ANDROID_HOME/cmdline-tools/latest/bin:$$ANDROID_HOME/platform-tools
+        echo "=== Building SDK ==="
         ./gradlew :releva-sdk:build
+
+        echo "=== Build and test completed successfully ==="
 
 options:
   defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET
