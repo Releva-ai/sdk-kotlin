@@ -6,11 +6,11 @@ plugins {
 
 android {
     namespace = "ai.releva.sdk"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
-        minSdk = 21
-        targetSdk = 34
+        minSdk = 24
+        targetSdk = 36
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
@@ -66,8 +66,8 @@ publishing {
     publications {
         create<MavenPublication>("release") {
             groupId = "ai.releva"
-            artifactId = "sdk"
-            version = "0.0.1"
+            artifactId = "releva-sdk"
+            version = "1.0.0"
 
             afterEvaluate {
                 from(components["release"])

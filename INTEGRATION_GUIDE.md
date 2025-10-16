@@ -5,14 +5,73 @@ This guide provides step-by-step instructions for integrating the Releva SDK int
 ## Prerequisites
 
 - Android Studio Arctic Fox or later
-- Minimum SDK: API 21 (Android 5.0)
-- Target SDK: API 34
-- Kotlin 1.9+
-- Gradle 8.0+
+- Minimum SDK: API 24 (Android 7.0)
+- Target SDK: API 36
+- Kotlin 2.0+
+- Gradle 8.9+
 
 ## Step 1: Add the SDK to Your Project
 
-### Option A: Include as Module
+### Using JitPack (Recommended)
+
+The easiest way to add the SDK is via JitPack:
+
+**1. Add JitPack repository**
+
+Add to your `settings.gradle.kts`:
+
+```kotlin
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }  // Add this line
+    }
+}
+```
+
+Or in your root `build.gradle`:
+
+```groovy
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://jitpack.io' }
+    }
+}
+```
+
+**2. Add SDK dependency**
+
+Add to your app's `build.gradle.kts`:
+
+```kotlin
+dependencies {
+    implementation("com.github.Releva-ai:sdk-kotlin:1.0.0")
+}
+```
+
+Or in `build.gradle`:
+
+```groovy
+dependencies {
+    implementation 'com.github.Releva-ai:sdk-kotlin:1.0.0'
+}
+```
+
+**3. Sync project**
+
+Click "Sync Now" in Android Studio or run:
+
+```bash
+./gradlew build
+```
+
+### Alternative: Include as Module
+
+If you prefer to include the SDK as a source module:
 
 1. Copy the `releva-sdk` directory into your project root
 2. Add to your `settings.gradle.kts`:
@@ -24,33 +83,6 @@ include(":app", ":releva-sdk")
 ```kotlin
 dependencies {
     implementation(project(":releva-sdk"))
-
-    // Required dependencies
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-
-    // Optional: Firebase for push notifications
-    implementation("com.google.firebase:firebase-messaging:23.4.0")
-}
-```
-
-### Option B: Build AAR Library
-
-1. In the `releva-sdk` directory, run:
-```bash
-./gradlew assembleRelease
-```
-
-2. Find the AAR file at:
-```
-releva-sdk/build/outputs/aar/releva-sdk-release.aar
-```
-
-3. Add to your app:
-```kotlin
-dependencies {
-    implementation(files("libs/releva-sdk-release.aar"))
-    // Add required dependencies...
 }
 ```
 
@@ -137,6 +169,31 @@ Update your `AndroidManifest.xml`:
 
 ## Step 3: Track User Actions
 
+### Important: Screen Tokens and Page URLs
+
+#### Screen Tokens
+
+**Screen tokens must be obtained from your Releva admin account**. They are UUIDs/tokens (e.g., "abc123def456") that identify specific screens/pages in your Releva configuration. Set to `null` if you haven't configured screen tokens in Releva yet.
+
+**Example values:**
+- ✅ Correct: `screenToken = null` or `screenToken = "abc123def456-your-actual-token"`
+- ❌ Wrong: `screenToken = "product_detail"` (human-readable strings are not valid)
+
+#### Page URLs
+
+**Page URLs (`pageUrl` parameter) must be full URLs** using either a custom app scheme or HTTPS. The Releva backend validates that pageUrl is a proper URL format.
+
+**Supported formats:**
+- **Deep links**: `"myapp://home"`, `"myapp://product/details"`, `"myapp://search/results/filters"`
+- **Web URLs**: `"https://yourapp.com/home"`, `"https://yourapp.com/product/123"`
+- **Multiple path segments**: `"myapp://category/electronics/phones/android"`
+
+**Example values:**
+- ✅ Correct: `pageUrl = "myapp://product/details"` or `pageUrl = "https://example.com/products"`
+- ✅ Correct: `pageUrl = null` (if you don't want to track page URLs)
+- ❌ Wrong: `pageUrl = "/product"` (must be a full URL, not a relative path)
+- ❌ Wrong: `pageUrl = "product_detail"` (must include scheme like myapp:// or https://)
+
 ### In Activities
 
 ```kotlin
@@ -154,19 +211,27 @@ class ProductDetailActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val response = relevaClient.trackProductView(
-                    screenToken = "product_detail",
+                    pageUrl = "myapp://product/details", // Full URL with custom scheme or https://
+                    screenToken = null, // Use actual token from Releva admin (e.g., "abc123def456")
                     productId = productId,
                     categories = listOf("electronics", "phones")
                 )
 
-                // Display recommendations
+                // SDK does NOT provide UI methods - you must implement your own
+                // Check if recommendations are available
                 if (response.hasRecommenders) {
-                    displayRecommendations(response.recommenders)
+                    // YOUR CODE: Render recommendations in your UI
+                    renderRecommendationsInYourUI(response.recommenders)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error tracking product view", e)
             }
         }
+    }
+
+    // YOUR APP CODE: Implement this method to display recommendations
+    private fun renderRecommendationsInYourUI(recommenders: List<RecommenderResponse>) {
+        // Example: Update RecyclerView, add to layout, etc.
     }
 }
 ```
@@ -184,15 +249,24 @@ class SearchFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val response = relevaClient.trackSearchView(
-                    screenToken = "search_results",
+                    pageUrl = "myapp://search/results", // Full URL format
+                    screenToken = null, // Use actual token from Releva admin
                     query = query
                 )
 
-                displaySearchResults(response)
+                // YOUR CODE: Render search results and recommendations
+                renderSearchResultsInYourUI(response)
             } catch (e: Exception) {
                 Log.e(TAG, "Error tracking search", e)
             }
         }
+    }
+
+    // YOUR APP CODE: Implement this method to display search results
+    private fun renderSearchResultsInYourUI(response: RelevaResponse) {
+        // Handle search results display
+        // Access recommendations: response.recommenders
+        // Access banners: response.banners
     }
 }
 ```
@@ -202,14 +276,19 @@ class SearchFragment : Fragment() {
 ```kotlin
 class ProductViewModel : ViewModel() {
 
+    private val _recommendations = MutableLiveData<List<RecommenderResponse>>()
+    val recommendations: LiveData<List<RecommenderResponse>> = _recommendations
+
     fun trackProductView(relevaClient: RelevaClient, productId: String) {
         viewModelScope.launch {
             try {
                 val response = relevaClient.trackProductView(
-                    screenToken = "product_detail",
+                    pageUrl = "myapp://product/details", // Full URL format
+                    screenToken = null, // Use actual token from Releva admin
                     productId = productId
                 )
 
+                // Store recommendations in LiveData for UI to observe
                 _recommendations.value = response.recommenders
             } catch (e: Exception) {
                 Log.e(TAG, "Error tracking product view", e)
@@ -622,6 +701,126 @@ class AuthManager(private val relevaClient: RelevaClient) {
 
 ## Step 7: Advanced Features
 
+### Track Custom Events
+
+The SDK allows you to track custom user interactions using the `CustomEvent` type. You can submit custom events in two ways:
+
+#### Method 1: With Screen View (trackScreenViewWithEvents)
+
+Track custom events along with a screen view for combined tracking:
+
+```kotlin
+import ai.releva.sdk.types.event.CustomEvent
+import ai.releva.sdk.types.event.CustomEventProduct
+
+lifecycleScope.launch {
+    try {
+        // Create custom events
+        val customEvents = listOf(
+            // Event without products
+            CustomEvent(
+                action = "user_logged_in",
+                tags = listOf("authentication", "login")
+            ),
+
+            // Event with products
+            CustomEvent(
+                action = "product_added_to_cart",
+                products = listOf(
+                    CustomEventProduct(id = "product-123", quantity = 2.0),
+                    CustomEventProduct(id = "product-456", quantity = 1.0)
+                ),
+                tags = listOf("cart", "purchase-intent")
+            ),
+
+            // Event with custom fields
+            CustomEvent(
+                action = "filter_applied",
+                tags = listOf("search", "filter"),
+                custom = CustomFields(
+                    string = listOf(StringField("filter_type", listOf("price_range"))),
+                    numeric = listOf(NumericField("min_price", listOf(50.0)))
+                )
+            )
+        )
+
+        // Track screen view with custom events
+        val response = relevaClient.trackScreenViewWithEvents(
+            pageUrl = "myapp://home",
+            customEvents = customEvents,
+            screenToken = null
+        )
+
+        // Handle response
+        if (response.hasRecommenders) {
+            renderRecommendationsInYourUI(response.recommenders)
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "Error tracking custom events", e)
+    }
+}
+```
+
+#### Method 2: With Any Tracking Method (using PushRequest)
+
+For more advanced use cases, you can pass custom events directly in any tracking call by accessing the lower-level push API (see SDK source code for details).
+
+#### Custom Event Examples
+
+**User Interaction Events:**
+```kotlin
+// User signed up
+CustomEvent(
+    action = "user_signed_up",
+    tags = listOf("registration", "new-user")
+)
+
+// Newsletter subscription
+CustomEvent(
+    action = "newsletter_subscribed",
+    tags = listOf("marketing", "email")
+)
+```
+
+**Product Interaction Events:**
+```kotlin
+// Product added to wishlist
+CustomEvent(
+    action = "product_liked",
+    products = listOf(CustomEventProduct(id = "product-789")),
+    tags = listOf("wishlist", "favorite")
+)
+
+// Share product
+CustomEvent(
+    action = "product_shared",
+    products = listOf(CustomEventProduct(id = "product-123")),
+    tags = listOf("social", "sharing")
+)
+```
+
+**E-commerce Events:**
+```kotlin
+// Checkout started
+CustomEvent(
+    action = "checkout_started",
+    products = listOf(
+        CustomEventProduct(id = "product-123", quantity = 2.0),
+        CustomEventProduct(id = "product-456", quantity = 1.0)
+    ),
+    tags = listOf("checkout", "purchase-intent")
+)
+
+// Coupon applied
+CustomEvent(
+    action = "coupon_applied",
+    tags = listOf("promotion", "discount"),
+    custom = CustomFields(
+        string = listOf(StringField("coupon_code", listOf("SUMMER2025")))
+    )
+)
+```
+
 ### Complex Filtering
 
 ```kotlin
@@ -638,17 +837,19 @@ val filter = NestedFilter.and(listOf(
 
 lifecycleScope.launch {
     val response = relevaClient.trackSearchView(
-        screenToken = "filtered_products",
+        pageUrl = "myapp://search/filtered", // Full URL format
+        screenToken = null, // Use actual token from Releva admin
         filter = filter
     )
+
+    // YOUR CODE: Render filtered results
+    renderFilteredProductsInYourUI(response)
 }
 ```
 
 ### Custom Fields
 
 ```kotlin
-import ai.releva.sdk.types.customfield.CustomFields
-
 val customFields = mapOf(
     "material" to "cotton",
     "season" to "summer",
@@ -656,11 +857,17 @@ val customFields = mapOf(
 )
 
 lifecycleScope.launch {
-    relevaClient.trackProductView(
-        screenToken = "product_detail",
+    val response = relevaClient.trackProductView(
+        pageUrl = "myapp://product/details", // Full URL format
+        screenToken = null, // Use actual token from Releva admin
         productId = "123",
         customFields = customFields
     )
+
+    // YOUR CODE: Handle response
+    if (response.hasRecommenders) {
+        renderRecommendationsInYourUI(response.recommenders)
+    }
 }
 ```
 
@@ -732,14 +939,14 @@ RelevaConfig(
 **Issue**: Coroutine scope issues
 - **Solution**: Use appropriate lifecycle-aware scopes (lifecycleScope, viewModelScope)
 
-## Migration from Flutter SDK
+## Platform-Specific Considerations
 
-Key differences when migrating from Flutter:
+Key implementation details for Android:
 
-1. **Async/Await → Coroutines**: Use `suspend` functions with coroutine scopes
-2. **No UI Components**: SDK focuses on tracking and data APIs
-3. **Storage**: Uses SharedPreferences instead of Hive
-4. **Networking**: Uses OkHttp instead of Dart http
+1. **Async Operations**: Use `suspend` functions with Kotlin coroutine scopes
+2. **No UI Components**: SDK focuses on tracking and data APIs only
+3. **Storage**: Uses SharedPreferences for persistent data
+4. **Networking**: Uses OkHttp for HTTP communication
 
 ## Support
 
