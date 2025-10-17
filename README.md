@@ -141,7 +141,6 @@ This SDK is distributed via [JitPack](https://jitpack.io/#Releva-ai/sdk-kotlin).
 
 - **Website**: https://releva.ai
 - **Email**: tech-support@releva.ai
-- **Documentation**: https://docs.releva.ai
 
 ## License
 
