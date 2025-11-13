@@ -290,7 +290,7 @@ class RelevaClient(
                 request.pageProductIds?.let { put("ids", JSONArray(it)) }
                 request.pageCategories?.let { put("categories", JSONArray(it)) }
                 request.pageQuery?.let { put("query", it) }
-                request.pageFilter?.let { put("filter", it.toMap()) }
+                request.pageFilter?.let { put("filter", JSONObject(it.toMap())) }
             })
 
             // Include cart if it exists (either from request or storage)

@@ -2,9 +2,12 @@ package ai.releva.sdk.types.response
 
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.text.SimpleDateFormat
 import java.util.*
 
+@RunWith(RobolectricTestRunner::class)
 class ResponseTypesTest {
 
     // RelevaResponse Tests

@@ -56,9 +56,6 @@ dependencies {
     // Networking
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // JSON
-    implementation("org.json:json:20231013")
-
     // Firebase (optional - for push notifications)
     compileOnly("com.google.firebase:firebase-messaging:23.4.0")
 
@@ -76,7 +73,7 @@ publishing {
         create<MavenPublication>("release") {
             groupId = "ai.releva"
             artifactId = "releva-sdk"
-            version = "1.0.0"
+            version = "1.0.1"
 
             afterEvaluate {
                 from(components["release"])

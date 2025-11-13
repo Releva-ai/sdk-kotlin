@@ -188,9 +188,6 @@ implementation("androidx.appcompat:appcompat:1.6.1")
 
 // Networking
 implementation("com.squareup.okhttp3:okhttp:4.12.0")
-
-// JSON (built-in Android)
-implementation("org.json:json:20231013")
 ```
 
 ### Optional Dependencies

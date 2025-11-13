@@ -317,7 +317,6 @@ Three levels of configuration:
 | UI Components | Not included (data-only SDK) |
 | Platform | Android only |
 | Build System | Gradle |
-| Serialization | org.json |
 | Cart Management | Automatic clearing after checkout |
 
 ## Build System
