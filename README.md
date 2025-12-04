@@ -2,7 +2,7 @@
 
 Native Android SDK for the Releva marketing platform, providing e-commerce tracking, personalization, and analytics.
 
-**Current Version:** 1.0.0
+**Current Version:** 1.0.2
 
 ## Features
 

@@ -285,6 +285,7 @@ class RelevaClient(
 
             // Add page object with url, optional token, and product/category lists
             put("page", JSONObject().apply {
+                put("query", null)
                 request.pageUrl?.let { put("url", it) }
                 request.getScreenToken()?.let { put("token", it) }
                 request.pageProductIds?.let { put("ids", JSONArray(it)) }
