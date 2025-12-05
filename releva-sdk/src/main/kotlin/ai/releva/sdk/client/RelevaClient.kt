@@ -67,13 +67,13 @@ class RelevaClient(
     /**
      * Set profile ID
      */
-    suspend fun setProfileId(profileId: String) = withContext(Dispatchers.IO) {
+    suspend fun setProfileId(profileId: String, skipMergeWithPreviousProfileId: Boolean = false) = withContext(Dispatchers.IO) {
         val previousProfileId = storage.getProfileId()
 
         if (previousProfileId == null || previousProfileId != profileId) {
             profileChanged = true
             storage.setProfileId(profileId)
-            if (previousProfileId != null) {
+            if (previousProfileId != null && !skipMergeWithPreviousProfileId) {
                 mergeProfileIds.add(previousProfileId)
             }
         }
@@ -285,7 +285,6 @@ class RelevaClient(
 
             // Add page object with url, optional token, and product/category lists
             put("page", JSONObject().apply {
-                put("query", null)
                 request.pageUrl?.let { put("url", it) }
                 request.getScreenToken()?.let { put("token", it) }
                 request.pageProductIds?.let { put("ids", JSONArray(it)) }
