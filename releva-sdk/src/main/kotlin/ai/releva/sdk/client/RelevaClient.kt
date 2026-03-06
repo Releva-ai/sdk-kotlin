@@ -222,9 +222,36 @@ class RelevaClient(
     }
 
     /**
-     * Track banner click
+     * Track banner impression
      */
-    suspend fun bannerClicked(banner: BannerResponse, action: String? = null) = withContext(Dispatchers.IO) {
+    suspend fun bannerImpression(banner: BannerResponse) = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("profileId", storage.getProfileId())
+            put("deviceId", storage.getDeviceId())
+            put("sessionId", getSessionId())
+            put("banners", org.json.JSONArray().apply {
+                put(JSONObject().apply {
+                    put("token", banner.token)
+                    put("bannerId", banner.bannerId.toString())
+                    put("segmentId", banner.segmentId.toString())
+                })
+            })
+        }
+
+        val response = executeRequest(
+            endpoint = "/api/v0/impressions",
+            body = body
+        )
+
+        if (response.code != 200) {
+            throw Exception("Banner Impression API error: ${response.code} - ${response.body}")
+        }
+    }
+
+    /**
+     * Track banner action (click, close, etc.)
+     */
+    suspend fun bannerAction(banner: BannerResponse, action: String? = null) = withContext(Dispatchers.IO) {
         val context = JSONObject().apply {
             put("deviceId", storage.getDeviceId())
             put("sessionId", getSessionId())
@@ -243,9 +270,15 @@ class RelevaClient(
         )
 
         if (response.code != 200) {
-            throw Exception("Banner Clicked Push API error: ${response.code} - ${response.body}")
+            throw Exception("Banner Action Push API error: ${response.code} - ${response.body}")
         }
     }
+
+    /**
+     * Track banner click (convenience alias for bannerAction)
+     */
+    suspend fun bannerClicked(banner: BannerResponse, action: String? = null) =
+        bannerAction(banner, action)
 
     /**
      * Main push method for sending tracking data
