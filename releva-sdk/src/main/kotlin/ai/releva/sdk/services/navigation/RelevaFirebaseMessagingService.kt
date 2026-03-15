@@ -107,35 +107,30 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
         val target = data["target"]
         Log.e(TAG, "Creating notification intent with target: $target")
 
-        val intent = if (target == "url") {
-            // For URL navigation, use trampoline activity to track callback before opening URL
-            android.content.Intent(this, NotificationTrampolineActivity::class.java).apply {
-                putExtra(NotificationTrampolineActivity.EXTRA_NOTIFICATION_ID, notificationId)
-                putExtra(NotificationTrampolineActivity.EXTRA_TARGET, target)
-                putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_URL, data["navigate_to_url"])
-                putExtra(NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS, getMainActivityClass().name)
-                putExtra(NotificationTrampolineActivity.EXTRA_CALLBACK_URL, data["callbackUrl"])
-                Log.e(TAG, "Created trampoline intent for URL navigation")
-            }
-        } else {
-            // For app/screen navigation, use NavigationService
-            try {
-                val navigationService = NavigationService.getInstance()
-                val createdIntent = navigationService.createNotificationIntent(
-                    context = this,
-                    activityClass = getMainActivityClass(),
-                    data = data
-                )
-                Log.e(TAG, "Intent created - Action: ${createdIntent.action}, Data: ${createdIntent.data}, Flags: ${createdIntent.flags}")
-                createdIntent
-            } catch (e: Exception) {
-                Log.e(TAG, "Error creating notification intent", e)
-                // Fallback to default app open
-                android.content.Intent(this, getMainActivityClass()).apply {
-                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
-                }
-            }
+        // Always route through the trampoline activity so that:
+        // 1. Callback URL is tracked immediately before any navigation
+        // 2. No ACTION_MAIN + CATEGORY_LAUNCHER flags that cause Android to
+        //    skip onNewIntent() on warm start with singleTask activities
+        //
+        // The callback URL is encoded in the Intent's data URI rather than extras
+        // because some OEMs (notably MIUI) can lose PendingIntent extras between
+        // creation and delivery. The data URI is part of the Intent's core structure
+        // and survives PendingIntent serialization reliably.
+        val callbackUrl = data["callbackUrl"]
+        val intentUri = buildString {
+            append("releva://notification")
+            append("?nid=").append(notificationId)
+            append("&act=").append(getMainActivityClass().name)
+            if (!target.isNullOrEmpty()) append("&target=").append(android.net.Uri.encode(target))
+            if (!callbackUrl.isNullOrEmpty()) append("&cb=").append(android.net.Uri.encode(callbackUrl))
+            data["navigate_to_url"]?.let { append("&nav_url=").append(android.net.Uri.encode(it)) }
+            data["navigate_to_screen"]?.let { append("&nav_screen=").append(android.net.Uri.encode(it)) }
+            data["navigate_to_parameters"]?.let { append("&nav_params=").append(android.net.Uri.encode(it)) }
         }
+        val intent = android.content.Intent(this, NotificationTrampolineActivity::class.java).apply {
+            setData(android.net.Uri.parse(intentUri))
+        }
+        Log.e(TAG, "Created trampoline intent for target: $target, callbackUrl: $callbackUrl")
 
         // Create pending intent with proper flags
         // NOTE: FLAG_IMMUTABLE is required for implicit intents (like ACTION_VIEW for URLs) on Android 12+
@@ -181,15 +176,10 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
         // Add action button if provided
         val buttonText = data["button"]
         if (!buttonText.isNullOrEmpty()) {
-            // Create trampoline activity intent for action button to dismiss notification first
+            // Create trampoline activity intent for action button
+            // Use data URI (same as content tap) to avoid MIUI PendingIntent extras loss
             val buttonIntent = android.content.Intent(this, NotificationTrampolineActivity::class.java).apply {
-                putExtra(NotificationTrampolineActivity.EXTRA_NOTIFICATION_ID, notificationId)
-                putExtra(NotificationTrampolineActivity.EXTRA_TARGET, target)
-                putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_URL, data["navigate_to_url"])
-                putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_SCREEN, data["navigate_to_screen"])
-                putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_PARAMETERS, data["navigate_to_parameters"])
-                putExtra(NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS, getMainActivityClass().name)
-                putExtra(NotificationTrampolineActivity.EXTRA_CALLBACK_URL, data["callbackUrl"])
+                setData(android.net.Uri.parse(intentUri))
             }
 
             val buttonPendingIntent = PendingIntent.getActivity(

@@ -2,6 +2,7 @@ package ai.releva.sdk.services.navigation
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -22,32 +23,46 @@ class NotificationComponentsTest {
         context = RuntimeEnvironment.getApplication()
     }
 
+    /** Build a releva://notification URI from parameters, matching production code. */
+    private fun buildTrampolineUri(
+        notificationId: Int,
+        activityClass: String,
+        target: String? = null,
+        callbackUrl: String? = null,
+        navigateToUrl: String? = null,
+        navigateToScreen: String? = null,
+        navigateToParameters: String? = null
+    ): Uri {
+        val sb = StringBuilder("releva://notification")
+        sb.append("?nid=").append(notificationId)
+        sb.append("&act=").append(activityClass)
+        if (!target.isNullOrEmpty()) sb.append("&target=").append(Uri.encode(target))
+        if (!callbackUrl.isNullOrEmpty()) sb.append("&cb=").append(Uri.encode(callbackUrl))
+        if (!navigateToUrl.isNullOrEmpty()) sb.append("&nav_url=").append(Uri.encode(navigateToUrl))
+        if (!navigateToScreen.isNullOrEmpty()) sb.append("&nav_screen=").append(Uri.encode(navigateToScreen))
+        if (!navigateToParameters.isNullOrEmpty()) sb.append("&nav_params=").append(Uri.encode(navigateToParameters))
+        return Uri.parse(sb.toString())
+    }
+
     // NotificationTrampolineActivity Tests
 
     @Test
     fun `NotificationTrampolineActivity handles URL navigation`() {
         val intent = Intent(context, NotificationTrampolineActivity::class.java).apply {
-            putExtra(NotificationTrampolineActivity.EXTRA_NOTIFICATION_ID, 123)
-            putExtra(NotificationTrampolineActivity.EXTRA_TARGET, "url")
-            putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_URL, "https://example.com")
-            putExtra(NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
+            data = buildTrampolineUri(123, "com.example.MainActivity", target = "url", navigateToUrl = "https://example.com")
         }
 
         val controller = Robolectric.buildActivity(NotificationTrampolineActivity::class.java, intent)
         controller.create()
 
-        // Activity should finish immediately
         assertTrue(controller.get().isFinishing)
     }
 
     @Test
     fun `NotificationTrampolineActivity handles screen navigation`() {
         val intent = Intent(context, NotificationTrampolineActivity::class.java).apply {
-            putExtra(NotificationTrampolineActivity.EXTRA_NOTIFICATION_ID, 456)
-            putExtra(NotificationTrampolineActivity.EXTRA_TARGET, "screen")
-            putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_SCREEN, "product")
-            putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_PARAMETERS, """{"id":"123"}""")
-            putExtra(NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
+            data = buildTrampolineUri(456, "com.example.MainActivity", target = "screen",
+                navigateToScreen = "product", navigateToParameters = """{"id":"123"}""")
         }
 
         val controller = Robolectric.buildActivity(NotificationTrampolineActivity::class.java, intent)
@@ -59,8 +74,7 @@ class NotificationComponentsTest {
     @Test
     fun `NotificationTrampolineActivity handles default app open`() {
         val intent = Intent(context, NotificationTrampolineActivity::class.java).apply {
-            putExtra(NotificationTrampolineActivity.EXTRA_NOTIFICATION_ID, 789)
-            putExtra(NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
+            data = buildTrampolineUri(789, "com.example.MainActivity")
         }
 
         val controller = Robolectric.buildActivity(NotificationTrampolineActivity::class.java, intent)
@@ -72,44 +86,34 @@ class NotificationComponentsTest {
     @Test
     fun `NotificationTrampolineActivity tracks callback URL if provided`() {
         val intent = Intent(context, NotificationTrampolineActivity::class.java).apply {
-            putExtra(NotificationTrampolineActivity.EXTRA_NOTIFICATION_ID, 100)
-            putExtra(NotificationTrampolineActivity.EXTRA_TARGET, "url")
-            putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_URL, "https://example.com")
-            putExtra(NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
-            putExtra(NotificationTrampolineActivity.EXTRA_CALLBACK_URL, "https://api.releva.ai/track")
+            data = buildTrampolineUri(100, "com.example.MainActivity", target = "url",
+                navigateToUrl = "https://example.com", callbackUrl = "https://api.releva.ai/track")
         }
 
         val controller = Robolectric.buildActivity(NotificationTrampolineActivity::class.java, intent)
         controller.create()
 
-        // Callback tracking happens in background thread
         assertTrue(controller.get().isFinishing)
     }
 
     @Test
     fun `NotificationTrampolineActivity dismisses notification`() {
-        val notificationId = 999
         val intent = Intent(context, NotificationTrampolineActivity::class.java).apply {
-            putExtra(NotificationTrampolineActivity.EXTRA_NOTIFICATION_ID, notificationId)
-            putExtra(NotificationTrampolineActivity.EXTRA_TARGET, "url")
-            putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_URL, "https://example.com")
-            putExtra(NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
+            data = buildTrampolineUri(999, "com.example.MainActivity", target = "url",
+                navigateToUrl = "https://example.com")
         }
 
         val controller = Robolectric.buildActivity(NotificationTrampolineActivity::class.java, intent)
         controller.create()
 
-        // Notification should be dismissed (verified via NotificationManager in Robolectric)
         assertTrue(controller.get().isFinishing)
     }
 
     @Test
     fun `NotificationTrampolineActivity with invalid notification ID still works`() {
         val intent = Intent(context, NotificationTrampolineActivity::class.java).apply {
-            putExtra(NotificationTrampolineActivity.EXTRA_NOTIFICATION_ID, -1)
-            putExtra(NotificationTrampolineActivity.EXTRA_TARGET, "url")
-            putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_URL, "https://example.com")
-            putExtra(NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
+            data = buildTrampolineUri(-1, "com.example.MainActivity", target = "url",
+                navigateToUrl = "https://example.com")
         }
 
         val controller = Robolectric.buildActivity(NotificationTrampolineActivity::class.java, intent)
@@ -121,10 +125,7 @@ class NotificationComponentsTest {
     @Test
     fun `NotificationTrampolineActivity with empty URL still finishes`() {
         val intent = Intent(context, NotificationTrampolineActivity::class.java).apply {
-            putExtra(NotificationTrampolineActivity.EXTRA_NOTIFICATION_ID, 123)
-            putExtra(NotificationTrampolineActivity.EXTRA_TARGET, "url")
-            putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_URL, "")
-            putExtra(NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
+            data = buildTrampolineUri(123, "com.example.MainActivity", target = "url")
         }
 
         val controller = Robolectric.buildActivity(NotificationTrampolineActivity::class.java, intent)
@@ -133,130 +134,23 @@ class NotificationComponentsTest {
         assertTrue(controller.get().isFinishing)
     }
 
-    // NotificationActionReceiver Tests
-    // NOTE: These tests are commented out because Robolectric doesn't properly support
-    // BroadcastReceiver.goAsync() which causes NullPointerExceptions in tests.
-    // The NotificationActionReceiver works correctly in production.
-
-    /*
     @Test
-    fun `NotificationActionReceiver handles URL navigation`() {
-        val receiver = NotificationActionReceiver()
-        val intent = Intent(NotificationActionReceiver.ACTION_NOTIFICATION_BUTTON_CLICKED).apply {
-            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, 123)
-            putExtra(NotificationActionReceiver.EXTRA_TARGET, "url")
-            putExtra(NotificationActionReceiver.EXTRA_NAVIGATE_TO_URL, "https://example.com/sale")
-            putExtra(NotificationActionReceiver.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
-        }
+    fun `NotificationTrampolineActivity with no data URI finishes gracefully`() {
+        val intent = Intent(context, NotificationTrampolineActivity::class.java)
 
-        // onReceive should handle the intent without throwing
-        receiver.onReceive(context, intent)
+        val controller = Robolectric.buildActivity(NotificationTrampolineActivity::class.java, intent)
+        controller.create()
 
-        // Verify intent was processed (no exception thrown)
+        assertTrue(controller.get().isFinishing)
     }
-
-    @Test
-    fun `NotificationActionReceiver handles screen navigation`() {
-        val receiver = NotificationActionReceiver()
-        val intent = Intent(NotificationActionReceiver.ACTION_NOTIFICATION_BUTTON_CLICKED).apply {
-            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, 456)
-            putExtra(NotificationActionReceiver.EXTRA_TARGET, "screen")
-            putExtra(NotificationActionReceiver.EXTRA_NAVIGATE_TO_SCREEN, "cart")
-            putExtra(NotificationActionReceiver.EXTRA_NAVIGATE_TO_PARAMETERS, """{"items":"3"}""")
-            putExtra(NotificationActionReceiver.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
-        }
-
-        receiver.onReceive(context, intent)
-
-        // Verify intent was processed
-    }
-
-    @Test
-    fun `NotificationActionReceiver handles default app open`() {
-        val receiver = NotificationActionReceiver()
-        val intent = Intent(NotificationActionReceiver.ACTION_NOTIFICATION_BUTTON_CLICKED).apply {
-            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, 789)
-            putExtra(NotificationActionReceiver.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
-        }
-
-        receiver.onReceive(context, intent)
-
-        // Verify intent was processed
-    }
-
-    @Test
-    fun `NotificationActionReceiver dismisses notification before navigation`() {
-        val receiver = NotificationActionReceiver()
-        val notificationId = 111
-        val intent = Intent(NotificationActionReceiver.ACTION_NOTIFICATION_BUTTON_CLICKED).apply {
-            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
-            putExtra(NotificationActionReceiver.EXTRA_TARGET, "url")
-            putExtra(NotificationActionReceiver.EXTRA_NAVIGATE_TO_URL, "https://example.com")
-            putExtra(NotificationActionReceiver.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
-        }
-
-        receiver.onReceive(context, intent)
-
-        // Notification should be dismissed
-        // (verified via NotificationManager in Robolectric)
-    }
-
-    @Test
-    fun `NotificationActionReceiver with invalid notification ID still works`() {
-        val receiver = NotificationActionReceiver()
-        val intent = Intent(NotificationActionReceiver.ACTION_NOTIFICATION_BUTTON_CLICKED).apply {
-            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, -1)
-            putExtra(NotificationActionReceiver.EXTRA_TARGET, "url")
-            putExtra(NotificationActionReceiver.EXTRA_NAVIGATE_TO_URL, "https://example.com")
-            putExtra(NotificationActionReceiver.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
-        }
-
-        receiver.onReceive(context, intent)
-
-        // Should not throw exception
-    }
-
-    @Test
-    fun `NotificationActionReceiver with empty target opens default app`() {
-        val receiver = NotificationActionReceiver()
-        val intent = Intent(NotificationActionReceiver.ACTION_NOTIFICATION_BUTTON_CLICKED).apply {
-            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, 222)
-            putExtra(NotificationActionReceiver.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
-            // No target specified
-        }
-
-        receiver.onReceive(context, intent)
-
-        // Should handle gracefully
-    }
-
-    @Test
-    fun `NotificationActionReceiver with null activity class handles gracefully`() {
-        val receiver = NotificationActionReceiver()
-        val intent = Intent(NotificationActionReceiver.ACTION_NOTIFICATION_BUTTON_CLICKED).apply {
-            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, 333)
-            putExtra(NotificationActionReceiver.EXTRA_TARGET, "screen")
-            putExtra(NotificationActionReceiver.EXTRA_NAVIGATE_TO_SCREEN, "home")
-            // No activity class
-        }
-
-        receiver.onReceive(context, intent)
-
-        // Should not crash
-    }
-    */
 
     // Constant Verification Tests
 
     @Test
     fun `NotificationTrampolineActivity constants are correctly defined`() {
-        assertEquals("notification_id", NotificationTrampolineActivity.EXTRA_NOTIFICATION_ID)
         assertEquals("target", NotificationTrampolineActivity.EXTRA_TARGET)
-        assertEquals("navigate_to_url", NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_URL)
         assertEquals("navigate_to_screen", NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_SCREEN)
         assertEquals("navigate_to_parameters", NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_PARAMETERS)
-        assertEquals("activity_class", NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS)
-        assertEquals("callbackUrl", NotificationTrampolineActivity.EXTRA_CALLBACK_URL)
     }
 
     @Test
@@ -276,11 +170,8 @@ class NotificationComponentsTest {
     @Test
     fun `NotificationTrampolineActivity lifecycle completes`() {
         val intent = Intent(context, NotificationTrampolineActivity::class.java).apply {
-            putExtra(NotificationTrampolineActivity.EXTRA_NOTIFICATION_ID, 500)
-            putExtra(NotificationTrampolineActivity.EXTRA_TARGET, "url")
-            putExtra(NotificationTrampolineActivity.EXTRA_NAVIGATE_TO_URL, "https://example.com/product")
-            putExtra(NotificationTrampolineActivity.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
-            putExtra(NotificationTrampolineActivity.EXTRA_CALLBACK_URL, "https://api.releva.ai/track/xyz")
+            data = buildTrampolineUri(500, "com.example.MainActivity", target = "url",
+                navigateToUrl = "https://example.com/product", callbackUrl = "https://api.releva.ai/track/xyz")
         }
 
         val controller = Robolectric.buildActivity(NotificationTrampolineActivity::class.java, intent)
@@ -290,20 +181,11 @@ class NotificationComponentsTest {
         assertTrue(controller.get().isFinishing)
     }
 
-    /*
     @Test
-    fun `NotificationActionReceiver completes broadcast lifecycle`() {
-        val receiver = NotificationActionReceiver()
-        val intent = Intent(NotificationActionReceiver.ACTION_NOTIFICATION_BUTTON_CLICKED).apply {
-            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, 600)
-            putExtra(NotificationActionReceiver.EXTRA_TARGET, "screen")
-            putExtra(NotificationActionReceiver.EXTRA_NAVIGATE_TO_SCREEN, "profile")
-            putExtra(NotificationActionReceiver.EXTRA_NAVIGATE_TO_PARAMETERS, """{"userId":"42"}""")
-            putExtra(NotificationActionReceiver.EXTRA_ACTIVITY_CLASS, "com.example.MainActivity")
-        }
+    fun `Data URI correctly encodes and decodes callback URL with query params`() {
+        val callbackUrl = "https://tr.example.com/click?i=abc123&p=def456"
+        val uri = buildTrampolineUri(1, "com.example.Main", callbackUrl = callbackUrl)
 
-        // Should complete without exceptions
-        receiver.onReceive(context, intent)
+        assertEquals(callbackUrl, uri.getQueryParameter("cb"))
     }
-    */
 }

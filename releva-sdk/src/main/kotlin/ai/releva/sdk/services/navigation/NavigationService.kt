@@ -211,10 +211,11 @@ class NavigationService private constructor() {
         data: Map<String, String>
     ): Intent {
         return Intent(context, activityClass).apply {
-            // Use single top to avoid BAL issues
+            // Use single top so onNewIntent() is called when the activity already exists.
+            // Do NOT set ACTION_MAIN + CATEGORY_LAUNCHER — that combination causes Android
+            // to just bring the task to foreground without delivering the intent (and its
+            // extras) on warm start with singleTask activities.
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            action = Intent.ACTION_MAIN
-            addCategory(Intent.CATEGORY_LAUNCHER)
 
             // Add all notification data
             data.forEach { (key, value) ->
@@ -229,22 +230,23 @@ class NavigationService private constructor() {
     private fun trackNotificationClick(callbackUrl: String) {
         Log.d(TAG, "Tracking notification click: $callbackUrl")
 
-        // Launch thread in background to make HTTP request
         Thread {
             try {
-                val url = java.net.URL(callbackUrl)
-                val connection = url.openConnection() as java.net.HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.connectTimeout = 10000
-                connection.readTimeout = 10000
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .followRedirects(true)
+                    .followSslRedirects(true)
+                    .build()
 
-                val responseCode = connection.responseCode
-                if (responseCode == java.net.HttpURLConnection.HTTP_OK) {
-                    Log.d(TAG, "Successfully tracked notification click: $responseCode")
-                } else {
-                    Log.w(TAG, "Failed to track notification click: $responseCode")
-                }
-                connection.disconnect()
+                val request = okhttp3.Request.Builder()
+                    .url(callbackUrl)
+                    .get()
+                    .build()
+
+                val response = client.newCall(request).execute()
+                Log.d(TAG, "Track click response: ${response.code} (redirected=${response.priorResponse != null})")
+                response.close()
             } catch (e: Exception) {
                 Log.e(TAG, "Error tracking notification click", e)
             }
