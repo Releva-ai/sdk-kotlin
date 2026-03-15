@@ -311,7 +311,7 @@ class NavigationServiceTest {
         val intent = navigationService.createNotificationIntent(context, MainActivity::class.java, data)
 
         assertEquals(MainActivity::class.java.name, intent.component?.className)
-        assertEquals(Intent.ACTION_MAIN, intent.action)
+        assertNull(intent.action) // No ACTION_MAIN to avoid warm-start intent delivery issues
         assertTrue(intent.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
         assertEquals("screen", intent.getStringExtra("target"))
         assertEquals("product", intent.getStringExtra("navigate_to_screen"))
@@ -325,7 +325,7 @@ class NavigationServiceTest {
         val intent = navigationService.createNotificationIntent(context, MainActivity::class.java, data)
 
         assertEquals(MainActivity::class.java.name, intent.component?.className)
-        assertEquals(Intent.ACTION_MAIN, intent.action)
+        assertNull(intent.action) // No ACTION_MAIN to avoid warm-start intent delivery issues
     }
 
     @Test(expected = IllegalArgumentException::class)
