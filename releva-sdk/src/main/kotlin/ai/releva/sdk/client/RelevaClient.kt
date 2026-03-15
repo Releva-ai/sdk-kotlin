@@ -252,25 +252,24 @@ class RelevaClient(
      * Track banner action (click, close, etc.)
      */
     suspend fun bannerAction(banner: BannerResponse, action: String? = null) = withContext(Dispatchers.IO) {
-        val context = JSONObject().apply {
+        val body = JSONObject().apply {
             put("deviceId", storage.getDeviceId())
+            put("profileId", storage.getProfileId())
             put("sessionId", getSessionId())
-            put("profile", JSONObject().apply {
-                put("id", storage.getProfileId())
+            put("action", action)
+            put("attributions", JSONObject().apply {
+                put("bannerBlockId", banner.token)
+                put("bannerId", banner.bannerId.toString())
             })
-            put("bid", banner.token)
-            action?.let { put("action", it) }
         }
 
         val response = executeRequest(
-            endpoint = "/api/v0/push",
-            body = JSONObject().apply {
-                put("context", context)
-            }
+            endpoint = "/api/v0/push/events",
+            body = body
         )
 
-        if (response.code != 200) {
-            throw Exception("Banner Action Push API error: ${response.code} - ${response.body}")
+        if (response.code != 202) {
+            throw Exception("Banner Event $action API error: ${response.code} - ${response.body}")
         }
     }
 

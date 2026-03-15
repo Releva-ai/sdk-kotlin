@@ -25,10 +25,13 @@ import kotlinx.coroutines.launch
  * Manages banner display in an Activity or Fragment.
  * Listens to BannerDisplayController and shows banners as popups, bars, flyouts, or static views.
  *
+ * Static banners are automatically inserted relative to the fragment's content based on
+ * displayStrategy: "afterbegin" (before content), "beforeend" (after content), "replace" (replaces content).
+ *
  * Usage:
  * ```kotlin
  * val bannerDisplay = BannerDisplayManager(client, targetSelector = "#home-content")
- * bannerDisplay.attach(activity) // or attach(fragment)
+ * bannerDisplay.attach(fragment)
  * ```
  */
 class BannerDisplayManager(
@@ -37,15 +40,20 @@ class BannerDisplayManager(
     private val onLinkTap: ((String) -> Unit)? = null
 ) {
     private val displayedBanners = mutableMapOf<String, BannerResponse>()
+    private val activeDialogs = mutableListOf<Dialog>()
     private var collectJob: Job? = null
     private var activity: AppCompatActivity? = null
-    private var rootView: ViewGroup? = null
-    private var barContainer: FrameLayout? = null
-    private var staticContainer: LinearLayout? = null
     private var scope: CoroutineScope? = null
+
+    // View wrapping for static banners and bar overlays
+    private var rootView: ViewGroup? = null              // The fragment/activity root view (untouched)
+    private var outerWrapper: FrameLayout? = null        // FrameLayout for bar overlays (inside root)
+    private var innerWrapper: LinearLayout? = null       // LinearLayout for static banner zones
+    private var contentHolder: FrameLayout? = null       // Holds original children of root
 
     companion object {
         private const val TAG = "BannerDisplayManager"
+        private const val BANNER_TAG_PREFIX = "releva_banner_"
     }
 
     /**
@@ -55,6 +63,7 @@ class BannerDisplayManager(
         val viewLifecycleOwner = fragment.viewLifecycleOwner
         scope = fragment.viewLifecycleOwner.lifecycleScope
         activity = fragment.activity as? AppCompatActivity
+        rootView = fragment.view as? ViewGroup
 
         viewLifecycleOwner.lifecycle.addObserver(LifecycleEventObserver { _, event ->
             when (event) {
@@ -65,8 +74,7 @@ class BannerDisplayManager(
             }
         })
 
-        // Find the root view to overlay banners on
-        rootView = fragment.view as? ViewGroup
+        wrapChildren()
     }
 
     /**
@@ -85,13 +93,95 @@ class BannerDisplayManager(
                 else -> {}
             }
         })
+
+        wrapChildren()
     }
 
     /**
-     * Set a container where static banners will be inserted.
+     * Wraps the root view's children inside a FrameLayout > LinearLayout structure,
+     * without detaching the root view from its parent (safe for NavHostFragment).
+     *
+     * rootView (untouched — stays attached to NavHostFragment/Activity)
+     *   └── outerWrapper (FrameLayout — for bar overlays)
+     *         └── innerWrapper (LinearLayout vertical — for static banner zones)
+     *               ├── [afterbegin banners]
+     *               ├── contentHolder (FrameLayout, weight=1 — holds original children)
+     *               └── [beforeend banners]
      */
-    fun setStaticContainer(container: LinearLayout) {
-        staticContainer = container
+    private fun wrapChildren() {
+        val root = rootView ?: return
+        val ctx = activity ?: return
+
+        // Collect original children and their layout params
+        val children = mutableListOf<Pair<View, ViewGroup.LayoutParams?>>()
+        for (i in 0 until root.childCount) {
+            val child = root.getChildAt(i)
+            children.add(child to child.layoutParams)
+        }
+        root.removeAllViews()
+
+        // contentHolder: holds original children in a FrameLayout
+        val holder = FrameLayout(ctx)
+        for ((child, params) in children) {
+            if (params != null) holder.addView(child, params) else holder.addView(child)
+        }
+
+        // innerWrapper: LinearLayout for static banner placement
+        val inner = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, getStatusBarHeight(ctx), 0, 0)
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        holder.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+        )
+        inner.addView(holder)
+
+        // outerWrapper: FrameLayout for bar overlays
+        val outer = FrameLayout(ctx).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        outer.addView(inner)
+
+        root.addView(outer)
+
+        outerWrapper = outer
+        innerWrapper = inner
+        contentHolder = holder
+    }
+
+    /**
+     * Restores the original children back into the root view.
+     */
+    private fun unwrapChildren() {
+        val root = rootView ?: return
+        val holder = contentHolder ?: return
+
+        removeAllStaticBannerViews()
+        holder.visibility = View.VISIBLE
+
+        // Move original children back to root
+        val children = mutableListOf<Pair<View, ViewGroup.LayoutParams?>>()
+        for (i in 0 until holder.childCount) {
+            val child = holder.getChildAt(i)
+            children.add(child to child.layoutParams)
+        }
+        holder.removeAllViews()
+        root.removeAllViews()
+
+        for ((child, params) in children) {
+            if (params != null) root.addView(child, params) else root.addView(child)
+        }
+
+        outerWrapper = null
+        innerWrapper = null
+        contentHolder = null
     }
 
     private fun startCollecting() {
@@ -111,11 +201,18 @@ class BannerDisplayManager(
         collectJob = null
     }
 
+    /**
+     * Dismiss all active popup/flyout dialogs.
+     */
+    fun dismissAll() {
+        activeDialogs.toList().forEach { it.dismiss() }
+    }
+
     private fun detach() {
         stopCollecting()
+        dismissAll()
         displayedBanners.clear()
-        barContainer?.let { (it.parent as? ViewGroup)?.removeView(it) }
-        barContainer = null
+        unwrapChildren()
         rootView = null
         activity = null
         scope = null
@@ -154,6 +251,8 @@ class BannerDisplayManager(
         dialog.setCanceledOnTouchOutside(true)
 
         val contentView = DesignRenderer.render(ctx, banner.design!!) { url ->
+            Log.d(TAG, "Banner link tapped in popup: $url")
+            dialog.dismiss()
             trackClick(banner)
             onLinkTap?.invoke(url)
         }
@@ -169,8 +268,8 @@ class BannerDisplayManager(
             popupWidth = screenWidth
             popupHeight = screenHeight
         } else {
-            val contentWidthVal = resolveDimension(bodyValues["contentWidth"], screenWidth.toFloat())
-                ?: resolveDimension(bodyValues["popupWidth"], screenWidth.toFloat())
+            val contentWidthVal = resolveDimension(bodyValues["contentWidth"], screenWidth.toFloat(), dp)
+                ?: resolveDimension(bodyValues["popupWidth"], screenWidth.toFloat(), dp)
                 ?: (400 * dp)
             popupWidth = contentWidthVal.toInt().coerceAtMost(screenWidth)
 
@@ -178,7 +277,7 @@ class BannerDisplayManager(
             popupHeight = if (popupHeightVal == "auto" || popupHeightVal == null) {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             } else {
-                resolveDimension(popupHeightVal, screenHeight.toFloat())?.toInt()
+                resolveDimension(popupHeightVal, screenHeight.toFloat(), dp)?.toInt()
                     ?: ViewGroup.LayoutParams.WRAP_CONTENT
             }
         }
@@ -199,20 +298,28 @@ class BannerDisplayManager(
                 cornerRadius = borderRadius * dp
             }
             clipToOutline = true
+            elevation = 16 * dp
             isClickable = true // Prevent click-through
         }
 
-        // ScrollView for content
-        val scrollView = ScrollView(ctx).apply {
-            addView(contentView, ViewGroup.LayoutParams(
+        // Content wrapper with top margin to clear the close button
+        val closeButtonSpace = (48 * dp).toInt() // 8dp margin + 32dp button + 8dp gap
+        val contentWrapper = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(View(ctx).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, closeButtonSpace
+                )
+            })
+            addView(contentView, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
 
-        popupContainer.addView(scrollView, FrameLayout.LayoutParams(
+        popupContainer.addView(contentWrapper, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
+            ViewGroup.LayoutParams.WRAP_CONTENT
         ))
 
         // Close button
@@ -236,31 +343,38 @@ class BannerDisplayManager(
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
 
-        dialog.setOnDismissListener { displayedBanners.remove(banner.token) }
+        dialog.setOnDismissListener {
+            displayedBanners.remove(banner.token)
+            activeDialogs.remove(dialog)
+        }
+        activeDialogs.add(dialog)
         dialog.show()
     }
 
     private fun showBarBanner(banner: BannerResponse) {
         val ctx = activity ?: return
-        val root = rootView ?: return
+        val root = outerWrapper ?: return
         val isBottom = banner.displayPosition == "bottom"
 
-        val contentView = DesignRenderer.render(ctx, banner.design!!) { url ->
+        val dp = ctx.resources.displayMetrics.density
+        val screenWidth = ctx.resources.displayMetrics.widthPixels
+        val verticalPadding = (12 * dp).toInt()
+        val horizontalPadding = (16 * dp).toInt()
+        val availableWidth = screenWidth - horizontalPadding * 2
+
+        val contentView = DesignRenderer.render(ctx, banner.design!!, maxWidthPx = availableWidth) { url ->
             trackClick(banner)
             onLinkTap?.invoke(url)
         }
-
-        val dp = ctx.resources.displayMetrics.density
+        val statusBarPad = if (!isBottom) getStatusBarHeight(ctx) else 0
 
         val barLayout = FrameLayout(ctx).apply {
             setBackgroundColor(Color.WHITE)
             elevation = 10 * dp
         }
 
-        val padding = (12 * dp).toInt()
-        val horizontalPadding = (16 * dp).toInt()
         val contentWrapper = FrameLayout(ctx).apply {
-            setPadding(horizontalPadding, padding, horizontalPadding, padding)
+            setPadding(horizontalPadding, statusBarPad + verticalPadding, horizontalPadding, verticalPadding)
             addView(contentView, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -272,40 +386,25 @@ class BannerDisplayManager(
             ViewGroup.LayoutParams.WRAP_CONTENT
         ))
 
-        // Close button
+        // Small close button in the top-right corner
         val closeButton = buildCloseButton(ctx, banner) {
             (barLayout.parent as? ViewGroup)?.removeView(barLayout)
             closeBanner(banner)
         }
         barLayout.addView(closeButton, FrameLayout.LayoutParams(
-            (32 * dp).toInt(), (32 * dp).toInt(),
+            (24 * dp).toInt(), (24 * dp).toInt(),
             Gravity.TOP or Gravity.END
         ).apply {
-            topMargin = (8 * dp).toInt()
-            rightMargin = (8 * dp).toInt()
+            topMargin = statusBarPad + (4 * dp).toInt()
+            rightMargin = (4 * dp).toInt()
         })
 
-        // Add to root as overlay
-        val barParams = FrameLayout.LayoutParams(
+        // Add to outer wrapper as overlay
+        root.addView(barLayout, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             if (isBottom) Gravity.BOTTOM else Gravity.TOP
-        )
-
-        // If root is not a FrameLayout, wrap in one
-        if (root is FrameLayout) {
-            root.addView(barLayout, barParams)
-        } else {
-            // For other ViewGroup types, use window overlay approach
-            val container = FrameLayout(ctx).apply {
-                addView(barLayout, barParams)
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-            }
-            root.addView(container)
-        }
+        ))
     }
 
     private fun showFlyoutBanner(banner: BannerResponse) {
@@ -317,14 +416,15 @@ class BannerDisplayManager(
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.setCanceledOnTouchOutside(true)
 
-        val contentView = DesignRenderer.render(ctx, banner.design!!) { url ->
-            trackClick(banner)
-            onLinkTap?.invoke(url)
-        }
-
         val dp = ctx.resources.displayMetrics.density
         val screenWidth = ctx.resources.displayMetrics.widthPixels
         val flyoutWidth = (screenWidth * 0.8).toInt()
+
+        val contentView = DesignRenderer.render(ctx, banner.design!!, maxWidthPx = flyoutWidth) { url ->
+            dialog.dismiss()
+            trackClick(banner)
+            onLinkTap?.invoke(url)
+        }
 
         val overlayLayout = FrameLayout(ctx).apply {
             setBackgroundColor(overlayColor)
@@ -334,37 +434,45 @@ class BannerDisplayManager(
             }
         }
 
-        val flyoutContainer = FrameLayout(ctx).apply {
+        val flyoutContainer = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.WHITE)
             elevation = 10 * dp
             isClickable = true
+            setPadding(0, getStatusBarHeight(ctx), 0, 0)
         }
 
+        // Close button on the outer edge: left flyout → close on right, right flyout → close on left
+        val closeButton = buildCloseButton(ctx, banner) {
+            dialog.dismiss()
+            closeBanner(banner)
+        }
+        val closeGravity = if (isLeft) Gravity.TOP or Gravity.END else Gravity.TOP or Gravity.START
+        val closeRow = FrameLayout(ctx).apply {
+            addView(closeButton, FrameLayout.LayoutParams(
+                (32 * dp).toInt(), (32 * dp).toInt(),
+                closeGravity
+            ).apply {
+                topMargin = (8 * dp).toInt()
+                if (isLeft) rightMargin = (8 * dp).toInt() else leftMargin = (8 * dp).toInt()
+                bottomMargin = (8 * dp).toInt()
+            })
+        }
+        flyoutContainer.addView(closeRow, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        // Scrollable content below close button
         val scrollView = ScrollView(ctx).apply {
             addView(contentView, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
-
-        flyoutContainer.addView(scrollView, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
+        flyoutContainer.addView(scrollView, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
         ))
-
-        // Close button
-        val closeButtonGravity = if (isLeft) Gravity.TOP or Gravity.START else Gravity.TOP or Gravity.END
-        val closeButton = buildCloseButton(ctx, banner) {
-            dialog.dismiss()
-            closeBanner(banner)
-        }
-        flyoutContainer.addView(closeButton, FrameLayout.LayoutParams(
-            (32 * dp).toInt(), (32 * dp).toInt(),
-            closeButtonGravity
-        ).apply {
-            topMargin = (40 * dp).toInt()
-            if (isLeft) leftMargin = (8 * dp).toInt() else rightMargin = (8 * dp).toInt()
-        })
 
         val flyoutGravity = if (isLeft) Gravity.START else Gravity.END
         overlayLayout.addView(flyoutContainer, FrameLayout.LayoutParams(
@@ -376,13 +484,18 @@ class BannerDisplayManager(
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
 
-        dialog.setOnDismissListener { displayedBanners.remove(banner.token) }
+        dialog.setOnDismissListener {
+            displayedBanners.remove(banner.token)
+            activeDialogs.remove(dialog)
+        }
+        activeDialogs.add(dialog)
         dialog.show()
     }
 
     private fun showStaticBanner(banner: BannerResponse) {
         val ctx = activity ?: return
-        val container = staticContainer ?: return
+        val wrapper = innerWrapper ?: return
+        val content = contentHolder ?: return
 
         val contentView = DesignRenderer.render(ctx, banner.design!!) { url ->
             trackClick(banner)
@@ -393,8 +506,54 @@ class BannerDisplayManager(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
+        contentView.tag = "$BANNER_TAG_PREFIX${banner.token}"
 
-        container.addView(contentView)
+        val strategy = banner.displayStrategy ?: "afterbegin"
+        Log.d(TAG, "Static banner strategy: $strategy for ${banner.token}")
+
+        when (strategy) {
+            "afterbegin" -> {
+                // Insert before the original content
+                val contentIndex = wrapper.indexOfChild(content)
+                wrapper.addView(contentView, contentIndex.coerceAtLeast(0))
+            }
+            "beforeend", "afterend" -> {
+                // Insert after the original content
+                wrapper.addView(contentView)
+            }
+            "replace" -> {
+                // Hide original content and insert banner in its place
+                content.visibility = View.GONE
+                val contentIndex = wrapper.indexOfChild(content)
+                wrapper.addView(contentView, contentIndex + 1)
+            }
+            else -> {
+                // Default: after content
+                wrapper.addView(contentView)
+            }
+        }
+    }
+
+    private fun removeStaticBannerView(token: String) {
+        val wrapper = innerWrapper ?: return
+        val tag = "$BANNER_TAG_PREFIX$token"
+        for (i in wrapper.childCount - 1 downTo 0) {
+            if (wrapper.getChildAt(i).tag == tag) {
+                wrapper.removeViewAt(i)
+                contentHolder?.visibility = View.VISIBLE
+                break
+            }
+        }
+    }
+
+    private fun removeAllStaticBannerViews() {
+        val wrapper = innerWrapper ?: return
+        for (i in wrapper.childCount - 1 downTo 0) {
+            val child = wrapper.getChildAt(i)
+            if (child.tag?.toString()?.startsWith(BANNER_TAG_PREFIX) == true) {
+                wrapper.removeViewAt(i)
+            }
+        }
     }
 
     private fun buildCloseButton(
@@ -492,13 +651,19 @@ class BannerDisplayManager(
         return 8f
     }
 
-    private fun resolveDimension(value: Any?, relativeTo: Float): Float? {
+    private fun getStatusBarHeight(ctx: android.content.Context): Int {
+        val resourceId = ctx.resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (resourceId > 0) ctx.resources.getDimensionPixelSize(resourceId) else 0
+    }
+
+    private fun resolveDimension(value: Any?, relativeTo: Float, dp: Float = 1f): Float? {
         if (value == null) return null
         val str = value.toString().trim()
         if (str.endsWith("%")) {
             val percent = str.replace("%", "").toFloatOrNull()
             if (percent != null) return relativeTo * percent / 100f
         }
-        return str.replace(Regex("[a-zA-Z%]"), "").trim().toFloatOrNull()
+        val raw = str.replace(Regex("[a-zA-Z%]"), "").trim().toFloatOrNull()
+        return raw?.times(dp)
     }
 }

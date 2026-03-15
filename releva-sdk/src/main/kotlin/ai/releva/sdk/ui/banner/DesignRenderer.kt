@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.text.Html
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -45,6 +46,7 @@ object DesignRenderer {
     fun render(
         context: Context,
         design: Map<String, Any?>,
+        maxWidthPx: Int = context.resources.displayMetrics.widthPixels,
         onLinkTap: ((String) -> Unit)? = null
     ): View {
         val body = design["body"] as? Map<String, Any?> ?: return View(context)
@@ -56,7 +58,10 @@ object DesignRenderer {
         val fontFamilyMap = bodyValues["fontFamily"] as? Map<String, Any?>
         val fontFamily = fontFamilyMap?.get("value") as? String ?: "sans-serif"
 
-        val contentWidthPx = parseDimension(bodyValues["contentWidth"], context)
+        val contentWidthRaw = bodyValues["contentWidth"]?.toString()?.trim()
+        val isPercentWidth = contentWidthRaw?.endsWith("%") == true
+        val contentWidthPx = if (isPercentWidth) null
+            else parseDimension(bodyValues["contentWidth"], context)?.toInt()?.coerceAtMost(maxWidthPx)
 
         val outerLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -71,7 +76,7 @@ object DesignRenderer {
         val innerLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = if (contentWidthPx != null) {
-                LinearLayout.LayoutParams(contentWidthPx.toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+                LinearLayout.LayoutParams(contentWidthPx, ViewGroup.LayoutParams.WRAP_CONTENT)
             } else {
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -329,18 +334,26 @@ object DesignRenderer {
         val size = values["size"] as? Map<String, Any?> ?: emptyMap()
         val autoWidth = size["autoWidth"] as? Boolean ?: true
 
-        val button = TextView(context).apply {
+        val dp = context.resources.displayMetrics.density
+
+        val textView = TextView(context).apply {
             this.text = text
             setTextColor(textColor)
             gravity = Gravity.CENTER
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, fontSize * resources.displayMetrics.density)
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, fontSize * dp)
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
+        }
 
+        // Container with background and padding — click target (like Flutter's GestureDetector + Container)
+        val buttonContainer = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 setColor(bgColor)
-                cornerRadius = borderRadius * resources.displayMetrics.density
+                cornerRadius = borderRadius * dp
             }
-
-            val dp = resources.displayMetrics.density
             if (padding != null) {
                 setPadding(
                     (padding[3] * dp).toInt(),
@@ -351,9 +364,13 @@ object DesignRenderer {
             } else {
                 setPadding((20 * dp).toInt(), (10 * dp).toInt(), (20 * dp).toInt(), (10 * dp).toInt())
             }
-
+            addView(textView)
+            Log.d("DesignRenderer", "Button '$text': url='$url', onLinkTap=${onLinkTap != null}")
             if (url.isNotEmpty() && onLinkTap != null) {
-                setOnClickListener { onLinkTap(url) }
+                setOnClickListener {
+                    Log.d("DesignRenderer", "Button clicked! url=$url")
+                    onLinkTap(url)
+                }
             }
         }
 
@@ -364,7 +381,7 @@ object DesignRenderer {
                     Gravity.END -> Gravity.END
                     else -> Gravity.START
                 }
-                addView(button, FrameLayout.LayoutParams(
+                addView(buttonContainer, FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     gravity
@@ -377,11 +394,11 @@ object DesignRenderer {
             return wrapper
         }
 
-        button.layoutParams = ViewGroup.LayoutParams(
+        buttonContainer.layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
-        return button
+        return buttonContainer
     }
 
     private fun buildDivider(context: Context, values: Map<String, Any?>): View {
