@@ -556,12 +556,201 @@ class ResponseTypesTest {
     }
 
     @Test
+    fun `BannerResponse fromMap parses extended banner fields`() {
+        val map = mapOf(
+            "token" to "banner-token-456",
+            "bannerId" to 1,
+            "segmentId" to 2,
+            "name" to "Holiday Sale Banner",
+            "html" to "<div class=\"banner\"><h2>50% Off!</h2></div>",
+            "tags" to listOf("sale", "holiday"),
+            "mergeContext" to mapOf("bid" to "banner-123"),
+            "displayType" to "popup",
+            "delaySeconds" to 5,
+            "scrollPercentage" to 25,
+            "cssSelector" to ".banner-container",
+            "trigger" to "immediately",
+            "displayStrategy" to "afterbegin",
+            "displayPosition" to "center",
+            "advancedStyling" to true,
+            "cssStyles" to mapOf("background" to "#fff"),
+            "design" to mapOf("body" to mapOf("rows" to listOf<Any>()))
+        )
+
+        val banner = BannerResponse.fromMap(map)
+
+        assertEquals("banner-token-456", banner.token)
+        assertEquals(1, banner.bannerId)
+        assertEquals(2, banner.segmentId)
+        assertEquals("Holiday Sale Banner", banner.name)
+        assertEquals("<div class=\"banner\"><h2>50% Off!</h2></div>", banner.html)
+        assertEquals(listOf("sale", "holiday"), banner.tags)
+        assertEquals(mapOf("bid" to "banner-123"), banner.mergeContext)
+        assertEquals("popup", banner.displayType)
+        assertEquals(5, banner.delaySeconds)
+        assertEquals(25, banner.scrollPercentage)
+        assertEquals(".banner-container", banner.cssSelector)
+        assertEquals("immediately", banner.trigger)
+        assertEquals("afterbegin", banner.displayStrategy)
+        assertEquals("center", banner.displayPosition)
+        assertEquals(true, banner.advancedStyling)
+        assertEquals(mapOf("background" to "#fff"), banner.cssStyles)
+        assertNotNull(banner.design)
+    }
+
+    @Test
+    fun `BannerResponse fromMap defaults extended fields`() {
+        val map = mapOf("token" to "minimal-banner")
+
+        val banner = BannerResponse.fromMap(map)
+
+        assertEquals("minimal-banner", banner.token)
+        assertEquals(0, banner.bannerId)
+        assertEquals(0, banner.segmentId)
+        assertEquals("", banner.name)
+        assertEquals("", banner.html)
+        assertNull(banner.displayType)
+        assertNull(banner.delaySeconds)
+        assertNull(banner.scrollPercentage)
+        assertNull(banner.cssSelector)
+        assertNull(banner.trigger)
+        assertEquals("afterbegin", banner.displayStrategy)
+        assertNull(banner.displayPosition)
+        assertEquals(false, banner.advancedStyling)
+        assertEquals(emptyMap<String, Any?>(), banner.cssStyles)
+        assertNull(banner.design)
+    }
+
+    @Test
     fun `BannerResponse fromMap handles missing token`() {
         val map = emptyMap<String, Any?>()
 
         val banner = BannerResponse.fromMap(map)
 
         assertEquals("", banner.token)
+    }
+
+    @Test
+    fun `BannerResponse toMap includes extended fields`() {
+        val banner = BannerResponse(
+            token = "ban-ext",
+            bannerId = 10,
+            segmentId = 20,
+            name = "Extended Banner",
+            html = "<div>Test</div>",
+            displayType = "flyout",
+            trigger = "delaySeconds",
+            delaySeconds = 3,
+            scrollPercentage = 50,
+            cssSelector = "#main",
+            displayStrategy = "beforeend",
+            displayPosition = "right",
+            advancedStyling = true,
+            cssStyles = mapOf("color" to "red"),
+            design = mapOf("body" to emptyMap<String, Any?>())
+        )
+
+        val map = banner.toMap()
+
+        assertEquals("ban-ext", map["token"])
+        assertEquals(10, map["bannerId"])
+        assertEquals(20, map["segmentId"])
+        assertEquals("Extended Banner", map["name"])
+        assertEquals("<div>Test</div>", map["html"])
+        assertEquals("flyout", map["displayType"])
+        assertEquals("delaySeconds", map["trigger"])
+        assertEquals(3, map["delaySeconds"])
+        assertEquals(50, map["scrollPercentage"])
+        assertEquals("#main", map["cssSelector"])
+        assertEquals("beforeend", map["displayStrategy"])
+        assertEquals("right", map["displayPosition"])
+        assertEquals(true, map["advancedStyling"])
+        assertEquals(mapOf("color" to "red"), map["cssStyles"])
+        assertNotNull(map["design"])
+    }
+
+    @Test
+    fun `BannerResponse fromMap round-trip preserves extended fields`() {
+        val original = BannerResponse(
+            token = "round-trip",
+            bannerId = 5,
+            segmentId = 10,
+            name = "Round Trip Banner",
+            html = "<p>Hello</p>",
+            displayType = "bar",
+            trigger = "scrollPercentage",
+            delaySeconds = null,
+            scrollPercentage = 75,
+            cssSelector = ".content",
+            displayStrategy = "afterbegin",
+            displayPosition = "top"
+        )
+
+        val restored = BannerResponse.fromMap(original.toMap())
+
+        assertEquals(original.token, restored.token)
+        assertEquals(original.bannerId, restored.bannerId)
+        assertEquals(original.segmentId, restored.segmentId)
+        assertEquals(original.name, restored.name)
+        assertEquals(original.html, restored.html)
+        assertEquals(original.displayType, restored.displayType)
+        assertEquals(original.trigger, restored.trigger)
+        assertEquals(original.scrollPercentage, restored.scrollPercentage)
+        assertEquals(original.cssSelector, restored.cssSelector)
+        assertEquals(original.displayPosition, restored.displayPosition)
+    }
+
+    @Test
+    fun `BannerResponse fromMap parses bannerId and segmentId from Number types`() {
+        val map = mapOf(
+            "token" to "num-test",
+            "bannerId" to 42L,
+            "segmentId" to 99.0
+        )
+
+        val banner = BannerResponse.fromMap(map)
+
+        assertEquals(42, banner.bannerId)
+        assertEquals(99, banner.segmentId)
+    }
+
+    @Test
+    fun `RelevaResponse fromJson parses extended banner fields`() {
+        val json = """
+            {
+                "recommenders": [],
+                "banners": [
+                    {
+                        "token": "ban-json",
+                        "bannerId": 7,
+                        "segmentId": 3,
+                        "name": "JSON Banner",
+                        "html": "<div>JSON</div>",
+                        "displayType": "popup",
+                        "trigger": "immediately",
+                        "cssSelector": "#popup-target",
+                        "design": {
+                            "body": {
+                                "rows": []
+                            }
+                        }
+                    }
+                ]
+            }
+        """.trimIndent()
+
+        val response = RelevaResponse.fromJson(json)
+
+        assertEquals(1, response.banners.size)
+        val banner = response.banners[0]
+        assertEquals("ban-json", banner.token)
+        assertEquals(7, banner.bannerId)
+        assertEquals(3, banner.segmentId)
+        assertEquals("JSON Banner", banner.name)
+        assertEquals("popup", banner.displayType)
+        assertEquals("immediately", banner.trigger)
+        assertEquals("#popup-target", banner.cssSelector)
+        assertNotNull(banner.design)
     }
 
     @Test

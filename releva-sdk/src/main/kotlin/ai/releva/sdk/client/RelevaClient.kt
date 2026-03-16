@@ -222,30 +222,62 @@ class RelevaClient(
     }
 
     /**
-     * Track banner click
+     * Track banner impression
      */
-    suspend fun bannerClicked(banner: BannerResponse, action: String? = null) = withContext(Dispatchers.IO) {
-        val context = JSONObject().apply {
+    suspend fun bannerImpression(banner: BannerResponse) = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("profileId", storage.getProfileId())
             put("deviceId", storage.getDeviceId())
             put("sessionId", getSessionId())
-            put("profile", JSONObject().apply {
-                put("id", storage.getProfileId())
+            put("banners", org.json.JSONArray().apply {
+                put(JSONObject().apply {
+                    put("token", banner.token)
+                    put("bannerId", banner.bannerId.toString())
+                    put("segmentId", banner.segmentId.toString())
+                })
             })
-            put("bid", banner.token)
-            action?.let { put("action", it) }
         }
 
         val response = executeRequest(
-            endpoint = "/api/v0/push",
-            body = JSONObject().apply {
-                put("context", context)
-            }
+            endpoint = "/api/v0/impressions",
+            body = body
         )
 
         if (response.code != 200) {
-            throw Exception("Banner Clicked Push API error: ${response.code} - ${response.body}")
+            throw Exception("Banner Impression API error: ${response.code} - ${response.body}")
         }
     }
+
+    /**
+     * Track banner action (click, close, etc.)
+     */
+    suspend fun bannerAction(banner: BannerResponse, action: String? = null) = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("deviceId", storage.getDeviceId())
+            put("profileId", storage.getProfileId())
+            put("sessionId", getSessionId())
+            put("action", action)
+            put("attributions", JSONObject().apply {
+                put("bannerBlockId", banner.token)
+                put("bannerId", banner.bannerId.toString())
+            })
+        }
+
+        val response = executeRequest(
+            endpoint = "/api/v0/push/events",
+            body = body
+        )
+
+        if (response.code != 202) {
+            throw Exception("Banner Event $action API error: ${response.code} - ${response.body}")
+        }
+    }
+
+    /**
+     * Track banner click (convenience alias for bannerAction)
+     */
+    suspend fun bannerClicked(banner: BannerResponse, action: String? = null) =
+        bannerAction(banner, action)
 
     /**
      * Main push method for sending tracking data
