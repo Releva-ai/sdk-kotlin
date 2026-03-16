@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.6
+
+- Add banners support
+
 ## 1.0.5
 
 ### Bug Fixes
