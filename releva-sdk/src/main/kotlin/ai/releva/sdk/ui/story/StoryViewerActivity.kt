@@ -51,10 +51,16 @@ class StoryViewerActivity : AppCompatActivity() {
         private const val TAG = "StoryViewer"
         /** Tag value set on views that need touch forwarding (e.g. carousel). */
         const val INTERACTIVE_VIEW_TAG = "releva_interactive"
-        private var pendingStory: StoryResponse? = null
-        private var pendingClient: RelevaClient? = null
-        private var pendingOnLinkTap: ((String) -> Unit)? = null
-        private var pendingOnClose: (() -> Unit)? = null
+        private const val EXTRA_LAUNCH_KEY = "releva_story_key"
+
+        private val pendingLaunches = java.util.concurrent.ConcurrentHashMap<String, PendingLaunchData>()
+
+        private data class PendingLaunchData(
+            val story: StoryResponse,
+            val client: RelevaClient,
+            val onLinkTap: ((String) -> Unit)?,
+            val onClose: (() -> Unit)?
+        )
 
         fun launch(
             context: Context,
@@ -63,11 +69,11 @@ class StoryViewerActivity : AppCompatActivity() {
             onLinkTap: ((String) -> Unit)? = null,
             onClose: (() -> Unit)? = null
         ) {
-            pendingStory = story
-            pendingClient = client
-            pendingOnLinkTap = onLinkTap
-            pendingOnClose = onClose
-            val intent = Intent(context, StoryViewerActivity::class.java)
+            val key = java.util.UUID.randomUUID().toString()
+            pendingLaunches[key] = PendingLaunchData(story, client, onLinkTap, onClose)
+            val intent = Intent(context, StoryViewerActivity::class.java).apply {
+                putExtra(EXTRA_LAUNCH_KEY, key)
+            }
             context.startActivity(intent)
         }
     }
@@ -80,19 +86,13 @@ class StoryViewerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        story = pendingStory ?: run {
-            finish()
-            return
-        }
-        client = pendingClient
-        onLinkTap = pendingOnLinkTap
-        onCloseCallback = pendingOnClose
+        val key = intent.getStringExtra(EXTRA_LAUNCH_KEY) ?: run { finish(); return }
+        val data = pendingLaunches.remove(key) ?: run { finish(); return }
 
-        // Clear statics
-        pendingStory = null
-        pendingClient = null
-        pendingOnLinkTap = null
-        pendingOnClose = null
+        story = data.story
+        client = data.client
+        onLinkTap = data.onLinkTap
+        onCloseCallback = data.onClose
 
         if (story.slides.isEmpty()) {
             finish()
@@ -493,6 +493,7 @@ class StoryViewerActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         progressAnimator?.cancel()
+        scope.cancel()
         super.onDestroy()
     }
 }

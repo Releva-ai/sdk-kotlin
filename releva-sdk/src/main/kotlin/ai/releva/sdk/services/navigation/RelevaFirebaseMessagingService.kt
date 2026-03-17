@@ -14,9 +14,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.util.concurrent.TimeUnit
 
 /**
  * Base FirebaseMessagingService that handles Releva push notifications
@@ -31,10 +28,6 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .build()
 
     /**
      * Get the main activity class for the app
@@ -61,23 +54,13 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        Log.e(TAG, "=== NEW FCM TOKEN GENERATED ===")
-        Log.e(TAG, "FCM Token: $token")
-
+        Log.d(TAG, "New FCM token generated")
         onPushTokenGenerated(token)
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
-        Log.e(TAG, "=== PUSH NOTIFICATION RECEIVED ===")
-        Log.e(TAG, "Message from: ${message.from}")
-        Log.e(TAG, "Message ID: ${message.messageId}")
-        Log.e(TAG, "Message data size: ${message.data.size}")
-
-        // Handle push notification data
-        message.data.let { data ->
-            Log.e(TAG, "Message data: $data")
-        }
+        Log.d(TAG, "Push notification received from: ${message.from}")
 
         // Handle inbox sync signal — can be present on any notification
         if (message.data["inbox_sync"] == "true") {
@@ -94,13 +77,11 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
 
         // Handle push notification and display it
         message.notification?.let { notification ->
-            Log.e(TAG, "Has notification payload - Title: ${notification.title}, Body: ${notification.body}")
             showNotification(notification.title, notification.body, message.data)
         } ?: run {
             // If no notification payload, create one from data payload
             val title = message.data["title"] ?: getDefaultNotificationTitle()
             val body = message.data["body"] ?: message.data["message"] ?: "You have a new notification"
-            Log.e(TAG, "Data-only message - Title: $title, Body: $body")
             showNotification(title, body, message.data)
         }
     }
@@ -119,7 +100,6 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
 
         // Create intent for notification tap
         val target = data["target"]
-        Log.e(TAG, "Creating notification intent with target: $target")
 
         // Always route through the trampoline activity so that:
         // 1. Callback URL is tracked immediately before any navigation
@@ -144,8 +124,6 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
         val intent = android.content.Intent(this, NotificationTrampolineActivity::class.java).apply {
             setData(android.net.Uri.parse(intentUri))
         }
-        Log.e(TAG, "Created trampoline intent for target: $target, callbackUrl: $callbackUrl")
-
         // Create pending intent with proper flags
         // NOTE: FLAG_IMMUTABLE is required for implicit intents (like ACTION_VIEW for URLs) on Android 12+
         val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -213,51 +191,49 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
         // Show the notification
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(notificationId, notificationBuilder.build())
-
-        Log.e(TAG, "Notification displayed: $title - $body")
     }
 
     /**
-     * Load image from URL for notification
+     * Load image from URL for notification, capping dimensions at 1024px to prevent OOM.
      */
     private fun loadImageFromUrl(imageUrl: String): android.graphics.Bitmap? {
         return try {
             val url = java.net.URL(imageUrl)
-            val connection = url.openConnection() as java.net.HttpURLConnection
-            connection.doInput = true
-            connection.connect()
-            val input = connection.inputStream
-            android.graphics.BitmapFactory.decodeStream(input)
+
+            // First pass: determine image dimensions without allocating the full bitmap
+            val boundsOptions = android.graphics.BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            (url.openConnection() as java.net.HttpURLConnection).also { conn ->
+                conn.connectTimeout = 10000
+                conn.readTimeout = 10000
+                conn.connect()
+                android.graphics.BitmapFactory.decodeStream(conn.inputStream, null, boundsOptions)
+                conn.disconnect()
+            }
+
+            // Calculate inSampleSize to cap the longest side at 1024px
+            val maxDim = 1024
+            var sampleSize = 1
+            val origMax = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
+            while (origMax / (sampleSize * 2) >= maxDim) sampleSize *= 2
+
+            // Second pass: decode at reduced size
+            val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+            }
+            (url.openConnection() as java.net.HttpURLConnection).also { conn ->
+                conn.connectTimeout = 10000
+                conn.readTimeout = 10000
+                conn.doInput = true
+                conn.connect()
+                val bitmap = android.graphics.BitmapFactory.decodeStream(conn.inputStream, null, decodeOptions)
+                conn.disconnect()
+                return bitmap
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading image from URL: $imageUrl", e)
             null
-        }
-    }
-
-    /**
-     * Make GET request to callbackUrl to track notification display
-     */
-    private fun trackNotificationDisplay(callbackUrl: String) {
-        scope.launch {
-            try {
-                Log.d(TAG, "Tracking notification display: $callbackUrl")
-
-                val request = Request.Builder()
-                    .url(callbackUrl)
-                    .get()
-                    .build()
-
-                val response = httpClient.newCall(request).execute()
-
-                if (response.isSuccessful) {
-                    Log.d(TAG, "Successfully tracked notification display: ${response.code}")
-                } else {
-                    Log.w(TAG, "Failed to track notification display: ${response.code}")
-                }
-                response.close()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error tracking notification display", e)
-            }
         }
     }
 

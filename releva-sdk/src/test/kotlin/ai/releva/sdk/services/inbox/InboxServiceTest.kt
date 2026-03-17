@@ -74,12 +74,11 @@ class InboxServiceTest {
         assertEquals("msg-1", msg.id)
         assertFalse(msg.read)
 
-        // Simulate optimistic update
-        msg.read = true
-        assertTrue(msg.read)
+        // Simulate optimistic update via copy (read is now val)
+        val updated = msg.copy(read = true)
+        assertTrue(updated.read)
 
-        // Rollback
-        msg.read = false
+        // Rollback by keeping original
         assertFalse(msg.read)
     }
 
@@ -90,15 +89,11 @@ class InboxServiceTest {
             read = false, createdAt = Date(), inboxMessageId = 1
         )
 
-        // Snapshot
-        val originalRead = msg.read
+        // Optimistic update via copy (read is now val)
+        val updated = msg.copy(read = true)
+        assertTrue(updated.read)
 
-        // Optimistic update
-        msg.read = true
-        assertTrue(msg.read)
-
-        // Rollback
-        msg.read = originalRead
+        // Rollback by keeping original
         assertFalse(msg.read)
     }
 
@@ -127,17 +122,11 @@ class InboxServiceTest {
             InboxMessage(id = "m2", title = "T2", design = emptyMap(), read = false, createdAt = Date(), inboxMessageId = 2)
         )
 
-        // Snapshot
-        val originalStates = messages.map { it.id to it.read }
+        // Optimistic update via copy (read is now val)
+        val updated = messages.map { it.copy(read = true) }
+        assertTrue(updated.all { it.read })
 
-        // Optimistic
-        messages.forEach { it.read = true }
-        assertTrue(messages.all { it.read })
-
-        // Rollback
-        for ((id, wasRead) in originalStates) {
-            messages.find { it.id == id }?.read = wasRead
-        }
+        // Rollback by reverting to original list
         assertFalse(messages[0].read)
         assertFalse(messages[1].read)
     }

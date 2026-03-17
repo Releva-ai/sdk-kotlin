@@ -53,6 +53,11 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
         }
     }
 
+    override fun onDestroyView() {
+        scope.cancel()
+        super.onDestroyView()
+    }
+
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val cfg = config ?: run {
             dismissAllowingStateLoss()
@@ -362,7 +367,7 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
         return try {
             val clean = hex.removePrefix("#")
             val fullHex = if (clean.length == 6) "FF$clean" else clean
-            java.lang.Long.parseLong(fullHex, 16).toInt()
+            Color.parseColor("#$fullHex")
         } catch (e: Exception) {
             null
         }

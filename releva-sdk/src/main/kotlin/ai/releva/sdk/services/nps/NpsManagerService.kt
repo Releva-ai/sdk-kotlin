@@ -34,16 +34,21 @@ class NpsManagerService {
      * - Start the [triggerDelaySeconds] timer immediately if there are no
      *   customEvent triggers in the config.
      * - Otherwise hold the config and wait for a matching [trackEvent] call.
+     *
+     * May be called from any thread — all state mutations are dispatched to the
+     * main thread via [handler] to avoid races with [trackEvent] and [fireTrigger].
      */
     fun initialize(config: NpsConfig?) {
-        this.config = config
+        handler.post {
+            this.config = config
 
-        if (suppressedThisSession || config == null) return
-        if (triggered) return  // Timer already running from a previous push call
+            if (suppressedThisSession || config == null) return@post
+            if (triggered) return@post  // Timer already running from a previous push call
 
-        val hasCustomEventTriggers = config.triggers.any { it.type == "customEvent" }
-        if (!hasCustomEventTriggers) {
-            fireTrigger()
+            val hasCustomEventTriggers = config.triggers.any { it.type == "customEvent" }
+            if (!hasCustomEventTriggers) {
+                fireTrigger()
+            }
         }
     }
 

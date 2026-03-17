@@ -52,13 +52,15 @@ class InboxMessageTest {
     }
 
     @Test
-    fun `read is mutable`() {
+    fun `read field can be changed via copy`() {
         val msg = InboxMessage(
             id = "m1", title = "T", design = emptyMap(),
             read = false, createdAt = java.util.Date(), inboxMessageId = 1
         )
         assertFalse(msg.read)
-        msg.read = true
-        assertTrue(msg.read)
+        val readMsg = msg.copy(read = true)
+        assertTrue(readMsg.read)
+        // original is unchanged
+        assertFalse(msg.read)
     }
 }
