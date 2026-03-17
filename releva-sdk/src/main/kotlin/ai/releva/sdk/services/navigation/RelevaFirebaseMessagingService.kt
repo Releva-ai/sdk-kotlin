@@ -1,5 +1,6 @@
 package ai.releva.sdk.services.navigation
 
+import ai.releva.sdk.services.inbox.InboxService
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -76,6 +77,19 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
         // Handle push notification data
         message.data.let { data ->
             Log.e(TAG, "Message data: $data")
+        }
+
+        // Handle inbox sync signal — can be present on any notification
+        if (message.data["inbox_sync"] == "true") {
+            Log.d(TAG, "Inbox sync signal received, refreshing inbox")
+            scope.launch {
+                try {
+                    InboxService.instance.handleSyncSignal()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error handling inbox sync signal", e)
+                }
+            }
+            // Don't return — the notification may also need to be displayed
         }
 
         // Handle push notification and display it

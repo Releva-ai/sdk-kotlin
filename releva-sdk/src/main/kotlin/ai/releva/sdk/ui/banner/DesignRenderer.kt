@@ -200,6 +200,7 @@ object DesignRenderer {
             "text" -> buildText(context, values, textColor, fontFamily)
             "heading" -> buildHeading(context, values, textColor, fontFamily)
             "button" -> buildButton(context, values, fontFamily, onLinkTap)
+            "carousel" -> buildCarousel(context, content, onLinkTap)
             "divider" -> buildDivider(context, values)
             else -> View(context)
         }
@@ -413,6 +414,315 @@ object DesignRenderer {
                 (borderTopWidth * resources.displayMetrics.density).toInt().coerceAtLeast(1)
             )
         }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun buildCarousel(
+        context: Context,
+        content: Map<String, Any?>,
+        onLinkTap: ((String) -> Unit)?
+    ): View {
+        val values = content["values"] as? Map<String, Any?> ?: emptyMap()
+        val embedded = content["embedded"] as? Map<String, Any?> ?: emptyMap()
+        val imagesMap = embedded["images"] as? Map<String, Any?> ?: emptyMap()
+        val imagesList = imagesMap["values"] as? List<Map<String, Any?>> ?: emptyList()
+
+        if (imagesList.isEmpty()) return View(context)
+
+        val autoplay = values["autoplay"] as? Boolean ?: false
+        val loop = values["loop"] as? Boolean ?: false
+        val showPreviews = values["showPreviews"] as? Boolean ?: false
+        val previewWidth = parseDimensionRaw(values["previewWidth"])?.toInt() ?: 100
+
+        val dp = context.resources.displayMetrics.density
+
+        // Calculate aspect ratio from first image
+        val firstSrc = imagesList.first()["src"] as? Map<String, Any?> ?: emptyMap()
+        val imgWidth = (firstSrc["width"] as? Number)?.toFloat() ?: 16f
+        val imgHeight = (firstSrc["height"] as? Number)?.toFloat() ?: 9f
+        val aspectRatio = imgWidth / imgHeight
+
+        val rootLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        // ViewFlipper for images
+        val flipper = ViewFlipper(context).apply {
+            tag = "releva_interactive"
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        // Track current page for indicators
+        var currentPage = 0
+
+        // Add image views
+        for (image in imagesList) {
+            val src = image["src"] as? Map<String, Any?> ?: emptyMap()
+            val url = src["url"] as? String ?: ""
+            val action = image["action"] as? Map<String, Any?>
+            val actionValues = action?.get("values") as? Map<String, Any?> ?: emptyMap()
+            val href = actionValues["href"] as? String ?: ""
+
+            val imageView = ImageView(context).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                adjustViewBounds = true
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+
+            if (url.isNotEmpty()) loadImageAsync(url, imageView)
+
+            if (href.isNotEmpty() && onLinkTap != null) {
+                imageView.setOnClickListener { onLinkTap(href) }
+            }
+
+            flipper.addView(imageView)
+        }
+
+        // Wrap flipper in a fixed aspect ratio container
+        val screenWidth = context.resources.displayMetrics.widthPixels
+        val flipperHeight = (screenWidth / aspectRatio).toInt()
+        val flipperWrapper = FrameLayout(context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                flipperHeight
+            )
+        }
+
+        // Indicator callback — assigned after indicators are created
+        var updateIndicators: ((Int) -> Unit)? = null
+
+        // Animations
+        val animDuration = 300L
+        fun slideInFromRight(): android.view.animation.Animation =
+            android.view.animation.TranslateAnimation(
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 1f,
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 0f,
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 0f,
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 0f
+            ).apply { duration = animDuration }
+
+        fun slideOutToLeft(): android.view.animation.Animation =
+            android.view.animation.TranslateAnimation(
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 0f,
+                android.view.animation.Animation.RELATIVE_TO_PARENT, -1f,
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 0f,
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 0f
+            ).apply { duration = animDuration }
+
+        fun slideInFromLeft(): android.view.animation.Animation =
+            android.view.animation.TranslateAnimation(
+                android.view.animation.Animation.RELATIVE_TO_PARENT, -1f,
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 0f,
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 0f,
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 0f
+            ).apply { duration = animDuration }
+
+        fun slideOutToRight(): android.view.animation.Animation =
+            android.view.animation.TranslateAnimation(
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 0f,
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 1f,
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 0f,
+                android.view.animation.Animation.RELATIVE_TO_PARENT, 0f
+            ).apply { duration = animDuration }
+
+        fun goNext() {
+            if (flipper.displayedChild < imagesList.size - 1) {
+                flipper.inAnimation = slideInFromRight()
+                flipper.outAnimation = slideOutToLeft()
+                flipper.showNext()
+                currentPage = flipper.displayedChild
+                updateIndicators?.invoke(currentPage)
+            } else if (loop) {
+                flipper.inAnimation = slideInFromRight()
+                flipper.outAnimation = slideOutToLeft()
+                flipper.displayedChild = 0
+                currentPage = 0
+                updateIndicators?.invoke(currentPage)
+            }
+        }
+
+        fun goPrevious() {
+            if (flipper.displayedChild > 0) {
+                flipper.inAnimation = slideInFromLeft()
+                flipper.outAnimation = slideOutToRight()
+                flipper.showPrevious()
+                currentPage = flipper.displayedChild
+                updateIndicators?.invoke(currentPage)
+            } else if (loop) {
+                flipper.inAnimation = slideInFromLeft()
+                flipper.outAnimation = slideOutToRight()
+                flipper.displayedChild = imagesList.size - 1
+                currentPage = imagesList.size - 1
+                updateIndicators?.invoke(currentPage)
+            }
+        }
+
+        // Swipe and tap gesture detection
+        flipper.setOnTouchListener(object : View.OnTouchListener {
+            private var startX = 0f
+            override fun onTouch(v: View, event: android.view.MotionEvent): Boolean {
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        startX = event.x
+                        return true
+                    }
+                    android.view.MotionEvent.ACTION_UP -> {
+                        val dx = event.x - startX
+                        if (dx < -50) {
+                            // Swipe left → next
+                            goNext()
+                        } else if (dx > 50) {
+                            // Swipe right → previous
+                            goPrevious()
+                        } else {
+                            // Tap — left half goes back, right half goes forward
+                            val halfWidth = v.width / 2
+                            if (event.x < halfWidth) {
+                                goPrevious()
+                            } else {
+                                goNext()
+                            }
+                        }
+                        return true
+                    }
+                }
+                return false
+            }
+        })
+
+        flipperWrapper.addView(flipper)
+        rootLayout.addView(flipperWrapper)
+
+        if (imagesList.size > 1) {
+            if (showPreviews) {
+                // Preview strip
+                val previewContainer = HorizontalScrollView(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = (8 * dp).toInt() }
+                    isHorizontalScrollBarEnabled = false
+                }
+
+                val previewRow = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                }
+
+                val previewViews = mutableListOf<View>()
+                for ((index, image) in imagesList.withIndex()) {
+                    val src = image["src"] as? Map<String, Any?> ?: emptyMap()
+                    val url = src["url"] as? String ?: ""
+                    val pw = (previewWidth * dp).toInt()
+                    val ph = (previewWidth * 0.75 * dp).toInt()
+
+                    val border = GradientDrawable().apply {
+                        setStroke((2 * dp).toInt(), if (index == 0) Color.DKGRAY else Color.TRANSPARENT)
+                        cornerRadius = 4 * dp
+                    }
+
+                    val previewImage = ImageView(context).apply {
+                        scaleType = ImageView.ScaleType.CENTER_CROP
+                        layoutParams = LinearLayout.LayoutParams(pw, ph).apply {
+                            setMargins((4 * dp).toInt(), 0, (4 * dp).toInt(), 0)
+                        }
+                        background = border
+                        setPadding((2 * dp).toInt(), (2 * dp).toInt(), (2 * dp).toInt(), (2 * dp).toInt())
+                        setOnClickListener {
+                            flipper.displayedChild = index
+                            currentPage = index
+                            updateIndicators?.invoke(index)
+                        }
+                    }
+
+                    if (url.isNotEmpty()) loadImageAsync(url, previewImage)
+                    previewRow.addView(previewImage)
+                    previewViews.add(previewImage)
+                }
+
+                updateIndicators = { page ->
+                    for ((i, pv) in previewViews.withIndex()) {
+                        (pv.background as? GradientDrawable)?.setStroke(
+                            (2 * dp).toInt(),
+                            if (i == page) Color.DKGRAY else Color.TRANSPARENT
+                        )
+                    }
+                }
+
+                previewContainer.addView(previewRow)
+                rootLayout.addView(previewContainer)
+            } else {
+                // Dot indicators
+                val dotContainer = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = (8 * dp).toInt() }
+                }
+
+                val dots = mutableListOf<View>()
+                for (i in imagesList.indices) {
+                    val dot = View(context).apply {
+                        val size = (8 * dp).toInt()
+                        layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                            setMargins((4 * dp).toInt(), 0, (4 * dp).toInt(), 0)
+                        }
+                        background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setColor(if (i == 0) Color.DKGRAY else Color.LTGRAY)
+                        }
+                    }
+                    dotContainer.addView(dot)
+                    dots.add(dot)
+                }
+
+                updateIndicators = { page ->
+                    for ((i, dot) in dots.withIndex()) {
+                        (dot.background as? GradientDrawable)?.setColor(
+                            if (i == page) Color.DKGRAY else Color.LTGRAY
+                        )
+                    }
+                }
+
+                rootLayout.addView(dotContainer)
+            }
+        }
+
+        // Autoplay
+        if (autoplay && imagesList.size > 1) {
+            val handler = Handler(Looper.getMainLooper())
+            val autoplayRunnable = object : Runnable {
+                override fun run() {
+                    val next = flipper.displayedChild + 1
+                    if (next < imagesList.size) {
+                        goNext()
+                        handler.postDelayed(this, 3000)
+                    } else if (loop) {
+                        goNext()
+                        handler.postDelayed(this, 3000)
+                    }
+                }
+            }
+            handler.postDelayed(autoplayRunnable, 3000)
+        }
+
+        return rootLayout
     }
 
     // --- Utility functions ---

@@ -4,10 +4,14 @@ Native Android SDK for the Releva marketing platform, providing e-commerce track
 
 ## Features
 
-- 🎯 **E-commerce Personalization** - AI-powered product recommendations and dynamic content
-- 📱 **Mobile Tracking & Analytics** - Screen tracking, product views, search, checkout events
-- 🔔 **Push Notifications** - FCM integration with engagement tracking
-- ⚙️ **Flexible Configuration** - Modular setup for tracking-only, messaging-only, or full-featured modes
+- **E-commerce Personalization** - AI-powered product recommendations and dynamic content
+- **Mobile Tracking & Analytics** - Screen tracking, product views, search, checkout events
+- **Push Notifications** - FCM integration with engagement tracking
+- **In-App Banners** - Dynamic banners with trigger logic and native rendering
+- **Stories** - Instagram/Facebook-style full-screen story viewer with auto-advance and slide tracking
+- **NPS Surveys** - Built-in NPS survey UI with trigger evaluation, follow-up questions, and submission
+- **App Inbox** - Persistent inbox with pagination, optimistic updates, lifecycle-aware refresh, and silent push sync
+- **Flexible Configuration** - Modular setup for tracking-only, messaging-only, or full-featured modes
 
 ## Requirements
 
@@ -111,6 +115,48 @@ lifecycleScope.launch {
 - Firebase Cloud Messaging integration
 - Engagement tracking (delivered, opened, dismissed)
 - Automatic navigation handling
+
+### NPS Surveys
+- Server-side trigger evaluation (appOpen, sessionCount, screenView)
+- Client-side custom event triggers via `trackEvent(eventName)`
+- Cancel events to suppress survey for the session
+- Configurable delay before display
+- Built-in bottom sheet/modal UI with score selection, follow-up questions, and thank-you screen
+- Dark mode support
+- Submission with one silent retry
+
+### Stories
+- Full-screen story viewer (`StoryViewerActivity`) with progress bars and tap navigation (left half = previous, right half = next)
+- Auto-advance per slide with configurable duration
+- End behaviors: dismiss, loop, stayOnLast
+- Trigger types: immediately, delaySeconds, scrollPercentage, cartChanged, wishlistChanged
+- Slide rendering via `DesignRenderer` (same as banners)
+- Interactive elements (buttons, links) inside slides receive taps correctly — non-interactive areas trigger slide navigation
+- Tracking: impression, slide view, slide click, complete, close
+
+### In-App Banners & Design Rendering
+- Popup, bar, flyout, and static banners with Unlayer design rendering
+- Supported content types: image, text, heading, button, menu, carousel, divider
+- **Carousel**: swipe and tap navigation, directional slide animations, autoplay with optional loop, dot indicators or image preview strip
+- `onLinkTap` callback is **required** — apps must handle link/button navigation
+
+### App Inbox
+- Cursor-based pagination (fetch first page, load more)
+- Optimistic updates with automatic rollback on failure
+- Stale cache refresh (> 5 min threshold)
+- Lifecycle-aware: refreshes on app resume if stale
+- Silent push sync via `data["inbox_sync"] == "true"` flag
+- Message lookup by `inboxMessageId` for push-to-inbox navigation
+- Persistent cache via SharedPreferences
+- Mutation methods (`markAsRead`, `deleteMessage`, etc.) survive fragment lifecycle cancellation
+
+### Endpoint Override
+```kotlin
+// For local development with ngrok
+client.setEndpointOverride("https://your-ngrok-url.ngrok-free.app")
+// Clear override to revert to default
+client.setEndpointOverride(null)
+```
 
 ### Configuration Options
 ```kotlin

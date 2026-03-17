@@ -53,7 +53,9 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
+    implementation("androidx.lifecycle:lifecycle-process:2.6.2")
     implementation("androidx.fragment:fragment-ktx:1.6.2")
+    implementation("com.google.android.material:material:1.11.0")
 
     // Networking
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
@@ -75,7 +77,7 @@ publishing {
         create<MavenPublication>("release") {
             groupId = "ai.releva"
             artifactId = "releva-sdk"
-            version = "1.0.6"
+            version = "1.1.0"
 
             afterEvaluate {
                 from(components["release"])

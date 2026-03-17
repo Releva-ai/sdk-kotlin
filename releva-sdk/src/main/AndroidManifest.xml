@@ -22,6 +22,11 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:noHistory="true" />
+
+        <!-- Full-screen story viewer activity -->
+        <activity
+            android:name=".ui.story.StoryViewerActivity"
+            android:exported="false" />
     </application>
 
 </manifest>
