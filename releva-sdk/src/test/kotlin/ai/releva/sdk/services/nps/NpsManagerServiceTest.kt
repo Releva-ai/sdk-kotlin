@@ -23,6 +23,7 @@ class NpsManagerServiceTest {
     @Before
     fun setUp() {
         service = NpsManagerService()
+        NpsDisplayController.consumeNps()
     }
 
     @Test

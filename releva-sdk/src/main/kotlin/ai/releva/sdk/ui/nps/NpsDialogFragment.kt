@@ -73,6 +73,7 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
         showScoreStep(cfg)
 
         dialog.setContentView(contentContainer)
+        @Suppress("DEPRECATION")
         dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         return dialog
     }
