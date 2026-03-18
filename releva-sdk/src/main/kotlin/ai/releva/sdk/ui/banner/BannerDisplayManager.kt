@@ -629,6 +629,7 @@ class BannerDisplayManager(
         }
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun getDesignBodyValues(banner: BannerResponse): Map<String, Any?> {
         val design = banner.design ?: return emptyMap()
         val body = design["body"] as? Map<String, Any?> ?: return emptyMap()
