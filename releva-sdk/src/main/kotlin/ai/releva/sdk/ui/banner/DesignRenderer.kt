@@ -59,6 +59,7 @@ object DesignRenderer {
         }
     }
 
+    @Suppress("UNCHECKED_CAST")
     fun render(
         context: Context,
         design: Map<String, Any?>,
@@ -110,6 +111,7 @@ object DesignRenderer {
         return outerLayout
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun buildRow(
         context: Context,
         row: Map<String, Any?>,
@@ -161,6 +163,7 @@ object DesignRenderer {
         return wrapper
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun buildColumn(
         context: Context,
         column: Map<String, Any?>,
@@ -200,6 +203,7 @@ object DesignRenderer {
         return layout
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun buildContent(
         context: Context,
         content: Map<String, Any?>,
@@ -236,6 +240,7 @@ object DesignRenderer {
         return wrapper
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun buildImage(
         context: Context,
         values: Map<String, Any?>,
@@ -325,6 +330,7 @@ object DesignRenderer {
         }
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun buildButton(
         context: Context,
         values: Map<String, Any?>,
@@ -414,6 +420,7 @@ object DesignRenderer {
         return buttonContainer
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun buildDivider(context: Context, values: Map<String, Any?>): View {
         val border = values["border"] as? Map<String, Any?> ?: emptyMap()
         val borderTopWidth = parseDimensionRaw(border["borderTopWidth"]) ?: 1f
