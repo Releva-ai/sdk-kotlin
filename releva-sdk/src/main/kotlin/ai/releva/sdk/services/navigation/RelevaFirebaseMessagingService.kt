@@ -13,6 +13,7 @@ import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
@@ -28,6 +29,11 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    override fun onDestroy() {
+        super.onDestroy()
+        scope.cancel()
+    }
 
     /**
      * Get the main activity class for the app
@@ -195,22 +201,26 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
 
     /**
      * Load image from URL for notification, capping dimensions at 1024px to prevent OOM.
+     * Downloads bytes once, then decodes twice (bounds check + full decode) to avoid a
+     * second HTTP connection.
      */
     private fun loadImageFromUrl(imageUrl: String): android.graphics.Bitmap? {
         return try {
-            val url = java.net.URL(imageUrl)
+            // Download bytes once to avoid a second HTTP connection
+            val bytes = (java.net.URL(imageUrl).openConnection() as java.net.HttpURLConnection).run {
+                connectTimeout = 10000
+                readTimeout = 10000
+                connect()
+                val data = inputStream.readBytes()
+                disconnect()
+                data
+            }
 
             // First pass: determine image dimensions without allocating the full bitmap
             val boundsOptions = android.graphics.BitmapFactory.Options().apply {
                 inJustDecodeBounds = true
             }
-            (url.openConnection() as java.net.HttpURLConnection).also { conn ->
-                conn.connectTimeout = 10000
-                conn.readTimeout = 10000
-                conn.connect()
-                android.graphics.BitmapFactory.decodeStream(conn.inputStream, null, boundsOptions)
-                conn.disconnect()
-            }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
 
             // Calculate inSampleSize to cap the longest side at 1024px
             val maxDim = 1024
@@ -218,19 +228,11 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
             val origMax = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
             while (origMax / (sampleSize * 2) >= maxDim) sampleSize *= 2
 
-            // Second pass: decode at reduced size
+            // Second pass: decode at reduced size from the same bytes
             val decodeOptions = android.graphics.BitmapFactory.Options().apply {
                 inSampleSize = sampleSize
             }
-            (url.openConnection() as java.net.HttpURLConnection).also { conn ->
-                conn.connectTimeout = 10000
-                conn.readTimeout = 10000
-                conn.doInput = true
-                conn.connect()
-                val bitmap = android.graphics.BitmapFactory.decodeStream(conn.inputStream, null, decodeOptions)
-                conn.disconnect()
-                return bitmap
-            }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
         } catch (e: Exception) {
             Log.e(TAG, "Error loading image from URL: $imageUrl", e)
             null

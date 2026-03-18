@@ -90,13 +90,14 @@ class InboxService private constructor() : DefaultLifecycleObserver {
      */
     suspend fun refresh() {
         if (!initialized) return
+        val c = client ?: return
 
         _state.value = _state.value.copy(isLoading = true)
 
         try {
             val (messagesResult, unreadCount) = coroutineScope {
-                val messagesDeferred = async(Dispatchers.IO) { client!!.inboxFetchMessages(limit = 20) }
-                val countDeferred = async(Dispatchers.IO) { client!!.inboxFetchUnreadCount() }
+                val messagesDeferred = async(Dispatchers.IO) { c.inboxFetchMessages(limit = 20) }
+                val countDeferred = async(Dispatchers.IO) { c.inboxFetchUnreadCount() }
                 messagesDeferred.await() to countDeferred.await()
             }
 
@@ -125,32 +126,35 @@ class InboxService private constructor() : DefaultLifecycleObserver {
      * Fetch next page using nextCursor and append to list.
      */
     suspend fun loadMore() {
-        val currentState = _state.value
-        if (!initialized || currentState.isLoading || !currentState.hasMore) return
+        stateMutex.withLock {
+            val currentState = _state.value
+            if (!initialized || currentState.isLoading || !currentState.hasMore) return
+            val c = client ?: return
 
-        _state.value = currentState.copy(isLoading = true)
+            _state.value = currentState.copy(isLoading = true)
 
-        try {
-            val result = withContext(Dispatchers.IO) {
-                client!!.inboxFetchMessages(limit = 20, cursor = currentState.nextCursor)
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    c.inboxFetchMessages(limit = 20, cursor = currentState.nextCursor)
+                }
+
+                @Suppress("UNCHECKED_CAST")
+                val newMessages = (result["messages"] as? List<Map<String, Any?>>)
+                    ?.map { InboxMessage.fromMap(it) } ?: emptyList()
+                val nextCursor = result["nextCursor"] as? String
+
+                _state.value = _state.value.copy(
+                    messages = _state.value.messages + newMessages,
+                    nextCursor = nextCursor,
+                    isLoading = false,
+                    hasMore = nextCursor != null
+                )
+
+                persistState()
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(isLoading = false)
+                Log.e(TAG, "Error loading more inbox messages: ${e.message}")
             }
-
-            @Suppress("UNCHECKED_CAST")
-            val newMessages = (result["messages"] as? List<Map<String, Any?>>)
-                ?.map { InboxMessage.fromMap(it) } ?: emptyList()
-            val nextCursor = result["nextCursor"] as? String
-
-            _state.value = _state.value.copy(
-                messages = _state.value.messages + newMessages,
-                nextCursor = nextCursor,
-                isLoading = false,
-                hasMore = nextCursor != null
-            )
-
-            persistState()
-        } catch (e: Exception) {
-            _state.value = _state.value.copy(isLoading = false)
-            Log.e(TAG, "Error loading more inbox messages: ${e.message}")
         }
     }
 

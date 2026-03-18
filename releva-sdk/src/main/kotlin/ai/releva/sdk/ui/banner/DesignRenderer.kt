@@ -27,12 +27,29 @@ object DesignRenderer {
     private fun loadImageAsync(url: String, imageView: ImageView) {
         imageExecutor.execute {
             try {
-                val connection = URL(url).openConnection()
-                connection.connectTimeout = 10000
-                connection.readTimeout = 10000
-                val inputStream = connection.getInputStream()
-                val bitmap = BitmapFactory.decodeStream(inputStream)
-                inputStream.close()
+                // Download bytes once to support two-pass decode without a second HTTP connection
+                val bytes = URL(url).openConnection().run {
+                    connectTimeout = 10000
+                    readTimeout = 10000
+                    connect()
+                    val data = getInputStream().readBytes()
+                    data
+                }
+
+                // First pass: get image dimensions without allocating a full bitmap
+                val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
+
+                // Cap longest side at 1024px
+                val maxDim = 1024
+                var sampleSize = 1
+                val origMax = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
+                while (origMax / (sampleSize * 2) >= maxDim) sampleSize *= 2
+
+                // Second pass: decode at reduced size
+                val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
+
                 if (bitmap != null) {
                     mainHandler.post { imageView.setImageBitmap(bitmap) }
                 }
@@ -715,6 +732,13 @@ object DesignRenderer {
                 }
             }
             handler.postDelayed(autoplayRunnable, 3000)
+            // Cancel autoplay when the view is detached to prevent leaks and null-pointer crashes
+            flipper.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) {}
+                override fun onViewDetachedFromWindow(v: View) {
+                    handler.removeCallbacks(autoplayRunnable)
+                }
+            })
         }
 
         return rootLayout

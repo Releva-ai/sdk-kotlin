@@ -783,6 +783,7 @@ class RelevaClient(
             val newSessionId = UUID.randomUUID().toString()
             storage.setSessionId(newSessionId)
             storage.setSessionTimestamp(System.currentTimeMillis())
+            npsManager.startNewSession()
             newSessionId
         } else {
             savedSessionId

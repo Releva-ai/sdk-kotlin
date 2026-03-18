@@ -25,6 +25,16 @@ class NavigationService private constructor() {
                 instance ?: NavigationService().also { instance = it }
             }
         }
+
+        // Shared client — expensive to create (thread pool + connection pool)
+        private val httpClient: okhttp3.OkHttpClient by lazy {
+            okhttp3.OkHttpClient.Builder()
+                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build()
+        }
     }
 
     /**
@@ -124,6 +134,11 @@ class NavigationService private constructor() {
     private fun handleUrlNavigation(context: Context, url: String?): Boolean {
         if (url.isNullOrEmpty()) {
             Log.w(TAG, "No URL provided for navigation")
+            return false
+        }
+
+        if (!url.startsWith("https://") && !url.startsWith("http://")) {
+            Log.w(TAG, "Rejecting non-http(s) URL from push notification: $url")
             return false
         }
 
@@ -248,19 +263,12 @@ class NavigationService private constructor() {
 
         Thread {
             try {
-                val client = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    .followRedirects(true)
-                    .followSslRedirects(true)
-                    .build()
-
                 val request = okhttp3.Request.Builder()
                     .url(callbackUrl)
                     .get()
                     .build()
 
-                val response = client.newCall(request).execute()
+                val response = httpClient.newCall(request).execute()
                 Log.d(TAG, "Track click response: ${response.code} (redirected=${response.priorResponse != null})")
                 response.close()
             } catch (e: Exception) {
