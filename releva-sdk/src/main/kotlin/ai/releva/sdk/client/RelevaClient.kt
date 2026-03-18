@@ -508,7 +508,7 @@ class RelevaClient(
     }
 
     private fun getInboxUrl(endpoint: String): String {
-        return "${getEndpoint()}/api/v0/inbox/$accessToken/$endpoint"
+        return "${getEndpoint()}/api/v0/inbox/$endpoint"
     }
 
     override suspend fun inboxFetchMessages(limit: Int, cursor: String?): Map<String, Any?> = withContext(Dispatchers.IO) {
@@ -522,6 +522,7 @@ class RelevaClient(
 
         val request = Request.Builder()
             .url(url)
+            .addHeader("Authorization", "Bearer $accessToken")
             .get()
             .build()
 
@@ -543,6 +544,7 @@ class RelevaClient(
 
         val request = Request.Builder()
             .url(url)
+            .addHeader("Authorization", "Bearer $accessToken")
             .get()
             .build()
 
@@ -561,7 +563,7 @@ class RelevaClient(
         val userId = storage.getProfileId() ?: return@withContext
 
         val body = JSONObject().apply { put("userId", userId) }
-        val response = executeRequest("/api/v0/inbox/$accessToken/messages/$messageId/read", body)
+        val response = executeRequest("/api/v0/inbox/messages/$messageId/read", body)
 
         if (response.code != 202) {
             throw Exception("Mark read failed: ${response.code}")
@@ -572,7 +574,7 @@ class RelevaClient(
         val userId = storage.getProfileId() ?: return@withContext
 
         val body = JSONObject().apply { put("userId", userId) }
-        val response = executeRequest("/api/v0/inbox/$accessToken/messages/read-all", body)
+        val response = executeRequest("/api/v0/inbox/messages/read-all", body)
 
         if (response.code != 202) {
             throw Exception("Mark all read failed: ${response.code}")
@@ -587,8 +589,9 @@ class RelevaClient(
         val requestBody = body.toString().toRequestBody(mediaType)
 
         val request = Request.Builder()
-            .url("${getEndpoint()}/api/v0/inbox/$accessToken/messages/$messageId")
+            .url("${getEndpoint()}/api/v0/inbox/messages/$messageId")
             .addHeader("Content-Type", "application/json")
+            .addHeader("Authorization", "Bearer $accessToken")
             .delete(requestBody)
             .build()
 
@@ -605,7 +608,7 @@ class RelevaClient(
             put("userId", userId)
             put("devicePlatform", "android")
         }
-        executeRequest("/api/v0/inbox/$accessToken/messages/$messageId/action", body)
+        executeRequest("/api/v0/inbox/messages/$messageId/action", body)
         Unit
     }
 
