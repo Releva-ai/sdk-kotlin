@@ -23,16 +23,27 @@ class NotificationTrampolineActivity : Activity() {
         const val EXTRA_TARGET = "target"
         const val EXTRA_NAVIGATE_TO_SCREEN = "navigate_to_screen"
         const val EXTRA_NAVIGATE_TO_PARAMETERS = "navigate_to_parameters"
+        const val EXTRA_NAVIGATE_TO_INBOX = "navigate_to_inbox"
+
+        // Shared client — expensive to create (thread pool + connection pool)
+        private val httpClient: okhttp3.OkHttpClient by lazy {
+            okhttp3.OkHttpClient.Builder()
+                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val uri = intent.data
-        Log.e(TAG, "Trampoline activity started, uri=$uri")
+        Log.d(TAG, "Trampoline activity started, uri=$uri")
 
         if (uri == null) {
-            Log.e(TAG, "No data URI — nothing to do")
+            Log.d(TAG, "No data URI — nothing to do")
             finish()
             return
         }
@@ -46,7 +57,7 @@ class NotificationTrampolineActivity : Activity() {
         val navigateToScreen = uri.getQueryParameter("nav_screen")
         val navigateToParameters = uri.getQueryParameter("nav_params")
 
-        Log.e(TAG, "nid=$notificationId target=$target callbackUrl=$callbackUrl")
+        Log.d(TAG, "nid=$notificationId target=$target callbackUrl=$callbackUrl")
 
         // Dismiss notification
         if (notificationId != -1) {
@@ -73,6 +84,22 @@ class NotificationTrampolineActivity : Activity() {
                         startActivity(urlIntent)
                     } catch (e: Exception) {
                         Log.e(TAG, "Error opening URL: $navigateToUrl", e)
+                    }
+                }
+            }
+            "inbox" -> {
+                Log.d(TAG, "Opening inbox in activity: $activityClassName")
+                if (!activityClassName.isNullOrEmpty()) {
+                    try {
+                        val activityClass = Class.forName(activityClassName)
+                        val appIntent = Intent(this, activityClass).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            putExtra(EXTRA_TARGET, "inbox")
+                            putExtra(EXTRA_NAVIGATE_TO_INBOX, true)
+                        }
+                        startActivity(appIntent)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error opening app for inbox navigation", e)
                     }
                 }
             }
@@ -113,24 +140,17 @@ class NotificationTrampolineActivity : Activity() {
     }
 
     private fun trackNotificationClick(callbackUrl: String) {
-        Log.e(TAG, "Tracking notification click: $callbackUrl")
+        Log.d(TAG, "Tracking notification click: $callbackUrl")
 
         Thread {
             try {
-                val client = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    .followRedirects(true)
-                    .followSslRedirects(true)
-                    .build()
-
                 val request = okhttp3.Request.Builder()
                     .url(callbackUrl)
                     .get()
                     .build()
 
-                val response = client.newCall(request).execute()
-                Log.e(TAG, "Track click response: ${response.code} (redirected=${response.priorResponse != null})")
+                val response = httpClient.newCall(request).execute()
+                Log.d(TAG, "Track click response: ${response.code} (redirected=${response.priorResponse != null})")
                 response.close()
             } catch (e: Exception) {
                 Log.e(TAG, "Error tracking notification click", e)

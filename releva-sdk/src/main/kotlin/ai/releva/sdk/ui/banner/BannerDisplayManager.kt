@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
 class BannerDisplayManager(
     private val client: RelevaClient,
     private val targetSelector: String,
-    private val onLinkTap: ((String) -> Unit)? = null
+    private val onLinkTap: (String) -> Unit
 ) {
     private val displayedBanners = mutableMapOf<String, BannerResponse>()
     private val activeDialogs = mutableListOf<Dialog>()

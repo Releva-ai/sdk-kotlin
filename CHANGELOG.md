@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.1.0
+
+### New Features
+
+- **NPS Surveys**: Full NPS survey support with trigger evaluation, customEvent/cancelOnEvents client-side logic, submission API with retry, and built-in bottom sheet/modal UI (`NpsDialogFragment`).
+- **Stories**: Instagram/Facebook-style story viewer with progress bars, tap navigation (left half = previous, right half = next), auto-advance, end behaviors (dismiss/loop/stayOnLast), and DesignRenderer-based slide rendering (`StoryViewerActivity`). Trigger types: immediately, delaySeconds, scrollPercentage, cartChanged, wishlistChanged. Interactive elements (buttons, links) inside slides receive taps correctly.
+- **App Inbox**: Full inbox service with cursor-based pagination, optimistic updates with rollback, stale cache refresh (5 min), lifecycle-aware refresh on app resume, silent push sync (`inbox_sync` flag), and message lookup by ID. API methods: fetch messages, unread count, mark read, mark all read, delete, track action.
+- **Carousel**: `DesignRenderer` now supports carousel content blocks with swipe navigation, left/right tap navigation, directional slide animations, autoplay with optional loop, and dot indicators or image preview strip.
+- **Endpoint Override**: `setEndpointOverride(url)` on `RelevaClient` for local development with ngrok or custom endpoints.
+- **RelevaConfig.enableInbox**: New config flag (default true) to enable/disable inbox feature.
+
+### Breaking Changes
+
+- **`BannerDisplayManager`**: `onLinkTap` is now a required constructor parameter (previously optional). Apps must provide a callback for handling link/button taps from banner content.
+- **`StoryDisplayManager`**: `setOnLinkTap()` must be called before `attach()` (throws `IllegalArgumentException` otherwise).
+
+### Changes
+
+- `RelevaResponse` now includes `stories`, `nps`, and related helper methods (`hasStories`, `getStoriesByTag`, `getStoryByToken`).
+- `RelevaClient` implements `InboxApiClient` interface and includes NPS (`trackEvent`, `submitNpsResponse`, `dispose`) and story tracking (`storyImpression`, `storyAction`) methods.
+- `RelevaFirebaseMessagingService` handles silent push messages with `inbox_sync` flag — refreshes inbox and still displays the notification.
+- `NotificationTrampolineActivity` handles `target=inbox` notifications by mapping to screen navigation.
+- `InboxService` mutation methods (`markAsRead`, `markAllAsRead`, `deleteMessage`, `trackAction`) run on the service's own coroutine scope to survive fragment lifecycle cancellation.
+- `InboxService` lifecycle observer registers on the main thread.
+- Added `lifecycle-process` and `material` dependencies.
+
 ## 1.0.6
 
 - Add banners support

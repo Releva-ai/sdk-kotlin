@@ -3,26 +3,27 @@ package ai.releva.sdk.types.response
 import org.json.JSONObject
 
 /**
- * Response from Releva API containing recommenders and banners
- *
- * @property recommenders List of product recommenders
- * @property banners List of banners
- * @property push Push notification information
+ * Response from Releva API containing recommenders, banners, stories, and NPS config
  */
 data class RelevaResponse(
     val recommenders: List<RecommenderResponse>,
     val banners: List<BannerResponse>,
-    val push: PushInfo? = null
+    val stories: List<StoryResponse> = emptyList(),
+    val push: PushInfo? = null,
+    val nps: NpsConfig? = null
 ) {
     companion object {
+        @Suppress("UNCHECKED_CAST")
         fun fromMap(map: Map<String, Any?>): RelevaResponse {
-            @Suppress("UNCHECKED_CAST")
             return RelevaResponse(
                 recommenders = (map["recommenders"] as? List<Map<String, Any?>>)
                     ?.map { RecommenderResponse.fromMap(it) } ?: emptyList(),
                 banners = (map["banners"] as? List<Map<String, Any?>>)
                     ?.map { BannerResponse.fromMap(it) } ?: emptyList(),
-                push = (map["push"] as? Map<String, Any?>)?.let { PushInfo.fromMap(it) }
+                stories = (map["stories"] as? List<Map<String, Any?>>)
+                    ?.map { StoryResponse.fromMap(it) } ?: emptyList(),
+                push = (map["push"] as? Map<String, Any?>)?.let { PushInfo.fromMap(it) },
+                nps = (map["nps"] as? Map<String, Any?>)?.let { NpsConfig.fromMap(it) }
             )
         }
 
@@ -31,7 +32,7 @@ data class RelevaResponse(
             return fromMap(jsonObjectToMap(jsonObject))
         }
 
-        private fun jsonObjectToMap(jsonObject: JSONObject): Map<String, Any?> {
+        fun jsonObjectToMap(jsonObject: JSONObject): Map<String, Any?> {
             val map = mutableMapOf<String, Any?>()
             val keys = jsonObject.keys()
             while (keys.hasNext()) {
@@ -62,50 +63,24 @@ data class RelevaResponse(
         }
     }
 
-    /**
-     * Check if there are any recommenders available
-     */
-    val hasRecommenders: Boolean
-        get() = recommenders.isNotEmpty()
+    val hasRecommenders: Boolean get() = recommenders.isNotEmpty()
+    val hasBanners: Boolean get() = banners.isNotEmpty()
+    val hasStories: Boolean get() = stories.isNotEmpty()
 
-    /**
-     * Check if there are any banners available
-     */
-    val hasBanners: Boolean
-        get() = banners.isNotEmpty()
+    fun getRecommendersByTag(tag: String) = recommenders.filter { it.tags?.contains(tag) == true }
+    fun getBannersByTag(tag: String) = banners.filter { it.tags?.contains(tag) == true }
+    fun getStoriesByTag(tag: String) = stories.filter { it.tags?.contains(tag) == true }
 
-    /**
-     * Get recommenders by tag
-     */
-    fun getRecommendersByTag(tag: String): List<RecommenderResponse> {
-        return recommenders.filter { it.tags?.contains(tag) == true }
-    }
-
-    /**
-     * Get banners by tag
-     */
-    fun getBannersByTag(tag: String): List<BannerResponse> {
-        return banners.filter { it.tags?.contains(tag) == true }
-    }
-
-    /**
-     * Get recommender by token
-     */
-    fun getRecommenderByToken(token: String): RecommenderResponse? {
-        return recommenders.firstOrNull { it.token == token }
-    }
-
-    /**
-     * Get banner by token
-     */
-    fun getBannerByToken(token: String): BannerResponse? {
-        return banners.firstOrNull { it.token == token }
-    }
+    fun getRecommenderByToken(token: String) = recommenders.firstOrNull { it.token == token }
+    fun getBannerByToken(token: String) = banners.firstOrNull { it.token == token }
+    fun getStoryByToken(token: String) = stories.firstOrNull { it.token == token }
 
     fun toMap(): Map<String, Any?> = mapOf(
         "recommenders" to recommenders.map { it.toMap() },
         "banners" to banners.map { it.toMap() },
-        "push" to push?.toMap()
+        "stories" to stories.map { it.toMap() },
+        "push" to push?.toMap(),
+        "nps" to nps?.toMap()
     )
 }
 

@@ -2,6 +2,9 @@ package ai.releva.sdk.client
 
 import ai.releva.sdk.config.RelevaConfig
 import ai.releva.sdk.services.engagement.EngagementTrackingService
+import ai.releva.sdk.services.inbox.InboxApiClient
+import ai.releva.sdk.services.inbox.InboxService
+import ai.releva.sdk.services.nps.NpsManagerService
 import ai.releva.sdk.services.storage.StorageService
 import ai.releva.sdk.types.cart.Cart
 import ai.releva.sdk.types.cart.CartProduct
@@ -10,6 +13,7 @@ import ai.releva.sdk.types.device.DeviceType
 import ai.releva.sdk.types.filter.AbstractFilter
 import ai.releva.sdk.types.response.BannerResponse
 import ai.releva.sdk.types.response.RelevaResponse
+import ai.releva.sdk.types.response.StoryResponse
 import ai.releva.sdk.types.tracking.*
 import ai.releva.sdk.types.product.ViewedProduct
 import ai.releva.sdk.types.wishlist.WishlistProduct
@@ -23,6 +27,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.*
 import java.util.concurrent.TimeUnit
 
@@ -38,7 +43,7 @@ class RelevaClient(
     private val realm: String,
     private val accessToken: String,
     private val config: RelevaConfig = RelevaConfig.full()
-) {
+) : InboxApiClient {
     private val storage = StorageService.getInstance(context)
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -55,13 +60,29 @@ class RelevaClient(
     private var cartInitialized = false
     private var wishlistInitialized = false
 
+    private var endpointOverride: String? = null
+
+    private val npsManager = NpsManagerService()
+
     var engagementTrackingService: EngagementTrackingService? = null
         private set
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "0.0.1-kotlin"
+        private const val VERSION = "1.1.0-kotlin"
         private const val SESSION_DURATION_MS = 24 * 3600 * 1000L // 1 day
+    }
+
+    /**
+     * Override the API endpoint URL. When set, all API calls use this URL
+     * instead of the realm-based default (e.g. for local development with ngrok).
+     * Pass null to clear the override and revert to the default.
+     */
+    fun setEndpointOverride(url: String?) {
+        if (url != null && !url.startsWith("https://")) {
+            Log.w(TAG, "Endpoint override uses insecure scheme — use https:// in production")
+        }
+        endpointOverride = url
     }
 
     /**
@@ -370,7 +391,226 @@ class RelevaClient(
         deviceIdChanged = false
         mergeProfileIds.clear()
 
-        RelevaResponse.fromJson(response.body)
+        val relevaResponse = RelevaResponse.fromJson(response.body)
+
+        // Initialize NPS manager with the config from this response
+        npsManager.initialize(relevaResponse.nps)
+
+        relevaResponse
+    }
+
+    // -- NPS methods --
+
+    /**
+     * Notify the SDK of a named app event. Used for:
+     * - Firing NPS customEvent triggers (e.g. "checkout_complete")
+     * - Cancelling pending NPS surveys via cancelOnEvents (e.g. "checkout_started")
+     */
+    fun trackEvent(eventName: String) {
+        npsManager.trackEvent(eventName)
+    }
+
+    /**
+     * Submits an NPS survey response to the server.
+     * Failures are swallowed with one retry — the thank-you screen is shown
+     * regardless of network outcome (per spec).
+     */
+    suspend fun submitNpsResponse(
+        token: String,
+        score: Int,
+        comment: String? = null
+    ) = withContext(Dispatchers.IO) {
+        require(score in 0..10) { "NPS score must be 0-10" }
+
+        val body = JSONObject().apply {
+            put("profileId", storage.getProfileId())
+            put("deviceId", storage.getDeviceId())
+            put("sessionId", getSessionId())
+            put("score", score)
+            if (!comment.isNullOrEmpty()) put("comment", comment)
+        }
+
+        suspend fun doPost() {
+            val encodedToken = URLEncoder.encode(token, "UTF-8")
+            val response = executeRequest("/api/v0/nps/$encodedToken/submissions", body)
+            if (response.code != 202) {
+                throw Exception("NPS submit error: ${response.code} - ${response.body}")
+            }
+        }
+
+        try {
+            doPost()
+        } catch (e: Exception) {
+            // One silent retry
+            try {
+                doPost()
+            } catch (retryError: Exception) {
+                Log.d(TAG, "NPS submission failed (silent): $retryError")
+            }
+        }
+    }
+
+    /**
+     * Releases resources held by this client.
+     */
+    fun dispose() {
+        npsManager.dispose()
+    }
+
+    // -- Story tracking methods --
+
+    /**
+     * Track story impression
+     */
+    suspend fun storyImpression(story: StoryResponse) {
+        storyAction(story, action = "storyImpression")
+    }
+
+    /**
+     * Track story action (impression, slide view, click, complete, close)
+     */
+    suspend fun storyAction(
+        story: StoryResponse,
+        action: String,
+        slideId: Any? = null
+    ) = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("deviceId", storage.getDeviceId())
+            put("profileId", storage.getProfileId())
+            put("sessionId", getSessionId())
+            put("action", action)
+            put("attributions", JSONObject().apply {
+                put("storyId", story.token)
+                slideId?.let { put("slideId", it.toString()) }
+            })
+        }
+
+        val response = executeRequest("/api/v0/push/events", body)
+
+        if (response.code != 202) {
+            throw Exception("Story Event ($action) API error: ${response.code} - ${response.body}")
+        }
+    }
+
+    // -- Inbox methods --
+
+    /**
+     * Access the inbox service.
+     */
+    val inbox: InboxService get() = InboxService.instance
+
+    /**
+     * Initialize the inbox service. Call after setProfileId().
+     */
+    suspend fun initializeInbox() {
+        if (!config.enableInbox) return
+        InboxService.instance.initialize(client = this, storage = storage)
+        InboxService.instance.refreshIfStale()
+    }
+
+    private fun getInboxUrl(endpoint: String): String {
+        return "${getEndpoint()}/api/v0/inbox/$endpoint"
+    }
+
+    override suspend fun inboxFetchMessages(limit: Int, cursor: String?): Map<String, Any?> = withContext(Dispatchers.IO) {
+        val userId = storage.getProfileId()
+            ?: throw Exception("userId not set — call setProfileId first")
+
+        var url = "${getInboxUrl("messages")}?userId=${URLEncoder.encode(userId, "UTF-8")}&limit=$limit"
+        if (cursor != null) {
+            url += "&cursor=${URLEncoder.encode(cursor, "UTF-8")}"
+        }
+
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .get()
+            .build()
+
+        val response = httpClient.newCall(request).execute()
+        val responseBody = response.body?.string() ?: ""
+
+        if (response.code != 200) {
+            throw Exception("List messages API error: ${response.code} - $responseBody")
+        }
+
+        RelevaResponse.jsonObjectToMap(JSONObject(responseBody))
+    }
+
+    override suspend fun inboxFetchUnreadCount(): Int = withContext(Dispatchers.IO) {
+        val userId = storage.getProfileId()
+            ?: throw Exception("userId not set — call setProfileId first")
+
+        val url = "${getInboxUrl("unread-count")}?userId=${URLEncoder.encode(userId, "UTF-8")}"
+
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .get()
+            .build()
+
+        val response = httpClient.newCall(request).execute()
+        val responseBody = response.body?.string() ?: ""
+
+        if (response.code != 200) {
+            throw Exception("Unread count API error: ${response.code} - $responseBody")
+        }
+
+        val data = JSONObject(responseBody)
+        data.optInt("count", 0)
+    }
+
+    override suspend fun inboxMarkAsRead(messageId: String) = withContext(Dispatchers.IO) {
+        val userId = storage.getProfileId() ?: return@withContext
+
+        val body = JSONObject().apply { put("userId", userId) }
+        val response = executeRequest("/api/v0/inbox/messages/$messageId/read", body)
+
+        if (response.code != 202) {
+            throw Exception("Mark read failed: ${response.code}")
+        }
+    }
+
+    override suspend fun inboxMarkAllAsRead() = withContext(Dispatchers.IO) {
+        val userId = storage.getProfileId() ?: return@withContext
+
+        val body = JSONObject().apply { put("userId", userId) }
+        val response = executeRequest("/api/v0/inbox/messages/read-all", body)
+
+        if (response.code != 202) {
+            throw Exception("Mark all read failed: ${response.code}")
+        }
+    }
+
+    override suspend fun inboxDeleteMessage(messageId: String) = withContext(Dispatchers.IO) {
+        val userId = storage.getProfileId() ?: return@withContext
+
+        val body = JSONObject().apply { put("userId", userId) }
+        val mediaType = "application/json; charset=utf-8".toMediaType()
+        val requestBody = body.toString().toRequestBody(mediaType)
+
+        val request = Request.Builder()
+            .url("${getEndpoint()}/api/v0/inbox/messages/$messageId")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Authorization", "Bearer $accessToken")
+            .delete(requestBody)
+            .build()
+
+        val response = httpClient.newCall(request).execute()
+        if (response.code != 204) {
+            throw Exception("Delete failed: ${response.code}")
+        }
+    }
+
+    override suspend fun inboxTrackAction(messageId: String) = withContext(Dispatchers.IO) {
+        val userId = storage.getProfileId() ?: return@withContext
+
+        val body = JSONObject().apply {
+            put("userId", userId)
+            put("devicePlatform", "android")
+        }
+        executeRequest("/api/v0/inbox/messages/$messageId/action", body)
+        Unit
     }
 
     /**
@@ -543,6 +783,7 @@ class RelevaClient(
             val newSessionId = UUID.randomUUID().toString()
             storage.setSessionId(newSessionId)
             storage.setSessionTimestamp(System.currentTimeMillis())
+            npsManager.startNewSession()
             newSessionId
         } else {
             savedSessionId
@@ -553,6 +794,7 @@ class RelevaClient(
      * Get API endpoint
      */
     private fun getEndpoint(): String {
+        endpointOverride?.let { return it }
         return if (realm.isNotEmpty()) {
             "https://$realm.releva.ai"
         } else {

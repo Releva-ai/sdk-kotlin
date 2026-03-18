@@ -25,6 +25,16 @@ class NavigationService private constructor() {
                 instance ?: NavigationService().also { instance = it }
             }
         }
+
+        // Shared client — expensive to create (thread pool + connection pool)
+        private val httpClient: okhttp3.OkHttpClient by lazy {
+            okhttp3.OkHttpClient.Builder()
+                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build()
+        }
     }
 
     /**
@@ -52,30 +62,37 @@ class NavigationService private constructor() {
      * @return true if navigation was handled, false otherwise
      */
     fun handleNotificationNavigation(context: Context, intent: Intent): Boolean {
-        val target = intent.getStringExtra("target")
+        val target = intent.getStringExtra("target") ?: return false
 
         Log.d(TAG, "Handling notification navigation with target: $target")
 
-        // Track callback URL (notification was tapped)
+        // Extract all notification data before clearing the intent
         val callbackUrl = intent.getStringExtra("callbackUrl")
+        val fromActionButton = intent.getBooleanExtra("from_action_button", false)
+        val notificationId = intent.getIntExtra("notification_id", -1)
+        val screenName = intent.getStringExtra("navigate_to_screen")
+        val parametersJson = intent.getStringExtra("navigate_to_parameters")
+        val navigateToUrl = intent.getStringExtra("navigate_to_url")
+
+        // Clear notification extras immediately so they aren't re-processed
+        // on activity recreation (rotation, back+forward, etc.)
+        clearNotificationExtras(intent)
+
+        // Track callback URL (notification was tapped)
         if (!callbackUrl.isNullOrEmpty()) {
             trackNotificationClick(callbackUrl)
         }
 
         // Check if this came from action button and dismiss notification
-        val fromActionButton = intent.getBooleanExtra("from_action_button", false)
-        if (fromActionButton) {
-            val notificationId = intent.getIntExtra("notification_id", -1)
-            if (notificationId != -1) {
-                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-                notificationManager.cancel(notificationId)
-                Log.d(TAG, "Dismissed notification from action button: $notificationId")
-            }
+        if (fromActionButton && notificationId != -1) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            notificationManager.cancel(notificationId)
+            Log.d(TAG, "Dismissed notification from action button: $notificationId")
         }
 
         return when (target) {
-            "screen" -> handleScreenNavigation(intent)
-            "url" -> handleUrlNavigation(context, intent)
+            "screen" -> handleScreenNavigation(screenName, parametersJson)
+            "url" -> handleUrlNavigation(context, navigateToUrl)
             else -> {
                 Log.d(TAG, "No specific navigation target")
                 false
@@ -86,15 +103,12 @@ class NavigationService private constructor() {
     /**
      * Handle screen navigation
      */
-    private fun handleScreenNavigation(intent: Intent): Boolean {
+    private fun handleScreenNavigation(screenName: String?, parametersJson: String?): Boolean {
         val handler = navigationHandler
         if (handler == null) {
             Log.w(TAG, "NavigationHandler not set. Call setNavigationHandler() during app initialization.")
             return false
         }
-
-        val screenName = intent.getStringExtra("navigate_to_screen")
-        val parametersJson = intent.getStringExtra("navigate_to_parameters")
 
         if (screenName.isNullOrEmpty()) {
             Log.w(TAG, "No screen name provided for navigation")
@@ -117,11 +131,14 @@ class NavigationService private constructor() {
     /**
      * Handle URL navigation
      */
-    private fun handleUrlNavigation(context: Context, intent: Intent): Boolean {
-        val url = intent.getStringExtra("navigate_to_url")
-
+    private fun handleUrlNavigation(context: Context, url: String?): Boolean {
         if (url.isNullOrEmpty()) {
             Log.w(TAG, "No URL provided for navigation")
+            return false
+        }
+
+        if (!url.startsWith("https://") && !url.startsWith("http://")) {
+            Log.w(TAG, "Rejecting non-http(s) URL from push notification: $url")
             return false
         }
 
@@ -136,6 +153,20 @@ class NavigationService private constructor() {
             Log.e(TAG, "Error opening URL: $url", e)
             return false
         }
+    }
+
+    /**
+     * Clear notification-related extras from the intent to prevent
+     * re-processing on activity recreation (rotation, back navigation, etc.)
+     */
+    private fun clearNotificationExtras(intent: Intent) {
+        intent.removeExtra("target")
+        intent.removeExtra("callbackUrl")
+        intent.removeExtra("from_action_button")
+        intent.removeExtra("notification_id")
+        intent.removeExtra("navigate_to_screen")
+        intent.removeExtra("navigate_to_parameters")
+        intent.removeExtra("navigate_to_url")
     }
 
     /**
@@ -232,19 +263,12 @@ class NavigationService private constructor() {
 
         Thread {
             try {
-                val client = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    .followRedirects(true)
-                    .followSslRedirects(true)
-                    .build()
-
                 val request = okhttp3.Request.Builder()
                     .url(callbackUrl)
                     .get()
                     .build()
 
-                val response = client.newCall(request).execute()
+                val response = httpClient.newCall(request).execute()
                 Log.d(TAG, "Track click response: ${response.code} (redirected=${response.priorResponse != null})")
                 response.close()
             } catch (e: Exception) {
