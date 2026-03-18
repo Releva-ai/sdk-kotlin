@@ -13,25 +13,29 @@ data class InboxMessage(
     val id: String,
     val title: String,
     val design: Map<String, Any?>,
-    var read: Boolean,
+    val read: Boolean,
     val createdAt: Date,
     val inboxMessageId: Int
 ) {
     companion object {
-        private val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
+        private val isoFormat = ThreadLocal.withInitial {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
         }
 
-        private val isoFormatNoMs = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
+        private val isoFormatNoMs = ThreadLocal.withInitial {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
         }
 
         private fun parseDate(dateStr: String): Date {
             return try {
-                isoFormat.parse(dateStr) ?: Date()
+                isoFormat.get()!!.parse(dateStr) ?: Date()
             } catch (e: Exception) {
                 try {
-                    isoFormatNoMs.parse(dateStr) ?: Date()
+                    isoFormatNoMs.get()!!.parse(dateStr) ?: Date()
                 } catch (e2: Exception) {
                     Date()
                 }
@@ -56,7 +60,7 @@ data class InboxMessage(
         "title" to title,
         "design" to design,
         "read" to read,
-        "createdAt" to isoFormat.format(createdAt),
+        "createdAt" to isoFormat.get()!!.format(createdAt),
         "inboxMessageId" to inboxMessageId
     )
 }

@@ -8,7 +8,6 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.text.Html
-import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -22,7 +21,7 @@ import java.util.concurrent.Executors
  */
 object DesignRenderer {
 
-    private val imageExecutor = Executors.newCachedThreadPool()
+    private val imageExecutor = Executors.newFixedThreadPool(4)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private fun loadImageAsync(url: String, imageView: ImageView) {
@@ -366,12 +365,8 @@ object DesignRenderer {
                 setPadding((20 * dp).toInt(), (10 * dp).toInt(), (20 * dp).toInt(), (10 * dp).toInt())
             }
             addView(textView)
-            Log.d("DesignRenderer", "Button '$text': url='$url', onLinkTap=${onLinkTap != null}")
             if (url.isNotEmpty() && onLinkTap != null) {
-                setOnClickListener {
-                    Log.d("DesignRenderer", "Button clicked! url=$url")
-                    onLinkTap(url)
-                }
+                setOnClickListener { onLinkTap(url) }
             }
         }
 

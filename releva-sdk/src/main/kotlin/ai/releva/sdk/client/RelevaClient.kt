@@ -481,6 +481,7 @@ class RelevaClient(
             put("action", action)
             put("attributions", JSONObject().apply {
                 put("storyId", story.token)
+                slideId?.let { put("slideId", it.toString()) }
             })
         }
 

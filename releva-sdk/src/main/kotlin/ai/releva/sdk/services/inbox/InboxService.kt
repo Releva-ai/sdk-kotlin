@@ -10,10 +10,14 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -43,6 +47,7 @@ class InboxService private constructor() : DefaultLifecycleObserver {
     val state: StateFlow<InboxState> = _state.asStateFlow()
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val stateMutex = Mutex()
 
     /**
      * Initialize with a client reference and storage service.
@@ -89,8 +94,11 @@ class InboxService private constructor() : DefaultLifecycleObserver {
         _state.value = _state.value.copy(isLoading = true)
 
         try {
-            val messagesResult = withContext(Dispatchers.IO) { client!!.inboxFetchMessages(limit = 20) }
-            val unreadCount = withContext(Dispatchers.IO) { client!!.inboxFetchUnreadCount() }
+            val (messagesResult, unreadCount) = coroutineScope {
+                val messagesDeferred = async(Dispatchers.IO) { client!!.inboxFetchMessages(limit = 20) }
+                val countDeferred = async(Dispatchers.IO) { client!!.inboxFetchUnreadCount() }
+                messagesDeferred.await() to countDeferred.await()
+            }
 
             @Suppress("UNCHECKED_CAST")
             val messagesList = (messagesResult["messages"] as? List<Map<String, Any?>>)
@@ -152,31 +160,35 @@ class InboxService private constructor() : DefaultLifecycleObserver {
     fun markAsRead(messageId: String) {
         if (!initialized) return
 
-        val currentState = _state.value
-        val index = currentState.messages.indexOfFirst { it.id == messageId }
-        if (index == -1) return
-
-        val message = currentState.messages[index]
-        if (message.read) return
-
-        // Snapshot for rollback
-        val originalRead = message.read
-        val originalCount = currentState.unreadCount
-
-        // Optimistic update
-        message.read = true
-        _state.value = currentState.copy(
-            unreadCount = (currentState.unreadCount - 1).coerceAtLeast(0)
-        )
-
         scope.launch {
-            try {
-                client!!.inboxMarkAsRead(messageId)
-                persistState()
-            } catch (e: Exception) {
-                message.read = originalRead
-                _state.value = _state.value.copy(unreadCount = originalCount)
-                Log.e(TAG, "Error marking message as read: ${e.message}")
+            stateMutex.withLock {
+                val currentState = _state.value
+                val index = currentState.messages.indexOfFirst { it.id == messageId }
+                if (index == -1) return@withLock
+
+                val message = currentState.messages[index]
+                if (message.read) return@withLock
+
+                val originalCount = currentState.unreadCount
+
+                // Optimistic update — emit a new list so StateFlow propagates the read-state change
+                val updatedMessages = currentState.messages.toMutableList()
+                updatedMessages[index] = message.copy(read = true)
+                _state.value = currentState.copy(
+                    messages = updatedMessages,
+                    unreadCount = (currentState.unreadCount - 1).coerceAtLeast(0)
+                )
+
+                try {
+                    client!!.inboxMarkAsRead(messageId)
+                    persistState()
+                } catch (e: Exception) {
+                    _state.value = _state.value.copy(
+                        messages = currentState.messages,
+                        unreadCount = originalCount
+                    )
+                    Log.e(TAG, "Error marking message as read: ${e.message}")
+                }
             }
         }
     }
@@ -187,28 +199,25 @@ class InboxService private constructor() : DefaultLifecycleObserver {
     fun markAllAsRead() {
         if (!initialized) return
 
-        val currentState = _state.value
-
-        // Snapshot for rollback
-        val originalReadStates = currentState.messages.map { it.id to it.read }
-        val originalCount = currentState.unreadCount
-
-        // Optimistic update
-        for (message in currentState.messages) {
-            message.read = true
-        }
-        _state.value = currentState.copy(unreadCount = 0)
-
         scope.launch {
-            try {
-                client!!.inboxMarkAllAsRead()
-                persistState()
-            } catch (e: Exception) {
-                for ((id, wasRead) in originalReadStates) {
-                    currentState.messages.find { it.id == id }?.read = wasRead
+            stateMutex.withLock {
+                val currentState = _state.value
+                val originalCount = currentState.unreadCount
+
+                // Optimistic update — emit a new list so StateFlow propagates the read-state change
+                val updatedMessages = currentState.messages.map { it.copy(read = true) }
+                _state.value = currentState.copy(messages = updatedMessages, unreadCount = 0)
+
+                try {
+                    client!!.inboxMarkAllAsRead()
+                    persistState()
+                } catch (e: Exception) {
+                    _state.value = _state.value.copy(
+                        messages = currentState.messages,
+                        unreadCount = originalCount
+                    )
+                    Log.e(TAG, "Error marking all messages as read: ${e.message}")
                 }
-                _state.value = _state.value.copy(unreadCount = originalCount)
-                Log.e(TAG, "Error marking all messages as read: ${e.message}")
             }
         }
     }
@@ -220,36 +229,37 @@ class InboxService private constructor() : DefaultLifecycleObserver {
     fun deleteMessage(messageId: String) {
         if (!initialized) return
 
-        val currentState = _state.value
-        val index = currentState.messages.indexOfFirst { it.id == messageId }
-        if (index == -1) return
-
-        val removedMessage = currentState.messages[index]
-        val originalMessages = ArrayList(currentState.messages)
-        val originalCount = currentState.unreadCount
-
-        // Optimistic update
-        val updatedMessages = ArrayList(currentState.messages).apply { removeAt(index) }
-        val newCount = if (removedMessage.read) currentState.unreadCount
-        else (currentState.unreadCount - 1).coerceAtLeast(0)
-
-        _state.value = currentState.copy(
-            messages = updatedMessages,
-            unreadCount = newCount
-        )
-
         scope.launch {
-            try {
-                client!!.inboxDeleteMessage(messageId)
-                persistState()
-                Log.d(TAG, "Message $messageId deleted successfully")
-            } catch (e: Exception) {
-                // Revert on failure
-                _state.value = _state.value.copy(
-                    messages = originalMessages,
-                    unreadCount = originalCount
+            stateMutex.withLock {
+                val currentState = _state.value
+                val index = currentState.messages.indexOfFirst { it.id == messageId }
+                if (index == -1) return@withLock
+
+                val removedMessage = currentState.messages[index]
+                val originalCount = currentState.unreadCount
+
+                // Optimistic update
+                val updatedMessages = currentState.messages.toMutableList().apply { removeAt(index) }
+                val newCount = if (removedMessage.read) currentState.unreadCount
+                else (currentState.unreadCount - 1).coerceAtLeast(0)
+
+                _state.value = currentState.copy(
+                    messages = updatedMessages,
+                    unreadCount = newCount
                 )
-                Log.e(TAG, "Error deleting message $messageId, reverting optimistic update: ${e.message}", e)
+
+                try {
+                    client!!.inboxDeleteMessage(messageId)
+                    persistState()
+                    Log.d(TAG, "Message $messageId deleted successfully")
+                } catch (e: Exception) {
+                    // Revert on failure
+                    _state.value = _state.value.copy(
+                        messages = currentState.messages,
+                        unreadCount = originalCount
+                    )
+                    Log.e(TAG, "Error deleting message $messageId, reverting optimistic update: ${e.message}", e)
+                }
             }
         }
     }
