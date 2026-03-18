@@ -251,9 +251,12 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
             setHintTextColor(adjustAlpha(textCol, 0.4f))
             setTextColor(textCol)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            isSingleLine = true
-            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+            minLines = 3
+            maxLines = 4
             gravity = Gravity.TOP or Gravity.START
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                    android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             setPadding(dp(12), dp(12), dp(12), dp(12))
             background = GradientDrawable().apply {
                 setColor(adjustAlpha(textCol, 0.05f))
@@ -338,6 +341,16 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
         }
         scrollView.addView(root)
         contentContainer.addView(scrollView)
+
+        // When the EditText gains focus (keyboard opens), scroll so the
+        // submit button stays visible above the keyboard.
+        editText.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                scrollView.post {
+                    scrollView.smoothScrollTo(0, submitBtn.bottom)
+                }
+            }
+        }
     }
 
     private fun submitScore(config: NpsConfig, score: Int, comment: String?) {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.2
+
+### Bug Fixes
+
+- **NPS follow-up keyboard UX**: Restored multi-line comment input (3-4 lines) and added auto-scroll so the submit button remains visible above the keyboard. The `ScrollView` now scrolls to the submit button when the input gains focus, and `SOFT_INPUT_ADJUST_RESIZE` resizes the bottom sheet. Tapping outside the input or pressing the submit button dismisses the keyboard.
+
 ## 1.1.1
 
 ### Bug Fixes
