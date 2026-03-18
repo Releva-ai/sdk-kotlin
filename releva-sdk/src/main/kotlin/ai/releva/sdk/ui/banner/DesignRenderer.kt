@@ -1,5 +1,3 @@
-@file:Suppress("UNCHECKED_CAST")
-
 package ai.releva.sdk.ui.banner
 
 import android.content.Context
