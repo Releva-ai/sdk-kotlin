@@ -47,6 +47,7 @@ object NpsDisplayManager {
 
     private fun showNps(activity: FragmentActivity, config: NpsConfig) {
         val submit = onSubmit ?: return
+        NpsDisplayController.consumeNps()
         val dialog = NpsDialogFragment.newInstance(config, submit, onSkip)
         dialog.show(activity.supportFragmentManager, "nps_dialog")
     }

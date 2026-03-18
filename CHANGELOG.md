@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1
+
+### Bug Fixes
+
+- **NPS not showing when stories are active**: NPS survey events emitted while `StoryViewerActivity` was on top of `MainActivity` were lost because the `SharedFlow` collector was paused (`repeatOnLifecycle(STARTED)`). Changed `NpsDisplayController` to use `replay = 1` with explicit cache clearing after consumption, so the NPS event is preserved and replayed when the activity resumes.
+- **NPS follow-up keyboard UX**: The comment input field now uses single-line input with `IME_ACTION_DONE`, so the keyboard shows a checkmark/done button instead of Enter. Tapping outside the input or pressing the done key dismisses the keyboard. The submit button also dismisses the keyboard when tapped. The dialog window uses `SOFT_INPUT_ADJUST_RESIZE` to keep content accessible when the keyboard is open.
+- **Improve support for App Inbox routing**: App inbox routing now follows a simplified convention.
+
 ## 1.1.0
 
 ### New Features

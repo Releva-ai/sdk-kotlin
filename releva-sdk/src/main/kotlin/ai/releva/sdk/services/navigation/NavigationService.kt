@@ -93,6 +93,7 @@ class NavigationService private constructor() {
         return when (target) {
             "screen" -> handleScreenNavigation(screenName, parametersJson)
             "url" -> handleUrlNavigation(context, navigateToUrl)
+            "inbox" -> handleInboxNavigation(parametersJson)
             else -> {
                 Log.d(TAG, "No specific navigation target")
                 false
@@ -124,6 +125,28 @@ class NavigationService private constructor() {
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Error navigating to screen: $screenName", e)
+            return false
+        }
+    }
+
+    /**
+     * Handle inbox navigation — navigate to the inbox screen with inboxMessageId parameter
+     */
+    private fun handleInboxNavigation(parametersJson: String?): Boolean {
+        val handler = navigationHandler
+        if (handler == null) {
+            Log.w(TAG, "NavigationHandler not set. Call setNavigationHandler() during app initialization.")
+            return false
+        }
+
+        val parameters = parseParameters(parametersJson)
+        // Navigate to "inbox" screen with the inboxMessageId in parameters
+        try {
+            handler.navigateToScreen("inbox", parameters)
+            Log.d(TAG, "Successfully navigated to inbox")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error navigating to inbox", e)
             return false
         }
     }

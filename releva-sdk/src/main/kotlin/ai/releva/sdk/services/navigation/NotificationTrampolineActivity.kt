@@ -96,6 +96,7 @@ class NotificationTrampolineActivity : Activity() {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                             putExtra(EXTRA_TARGET, "inbox")
                             putExtra(EXTRA_NAVIGATE_TO_INBOX, true)
+                            putExtra(EXTRA_NAVIGATE_TO_PARAMETERS, navigateToParameters)
                         }
                         startActivity(appIntent)
                     } catch (e: Exception) {

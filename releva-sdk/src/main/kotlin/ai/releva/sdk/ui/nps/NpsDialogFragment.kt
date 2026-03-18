@@ -73,6 +73,7 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
         showScoreStep(cfg)
 
         dialog.setContentView(contentContainer)
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         return dialog
     }
 
@@ -227,6 +228,8 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(bg)
             setPadding(dp(20), dp(16), dp(20), dp(24))
+            isFocusable = true
+            isFocusableInTouchMode = true
         }
 
         // Follow-up question
@@ -247,8 +250,8 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
             setHintTextColor(adjustAlpha(textCol, 0.4f))
             setTextColor(textCol)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            minLines = 3
-            maxLines = 4
+            isSingleLine = true
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
             gravity = Gravity.TOP or Gravity.START
             setPadding(dp(12), dp(12), dp(12), dp(12))
             background = GradientDrawable().apply {
@@ -259,6 +262,22 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         root.addView(editText)
+
+        root.setOnTouchListener { _, event ->
+            if (event.action == android.view.MotionEvent.ACTION_DOWN) {
+                val focused = root.findFocus()
+                if (focused is EditText) {
+                    val outRect = android.graphics.Rect()
+                    focused.getGlobalVisibleRect(outRect)
+                    if (!outRect.contains(event.rawX.toInt(), event.rawY.toInt())) {
+                        focused.clearFocus()
+                        val imm = ctx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                        imm.hideSoftInputFromWindow(focused.windowToken, 0)
+                    }
+                }
+            }
+            false
+        }
 
         root.addView(View(ctx).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(16))
@@ -286,6 +305,9 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
             isEnabled = !config.followUpRequired
             setOnClickListener {
                 if (!submitting) {
+                    editText.clearFocus()
+                    val imm = ctx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    imm.hideSoftInputFromWindow(editText.windowToken, 0)
                     val comment = editText.text.toString().trim()
                     submitScore(config, selectedScore!!, comment.ifEmpty { null })
                 }
@@ -305,7 +327,16 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
         }
 
         root.addView(submitBtn)
-        contentContainer.addView(root)
+
+        val scrollView = android.widget.ScrollView(ctx).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            isFillViewport = true
+        }
+        scrollView.addView(root)
+        contentContainer.addView(scrollView)
     }
 
     private fun submitScore(config: NpsConfig, score: Int, comment: String?) {
