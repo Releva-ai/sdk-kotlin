@@ -1,3 +1,5 @@
+@file:Suppress("UNCHECKED_CAST")
+
 package ai.releva.sdk.ui.banner
 
 import ai.releva.sdk.client.RelevaClient

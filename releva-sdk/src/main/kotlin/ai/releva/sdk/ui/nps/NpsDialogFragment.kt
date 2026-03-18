@@ -2,6 +2,7 @@ package ai.releva.sdk.ui.nps
 
 import ai.releva.sdk.types.response.NpsConfig
 import android.app.Dialog
+import kotlinx.coroutines.cancel
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable

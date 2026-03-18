@@ -2,6 +2,7 @@ package ai.releva.sdk.ui.story
 
 import ai.releva.sdk.client.RelevaClient
 import ai.releva.sdk.types.response.StoryResponse
+import kotlinx.coroutines.cancel
 import ai.releva.sdk.types.response.StorySlideResponse
 import ai.releva.sdk.ui.banner.DesignRenderer
 import android.animation.ValueAnimator
