@@ -95,6 +95,82 @@ class StorageServiceTest {
         assertNull(storageService.getSessionTimestamp())
     }
 
+    // Device Analytics Tests
+
+    @Test
+    fun `getDeviceSessionCount returns 0 when not set`() {
+        assertEquals(0, storageService.getDeviceSessionCount())
+    }
+
+    @Test
+    fun `setAndGetDeviceSessionCount`() {
+        storageService.setDeviceSessionCount(5)
+
+        assertEquals(5, storageService.getDeviceSessionCount())
+    }
+
+    @Test
+    fun `incrementDeviceSessionCount returns 1 on first call`() {
+        assertEquals(1, storageService.incrementDeviceSessionCount())
+    }
+
+    @Test
+    fun `incrementDeviceSessionCount increments by 1 on each call`() {
+        assertEquals(1, storageService.incrementDeviceSessionCount())
+        assertEquals(2, storageService.incrementDeviceSessionCount())
+        assertEquals(3, storageService.incrementDeviceSessionCount())
+    }
+
+    @Test
+    fun `getDeviceViewsCount returns 0 when not set`() {
+        assertEquals(0L, storageService.getDeviceViewsCount())
+    }
+
+    @Test
+    fun `setAndGetDeviceViewsCount`() {
+        storageService.setDeviceViewsCount(42L)
+
+        assertEquals(42L, storageService.getDeviceViewsCount())
+    }
+
+    @Test
+    fun `incrementDeviceViewsCount returns 1 on first call`() {
+        assertEquals(1L, storageService.incrementDeviceViewsCount())
+    }
+
+    @Test
+    fun `incrementDeviceViewsCount increments by 1 on each call`() {
+        assertEquals(1L, storageService.incrementDeviceViewsCount())
+        assertEquals(2L, storageService.incrementDeviceViewsCount())
+        assertEquals(3L, storageService.incrementDeviceViewsCount())
+    }
+
+    @Test
+    fun `setAndGetDeviceFirstSeenAt`() {
+        val iso = "2026-03-19T12:00:00.000+0000"
+        storageService.setDeviceFirstSeenAt(iso)
+
+        assertEquals(iso, storageService.getDeviceFirstSeenAt())
+    }
+
+    @Test
+    fun `getDeviceFirstSeenAt returns null when not set`() {
+        assertNull(storageService.getDeviceFirstSeenAt())
+    }
+
+    @Test
+    fun `setAndGetDeviceLastSessionTimestamp`() {
+        val ts = 1742385600000L
+        storageService.setDeviceLastSessionTimestamp(ts)
+
+        assertEquals(ts, storageService.getDeviceLastSessionTimestamp())
+    }
+
+    @Test
+    fun `getDeviceLastSessionTimestamp returns null when not set`() {
+        assertNull(storageService.getDeviceLastSessionTimestamp())
+    }
+
     // Cart Management Tests
 
     @Test
