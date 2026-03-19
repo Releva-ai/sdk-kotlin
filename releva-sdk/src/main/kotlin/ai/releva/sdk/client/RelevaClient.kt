@@ -378,7 +378,7 @@ class RelevaClient(
         // Device context
         val sessionCount = storage.getDeviceSessionCount()
         val firstSeenAt = storage.getDeviceFirstSeenAt()
-        val views = storage.incrementDeviceViewsCount() - 1
+        val views = storage.incrementDeviceViewsCount()
 
         payload.put("device", JSONObject().apply {
             put("sessions", sessionCount)
