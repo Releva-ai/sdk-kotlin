@@ -284,7 +284,7 @@ object DesignRenderer {
 
         val fontSize = parseDimensionRaw(values["fontSize"])
         val textAlign = parseTextAlign(values["textAlign"])
-        val color = parseColor(values["textColor"]) ?: defaultTextColor
+        val color = parseColor(values["color"]) ?: parseColor(values["textColor"]) ?: defaultTextColor
         val lineHeight = parseLineHeight(values["lineHeight"])
 
         return TextView(context).apply {
@@ -313,7 +313,7 @@ object DesignRenderer {
         val headingType = values["headingType"] as? String ?: "h1"
         val fontSize = parseDimensionRaw(values["fontSize"]) ?: getHeadingFontSize(headingType)
         val textAlign = parseTextAlign(values["textAlign"])
-        val color = parseColor(values["textColor"]) ?: defaultTextColor
+        val color = parseColor(values["color"]) ?: parseColor(values["textColor"]) ?: defaultTextColor
         val lineHeight = parseLineHeight(values["lineHeight"])
 
         return TextView(context).apply {
