@@ -39,10 +39,12 @@ class SessionService private constructor() : DefaultLifecycleObserver {
     private var pausedAtMs: Long? = null
 
     fun initialize(storage: StorageService, npsManager: NpsManagerService) {
-        if (initialized) return
-        this.storage = storage
-        this.npsManager = npsManager
-        initialized = true
+        synchronized(this) {
+            if (initialized) return
+            this.storage = storage
+            this.npsManager = npsManager
+            initialized = true
+        }
 
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
 
@@ -72,14 +74,13 @@ class SessionService private constructor() : DefaultLifecycleObserver {
 
         // Record first-seen date on first ever session
         if (storage.getDeviceFirstSeenAt() == null) {
-            val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+            val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.US)
             sdf.timeZone = TimeZone.getTimeZone("UTC")
             storage.setDeviceFirstSeenAt(sdf.format(Date()))
         }
 
-        // Increment session count
-        val count = storage.getDeviceSessionCount()
-        storage.setDeviceSessionCount(count + 1)
+        // Increment session count (atomic)
+        val count = storage.incrementDeviceSessionCount()
         storage.setDeviceLastSessionTimestamp(now)
 
         // Generate new session ID
@@ -89,7 +90,7 @@ class SessionService private constructor() : DefaultLifecycleObserver {
 
         npsManager?.startNewSession()
 
-        Log.d(TAG, "New session #${count + 1}, id=$sessionId")
+        Log.d(TAG, "New session $count, id=$sessionId")
     }
 
     /**
@@ -112,6 +113,6 @@ class SessionService private constructor() : DefaultLifecycleObserver {
             ProcessLifecycleOwner.get().lifecycle.removeObserver(this)
         }
         initialized = false
-        instance = null
+        storage = null
     }
 }

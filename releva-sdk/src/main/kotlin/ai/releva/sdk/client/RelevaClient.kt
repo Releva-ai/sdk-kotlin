@@ -246,6 +246,7 @@ class RelevaClient(
      * Track banner impression
      */
     suspend fun bannerImpression(banner: BannerResponse) = withContext(Dispatchers.IO) {
+        ensureSessionTracking()
         val body = JSONObject().apply {
             put("profileId", storage.getProfileId())
             put("deviceId", storage.getDeviceId())
@@ -273,6 +274,7 @@ class RelevaClient(
      * Track banner action (click, close, etc.)
      */
     suspend fun bannerAction(banner: BannerResponse, action: String? = null) = withContext(Dispatchers.IO) {
+        ensureSessionTracking()
         val body = JSONObject().apply {
             put("deviceId", storage.getDeviceId())
             put("profileId", storage.getProfileId())
@@ -329,7 +331,7 @@ class RelevaClient(
         val deviceId = storage.getDeviceId()
             ?: throw Exception("Please provide deviceId using client.setDeviceId() before using the client!")
 
-        val context = JSONObject().apply {
+        val payload = JSONObject().apply {
             put("deviceId", deviceId)
             put("deviceIdChanged", deviceIdChanged)
             put("sessionId", sessionId)
@@ -376,21 +378,20 @@ class RelevaClient(
         // Device context
         val sessionCount = storage.getDeviceSessionCount()
         val firstSeenAt = storage.getDeviceFirstSeenAt()
-        val views = storage.getDeviceViewsCount()
-        storage.setDeviceViewsCount(views + 1)
+        val views = storage.incrementDeviceViewsCount() - 1
 
-        context.put("device", JSONObject().apply {
+        payload.put("device", JSONObject().apply {
             put("sessions", sessionCount)
             put("platform", "android")
             put("views", views)
             put("sdkVersion", VERSION)
         })
         if (firstSeenAt != null) {
-            context.getJSONObject("device").put("firstSeenAt", firstSeenAt)
+            payload.getJSONObject("device").put("firstSeenAt", firstSeenAt)
         }
 
         val requestBody = JSONObject().apply {
-            put("context", context)
+            put("context", payload)
             put("options", JSONObject().apply {
                 put("client", JSONObject().apply {
                     put("vendor", "Releva")
@@ -442,6 +443,7 @@ class RelevaClient(
         comment: String? = null
     ) = withContext(Dispatchers.IO) {
         require(score in 0..10) { "NPS score must be 0-10" }
+        ensureSessionTracking()
 
         val body = JSONObject().apply {
             put("profileId", storage.getProfileId())
@@ -496,6 +498,7 @@ class RelevaClient(
         action: String,
         slideId: Any? = null
     ) = withContext(Dispatchers.IO) {
+        ensureSessionTracking()
         val body = JSONObject().apply {
             put("deviceId", storage.getDeviceId())
             put("profileId", storage.getProfileId())

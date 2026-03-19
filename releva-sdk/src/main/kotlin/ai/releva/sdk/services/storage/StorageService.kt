@@ -99,11 +99,25 @@ class StorageService private constructor(context: Context) {
         }
     }
 
-    fun setDeviceViewsCount(count: Int) {
-        preferences.edit().putInt(KEY_DEVICE_VIEWS, count).apply()
+    fun setDeviceViewsCount(count: Long) {
+        preferences.edit().putLong(KEY_DEVICE_VIEWS, count).apply()
     }
 
-    fun getDeviceViewsCount(): Int = preferences.getInt(KEY_DEVICE_VIEWS, 0)
+    fun getDeviceViewsCount(): Long = preferences.getLong(KEY_DEVICE_VIEWS, 0L)
+
+    @Synchronized
+    fun incrementDeviceSessionCount(): Int {
+        val count = getDeviceSessionCount() + 1
+        setDeviceSessionCount(count)
+        return count
+    }
+
+    @Synchronized
+    fun incrementDeviceViewsCount(): Long {
+        val count = getDeviceViewsCount() + 1
+        setDeviceViewsCount(count)
+        return count
+    }
 
     // Cart Management
     fun setCartData(cartJson: String) {
