@@ -5,10 +5,14 @@
 ### Added
 
 - **Lifecycle-based session tracking.** New `SessionService` uses `ProcessLifecycleOwner` to count sessions based on foreground/background transitions (>30s threshold). Each new session generates a fresh `sessionId`, replacing the old 24h expiry. Push payload now includes `device.sessions`, `device.views`, and `device.firstSeenAt`.
+- **Background image support for banners.** Body-level and row-level background images from Unlayer design JSON are now rendered natively. Supports size (cover/contain/custom). Flyout banners show the image behind the entire panel including the close button area.
+- **Popups always full-screen.** Popup banners always fill the entire screen. Only the close button dismisses the popup (tapping outside no longer closes it). Background image fills the viewport. Close button positioned below the status bar.
+- **Bar banner improvements.** Close button repositioned to sit at the content edge with ~1/4 overlap on both top and bottom bars. Bar layout background is now transparent instead of white, so the banner design's own background shows through without a padded frame.
 
 ### Fixed
 
 - **Banner text color ignoring content-level `color` property.** Text and heading elements in banner designs now correctly read the Unlayer `color` field, with fallback to `textColor` then body default. Previously only `textColor` was checked, causing content with explicit `color` (e.g. white text on dark background) to render in the body default color (black).
+- **Views counter off-by-one.** First push now correctly sends `views: 1` instead of `views: 0`.
 
 ## 1.1.2
 
