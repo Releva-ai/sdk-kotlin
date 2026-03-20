@@ -246,7 +246,9 @@ class BannerDisplayManager(
 
         val dialog = Dialog(ctx, android.R.style.Theme_Translucent_NoTitleBar)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        dialog.setCanceledOnTouchOutside(true)
+        // Full-screen popup — only close button dismisses
+        dialog.setCanceledOnTouchOutside(false)
+        dialog.setCancelable(false)
 
         val dp = ctx.resources.displayMetrics.density
 
@@ -269,53 +271,38 @@ class BannerDisplayManager(
         val popupWidth = WindowManager.LayoutParams.MATCH_PARENT
         val popupHeight = WindowManager.LayoutParams.MATCH_PARENT
 
-        // Outer overlay layout
-        val overlayLayout = FrameLayout(ctx).apply {
-            setBackgroundColor(overlayColor)
-            setOnClickListener {
-                dialog.dismiss()
-                trackDismiss(banner)
-            }
-        }
-
-        // Popup container — no border radius, full screen
+        // Full-screen popup container
         val popupContainer = FrameLayout(ctx).apply {
-            setBackgroundColor(popupBgColor)
-            isClickable = true // Prevent click-through
+            setBackgroundColor(if (hasBgImage) Color.TRANSPARENT else popupBgColor)
         }
 
-        // Content wrapper with top margin to clear the close button
-        val closeButtonSpace = (48 * dp).toInt() // 8dp margin + 32dp button + 8dp gap
-        val contentWrapper = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(View(ctx).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, closeButtonSpace
-                )
-            })
-            addView(contentView, LinearLayout.LayoutParams(
+        // Scrollable content
+        val scrollView = ScrollView(ctx).apply {
+            isFillViewport = true
+            addView(contentView, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
 
-        // If body has a background image, wrap the popup content with it
+        // If body has a background image, wrap the scroll content with it
         if (hasBgImage) {
             val bgWrapper = DesignRenderer.wrapWithBackgroundImage(
-                ctx, contentWrapper, bgImageMap!!, forceCover = true
+                ctx, scrollView, bgImageMap!!, forceCover = true
             )
             popupContainer.addView(bgWrapper, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             ))
         } else {
-            popupContainer.addView(contentWrapper, FrameLayout.LayoutParams(
+            popupContainer.addView(scrollView, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                ViewGroup.LayoutParams.MATCH_PARENT
             ))
         }
 
-        // Close button
+        // Close button — added last so it's on top of everything
+        val statusBarHeight = getStatusBarHeight(ctx)
         val closeButton = buildCloseButton(ctx, banner) {
             dialog.dismiss()
             closeBanner(banner)
@@ -324,14 +311,19 @@ class BannerDisplayManager(
             (32 * dp).toInt(), (32 * dp).toInt(),
             Gravity.TOP or Gravity.END
         ).apply {
-            topMargin = (8 * dp).toInt()
+            topMargin = statusBarHeight + (8 * dp).toInt()
             rightMargin = (8 * dp).toInt()
         })
 
-        val popupParams = FrameLayout.LayoutParams(popupWidth, popupHeight, Gravity.CENTER)
-        overlayLayout.addView(popupContainer, popupParams)
+        // Ensure close button is visible above content
+        closeButton.bringToFront()
 
-        dialog.setContentView(overlayLayout, ViewGroup.LayoutParams(
+        val popupParams = FrameLayout.LayoutParams(popupWidth, popupHeight)
+        // No overlay — full-screen popup replaces the screen
+        val rootLayout = FrameLayout(ctx)
+        rootLayout.addView(popupContainer, popupParams)
+
+        dialog.setContentView(rootLayout, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
@@ -342,6 +334,15 @@ class BannerDisplayManager(
         }
         activeDialogs.add(dialog)
         dialog.show()
+
+        // Make dialog full-screen
+        dialog.window?.apply {
+            setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        }
     }
 
     private fun showBarBanner(banner: BannerResponse) {
@@ -362,7 +363,7 @@ class BannerDisplayManager(
         val statusBarPad = if (!isBottom) getStatusBarHeight(ctx) else 0
 
         val barLayout = FrameLayout(ctx).apply {
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
             elevation = 10 * dp
         }
 
@@ -390,8 +391,8 @@ class BannerDisplayManager(
             closeSize, closeSize,
             Gravity.TOP or Gravity.END
         ).apply {
-            topMargin = if (isBottom) -closeOverlap else statusBarPad + (4 * dp).toInt()
-            rightMargin = -closeOverlap
+            topMargin = if (isBottom) verticalPadding - closeOverlap else statusBarPad + verticalPadding - closeOverlap
+            rightMargin = horizontalPadding - closeOverlap
         })
         barLayout.clipChildren = false
         barLayout.clipToPadding = false
