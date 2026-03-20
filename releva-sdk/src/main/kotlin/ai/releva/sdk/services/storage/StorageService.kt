@@ -75,6 +75,7 @@ class StorageService private constructor(context: Context) {
     }
 
     // Device Analytics
+    @Synchronized
     fun setDeviceSessionCount(count: Int) {
         preferences.edit().putInt(KEY_DEVICE_SESSION_COUNT, count).apply()
     }
@@ -100,6 +101,7 @@ class StorageService private constructor(context: Context) {
         }
     }
 
+    @Synchronized
     fun setDeviceViewsCount(count: Long) {
         preferences.edit().putLong(KEY_DEVICE_VIEWS, count).apply()
     }

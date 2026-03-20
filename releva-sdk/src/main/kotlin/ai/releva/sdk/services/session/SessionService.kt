@@ -5,6 +5,7 @@ import ai.releva.sdk.services.storage.StorageService
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -52,7 +53,11 @@ class SessionService private constructor() : DefaultLifecycleObserver {
             ProcessLifecycleOwner.get().lifecycle.addObserver(this)
         }
 
-        // Cold start = new session
+        // Cold start = new session.
+        // Note: startNewSession() runs after the synchronized block (and after initialized = true).
+        // This is intentional — the lock prevents a second thread from ever reaching this point,
+        // because it will see initialized = true and return early. startNewSession() is always
+        // called exactly once per initialize() invocation.
         startNewSession()
 
         Log.d(TAG, "Initialized")
@@ -110,6 +115,15 @@ class SessionService private constructor() : DefaultLifecycleObserver {
         storage?.setSessionId(sessionId)
         storage?.setSessionTimestamp(System.currentTimeMillis())
         return sessionId
+    }
+
+    /**
+     * Sets the timestamp of the last pause, used by tests to simulate elapsed background time
+     * without sleeping. Avoids reflection on the private [pausedAtMs] field.
+     */
+    @VisibleForTesting
+    internal fun setLastPauseMs(ms: Long) {
+        pausedAtMs = ms
     }
 
     fun dispose() {

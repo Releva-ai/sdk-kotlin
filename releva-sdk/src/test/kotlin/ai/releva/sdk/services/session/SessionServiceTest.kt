@@ -220,12 +220,11 @@ class SessionServiceTest {
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
     /**
-     * Overwrites the private `pausedAtMs` field so that the elapsed time since
-     * the last [SessionService.onStop] call appears to be [elapsedMs] milliseconds.
+     * Backdates the last pause timestamp so that the elapsed time since
+     * [SessionService.onStop] appears to be [elapsedMs] milliseconds.
+     * Uses the [SessionService.setLastPauseMs] test hook instead of reflection.
      */
     private fun backdateLastPause(elapsedMs: Long) {
-        val field = SessionService::class.java.getDeclaredField("pausedAtMs")
-        field.isAccessible = true
-        field.set(service, System.currentTimeMillis() - elapsedMs)
+        service.setLastPauseMs(System.currentTimeMillis() - elapsedMs)
     }
 }

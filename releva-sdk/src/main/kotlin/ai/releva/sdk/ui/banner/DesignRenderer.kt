@@ -23,6 +23,7 @@ object DesignRenderer {
 
     private val imageExecutor = Executors.newFixedThreadPool(4)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val RGBA_REGEX = Regex("""rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)""")
 
     fun loadImageAsync(url: String, imageView: ImageView) {
         imageExecutor.execute {
@@ -301,8 +302,8 @@ object DesignRenderer {
         fontFamily: String
     ): View {
         val htmlText = values["text"] as? String ?: ""
-        val text = stripHtml(htmlText)
-        if (text.isEmpty()) return View(context)
+        val spanned = Html.fromHtml(htmlText, Html.FROM_HTML_MODE_COMPACT)
+        if (spanned.toString().trim().isEmpty()) return View(context)
 
         val fontSize = parseDimensionRaw(values["fontSize"])
         val textAlign = parseTextAlign(values["textAlign"])
@@ -310,7 +311,7 @@ object DesignRenderer {
         val lineHeight = parseLineHeight(values["lineHeight"])
 
         return TextView(context).apply {
-            this.text = text
+            this.text = spanned
             setTextColor(color)
             gravity = textAlign
             fontSize?.let { setTextSize(TypedValue.COMPLEX_UNIT_PX, it * resources.displayMetrics.density) }
@@ -329,8 +330,8 @@ object DesignRenderer {
         fontFamily: String
     ): View {
         val htmlText = values["text"] as? String ?: ""
-        val text = stripHtml(htmlText)
-        if (text.isEmpty()) return View(context)
+        val spanned = Html.fromHtml(htmlText, Html.FROM_HTML_MODE_COMPACT)
+        if (spanned.toString().trim().isEmpty()) return View(context)
 
         val headingType = values["headingType"] as? String ?: "h1"
         val fontSize = parseDimensionRaw(values["fontSize"]) ?: getHeadingFontSize(headingType)
@@ -339,7 +340,7 @@ object DesignRenderer {
         val lineHeight = parseLineHeight(values["lineHeight"])
 
         return TextView(context).apply {
-            this.text = text
+            this.text = spanned
             setTextColor(color)
             gravity = textAlign
             setTextSize(TypedValue.COMPLEX_UNIT_PX, fontSize * resources.displayMetrics.density)
@@ -831,7 +832,7 @@ object DesignRenderer {
         if (str.isEmpty()) return null
 
         // rgba(r, g, b, a)
-        val rgbaMatch = Regex("""rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)""").find(str)
+        val rgbaMatch = RGBA_REGEX.find(str)
         if (rgbaMatch != null) {
             val r = rgbaMatch.groupValues[1].toInt()
             val g = rgbaMatch.groupValues[2].toInt()
