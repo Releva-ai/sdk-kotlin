@@ -27,6 +27,10 @@ class StorageService private constructor(context: Context) {
         private const val KEY_PENDING_MESSAGE_EVENTS = "pending_message_events"
         private const val KEY_PENDING_ENGAGEMENT_EVENTS = "pending_engagement_events"
         private const val KEY_LAST_MESSAGE_FETCH = "last_message_fetch"
+        private const val KEY_DEVICE_SESSION_COUNT = "device_session_count"
+        private const val KEY_DEVICE_FIRST_SEEN = "device_first_seen"
+        private const val KEY_DEVICE_LAST_SESSION_TS = "device_last_session_ts"
+        private const val KEY_DEVICE_VIEWS = "device_views"
 
         @Volatile
         private var instance: StorageService? = null
@@ -68,6 +72,55 @@ class StorageService private constructor(context: Context) {
         } else {
             null
         }
+    }
+
+    // Device Analytics
+    @Synchronized
+    fun setDeviceSessionCount(count: Int) {
+        preferences.edit().putInt(KEY_DEVICE_SESSION_COUNT, count).apply()
+    }
+
+    @Synchronized
+    fun getDeviceSessionCount(): Int = preferences.getInt(KEY_DEVICE_SESSION_COUNT, 0)
+
+    fun setDeviceFirstSeenAt(iso: String) {
+        preferences.edit().putString(KEY_DEVICE_FIRST_SEEN, iso).apply()
+    }
+
+    fun getDeviceFirstSeenAt(): String? = preferences.getString(KEY_DEVICE_FIRST_SEEN, null)
+
+    fun setDeviceLastSessionTimestamp(ts: Long) {
+        preferences.edit().putLong(KEY_DEVICE_LAST_SESSION_TS, ts).apply()
+    }
+
+    fun getDeviceLastSessionTimestamp(): Long? {
+        return if (preferences.contains(KEY_DEVICE_LAST_SESSION_TS)) {
+            preferences.getLong(KEY_DEVICE_LAST_SESSION_TS, 0L)
+        } else {
+            null
+        }
+    }
+
+    @Synchronized
+    fun setDeviceViewsCount(count: Long) {
+        preferences.edit().putLong(KEY_DEVICE_VIEWS, count).apply()
+    }
+
+    @Synchronized
+    fun getDeviceViewsCount(): Long = preferences.getLong(KEY_DEVICE_VIEWS, 0L)
+
+    @Synchronized
+    fun incrementDeviceSessionCount(): Int {
+        val count = getDeviceSessionCount() + 1
+        setDeviceSessionCount(count)
+        return count
+    }
+
+    @Synchronized
+    fun incrementDeviceViewsCount(): Long {
+        val count = getDeviceViewsCount() + 1
+        setDeviceViewsCount(count)
+        return count
     }
 
     // Cart Management

@@ -23,8 +23,10 @@ object DesignRenderer {
 
     private val imageExecutor = Executors.newFixedThreadPool(4)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val RGBA_REGEX = Regex("""rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)""")
+    private val RGB_REGEX = Regex("""rgb\((\d+),\s*(\d+),\s*(\d+)\)""")
 
-    private fun loadImageAsync(url: String, imageView: ImageView) {
+    fun loadImageAsync(url: String, imageView: ImageView) {
         imageExecutor.execute {
             try {
                 // Download bytes once to support two-pass decode without a second HTTP connection
@@ -64,6 +66,7 @@ object DesignRenderer {
         context: Context,
         design: Map<String, Any?>,
         maxWidthPx: Int = context.resources.displayMetrics.widthPixels,
+        transparentBody: Boolean = false,
         onLinkTap: ((String) -> Unit)? = null
     ): View {
         val body = design["body"] as? Map<String, Any?> ?: return View(context)
@@ -80,9 +83,15 @@ object DesignRenderer {
         val contentWidthPx = if (isPercentWidth) null
             else parseDimension(bodyValues["contentWidth"], context)?.toInt()?.coerceAtMost(maxWidthPx)
 
+        val bgImageMap = bodyValues["backgroundImage"] as? Map<String, Any?>
+        val hasBgImage = !transparentBody && bgImageMap != null
+            && (bgImageMap["url"] as? String)?.isNotEmpty() == true
+
         val outerLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(backgroundColor)
+            if (!transparentBody && !hasBgImage) {
+                setBackgroundColor(backgroundColor)
+            }
             gravity = Gravity.CENTER_HORIZONTAL
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -108,6 +117,11 @@ object DesignRenderer {
         }
 
         outerLayout.addView(innerLayout)
+
+        if (hasBgImage) {
+            return wrapWithBackgroundImage(context, outerLayout, bgImageMap!!)
+        }
+
         return outerLayout
     }
 
@@ -126,6 +140,10 @@ object DesignRenderer {
         val bgColor = parseColor(rowValues["backgroundColor"])
         val columnsBgColor = parseColor(rowValues["columnsBackgroundColor"])
         val padding = parseEdgeInsets(rowValues["padding"])
+
+        val rowBgImageMap = rowValues["backgroundImage"] as? Map<String, Any?>
+        val hasRowBgImage = rowBgImageMap != null
+            && (rowBgImageMap["url"] as? String)?.isNotEmpty() == true
 
         val layout: View = if (columns.size == 1) {
             val colMap = columns[0] as? Map<String, Any?> ?: return View(context)
@@ -148,7 +166,9 @@ object DesignRenderer {
         }
 
         val wrapper = FrameLayout(context).apply {
-            (bgColor ?: columnsBgColor)?.let { setBackgroundColor(it) }
+            if (!hasRowBgImage) {
+                (bgColor ?: columnsBgColor)?.let { setBackgroundColor(it) }
+            }
             padding?.let { setPadding(it[3], it[0], it[1], it[2]) }
             addView(layout, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -158,6 +178,10 @@ object DesignRenderer {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
+        }
+
+        if (hasRowBgImage) {
+            return wrapWithBackgroundImage(context, wrapper, rowBgImageMap!!)
         }
 
         return wrapper
@@ -279,16 +303,16 @@ object DesignRenderer {
         fontFamily: String
     ): View {
         val htmlText = values["text"] as? String ?: ""
-        val text = stripHtml(htmlText)
-        if (text.isEmpty()) return View(context)
+        val spanned = Html.fromHtml(htmlText, Html.FROM_HTML_MODE_COMPACT)
+        if (spanned.toString().trim().isEmpty()) return View(context)
 
         val fontSize = parseDimensionRaw(values["fontSize"])
         val textAlign = parseTextAlign(values["textAlign"])
-        val color = parseColor(values["textColor"]) ?: defaultTextColor
+        val color = parseColor(values["color"]) ?: parseColor(values["textColor"]) ?: defaultTextColor
         val lineHeight = parseLineHeight(values["lineHeight"])
 
         return TextView(context).apply {
-            this.text = text
+            this.text = spanned
             setTextColor(color)
             gravity = textAlign
             fontSize?.let { setTextSize(TypedValue.COMPLEX_UNIT_PX, it * resources.displayMetrics.density) }
@@ -307,17 +331,17 @@ object DesignRenderer {
         fontFamily: String
     ): View {
         val htmlText = values["text"] as? String ?: ""
-        val text = stripHtml(htmlText)
-        if (text.isEmpty()) return View(context)
+        val spanned = Html.fromHtml(htmlText, Html.FROM_HTML_MODE_COMPACT)
+        if (spanned.toString().trim().isEmpty()) return View(context)
 
         val headingType = values["headingType"] as? String ?: "h1"
         val fontSize = parseDimensionRaw(values["fontSize"]) ?: getHeadingFontSize(headingType)
         val textAlign = parseTextAlign(values["textAlign"])
-        val color = parseColor(values["textColor"]) ?: defaultTextColor
+        val color = parseColor(values["color"]) ?: parseColor(values["textColor"]) ?: defaultTextColor
         val lineHeight = parseLineHeight(values["lineHeight"])
 
         return TextView(context).apply {
-            this.text = text
+            this.text = spanned
             setTextColor(color)
             gravity = textAlign
             setTextSize(TypedValue.COMPLEX_UNIT_PX, fontSize * resources.displayMetrics.density)
@@ -751,6 +775,56 @@ object DesignRenderer {
         return rootLayout
     }
 
+    /**
+     * Wraps a view in a FrameLayout with an ImageView behind it showing a background image.
+     * The content view's background is made transparent so the image shows through.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun wrapWithBackgroundImage(
+        context: Context,
+        contentView: View,
+        bgImageMap: Map<String, Any?>,
+        forceCover: Boolean = false
+    ): View {
+        val url = bgImageMap["url"] as? String ?: return contentView
+        if (url.isEmpty()) return contentView
+
+        val scaleType = if (forceCover) ImageView.ScaleType.CENTER_CROP else {
+            when (bgImageMap["size"] as? String ?: "cover") {
+                "contain" -> ImageView.ScaleType.FIT_CENTER
+                "custom" -> ImageView.ScaleType.FIT_CENTER
+                else -> ImageView.ScaleType.CENTER_CROP
+            }
+        }
+
+        val bgImageView = ImageView(context).apply {
+            this.scaleType = scaleType
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val wrapper = FrameLayout(context).apply {
+            layoutParams = contentView.layoutParams ?: ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        contentView.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        )
+
+        wrapper.addView(bgImageView)
+        wrapper.addView(contentView)
+
+        loadImageAsync(url, bgImageView)
+
+        return wrapper
+    }
+
     // --- Utility functions ---
 
     fun parseColor(value: Any?): Int? {
@@ -759,13 +833,22 @@ object DesignRenderer {
         if (str.isEmpty()) return null
 
         // rgba(r, g, b, a)
-        val rgbaMatch = Regex("""rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)""").find(str)
+        val rgbaMatch = RGBA_REGEX.find(str)
         if (rgbaMatch != null) {
             val r = rgbaMatch.groupValues[1].toInt()
             val g = rgbaMatch.groupValues[2].toInt()
             val b = rgbaMatch.groupValues[3].toInt()
             val a = (rgbaMatch.groupValues[4].toFloat() * 255).toInt()
             return Color.argb(a, r, g, b)
+        }
+
+        // rgb(r, g, b)
+        val rgbMatch = RGB_REGEX.find(str)
+        if (rgbMatch != null) {
+            val r = rgbMatch.groupValues[1].toInt()
+            val g = rgbMatch.groupValues[2].toInt()
+            val b = rgbMatch.groupValues[3].toInt()
+            return Color.argb(255, r, g, b)
         }
 
         // hex color

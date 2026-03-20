@@ -5,6 +5,7 @@ import ai.releva.sdk.services.engagement.EngagementTrackingService
 import ai.releva.sdk.services.inbox.InboxApiClient
 import ai.releva.sdk.services.inbox.InboxService
 import ai.releva.sdk.services.nps.NpsManagerService
+import ai.releva.sdk.services.session.SessionService
 import ai.releva.sdk.services.storage.StorageService
 import ai.releva.sdk.types.cart.Cart
 import ai.releva.sdk.types.cart.CartProduct
@@ -69,8 +70,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "1.1.0-kotlin"
-        private const val SESSION_DURATION_MS = 24 * 3600 * 1000L // 1 day
+        private const val VERSION = "1.2.0-kotlin"
     }
 
     /**
@@ -246,10 +246,11 @@ class RelevaClient(
      * Track banner impression
      */
     suspend fun bannerImpression(banner: BannerResponse) = withContext(Dispatchers.IO) {
+        ensureSessionTracking()
         val body = JSONObject().apply {
             put("profileId", storage.getProfileId())
             put("deviceId", storage.getDeviceId())
-            put("sessionId", getSessionId())
+            put("sessionId", SessionService.getInstance().getSessionId())
             put("banners", org.json.JSONArray().apply {
                 put(JSONObject().apply {
                     put("token", banner.token)
@@ -273,10 +274,11 @@ class RelevaClient(
      * Track banner action (click, close, etc.)
      */
     suspend fun bannerAction(banner: BannerResponse, action: String? = null) = withContext(Dispatchers.IO) {
+        ensureSessionTracking()
         val body = JSONObject().apply {
             put("deviceId", storage.getDeviceId())
             put("profileId", storage.getProfileId())
-            put("sessionId", getSessionId())
+            put("sessionId", SessionService.getInstance().getSessionId())
             put("action", action)
             put("attributions", JSONObject().apply {
                 put("bannerBlockId", banner.token)
@@ -303,12 +305,17 @@ class RelevaClient(
     /**
      * Main push method for sending tracking data
      */
+    private fun ensureSessionTracking() {
+        SessionService.getInstance().initialize(storage, npsManager)
+    }
+
     private suspend fun push(request: PushRequest): RelevaResponse = withContext(Dispatchers.IO) {
         if (!config.enableTracking) {
             return@withContext RelevaResponse(emptyList(), emptyList())
         }
 
-        val sessionId = getSessionId()
+        ensureSessionTracking()
+        val sessionId = SessionService.getInstance().getSessionId()
         val wishlistProducts = storage.getWishlistData()
 
         // Use cart from request if explicitly set (e.g., for checkout success),
@@ -324,7 +331,7 @@ class RelevaClient(
         val deviceId = storage.getDeviceId()
             ?: throw Exception("Please provide deviceId using client.setDeviceId() before using the client!")
 
-        val context = JSONObject().apply {
+        val payload = JSONObject().apply {
             put("deviceId", deviceId)
             put("deviceIdChanged", deviceIdChanged)
             put("sessionId", sessionId)
@@ -368,8 +375,23 @@ class RelevaClient(
             }
         }
 
+        // Device context
+        val sessionCount = storage.getDeviceSessionCount()
+        val firstSeenAt = storage.getDeviceFirstSeenAt()
+        val views = storage.incrementDeviceViewsCount()
+
+        payload.put("device", JSONObject().apply {
+            put("sessions", sessionCount)
+            put("platform", "android")
+            put("views", views)
+            put("sdkVersion", VERSION)
+        })
+        if (firstSeenAt != null) {
+            payload.getJSONObject("device").put("firstSeenAt", firstSeenAt)
+        }
+
         val requestBody = JSONObject().apply {
-            put("context", context)
+            put("context", payload)
             put("options", JSONObject().apply {
                 put("client", JSONObject().apply {
                     put("vendor", "Releva")
@@ -421,11 +443,12 @@ class RelevaClient(
         comment: String? = null
     ) = withContext(Dispatchers.IO) {
         require(score in 0..10) { "NPS score must be 0-10" }
+        ensureSessionTracking()
 
         val body = JSONObject().apply {
             put("profileId", storage.getProfileId())
             put("deviceId", storage.getDeviceId())
-            put("sessionId", getSessionId())
+            put("sessionId", SessionService.getInstance().getSessionId())
             put("score", score)
             if (!comment.isNullOrEmpty()) put("comment", comment)
         }
@@ -455,6 +478,7 @@ class RelevaClient(
      */
     fun dispose() {
         npsManager.dispose()
+        SessionService.getInstance().dispose()
     }
 
     // -- Story tracking methods --
@@ -474,10 +498,11 @@ class RelevaClient(
         action: String,
         slideId: Any? = null
     ) = withContext(Dispatchers.IO) {
+        ensureSessionTracking()
         val body = JSONObject().apply {
             put("deviceId", storage.getDeviceId())
             put("profileId", storage.getProfileId())
-            put("sessionId", getSessionId())
+            put("sessionId", SessionService.getInstance().getSessionId())
             put("action", action)
             put("attributions", JSONObject().apply {
                 put("storyId", story.token)
@@ -768,26 +793,6 @@ class RelevaClient(
         Log.d(TAG, "Cart storage automatically cleared after checkout success")
 
         return response
-    }
-
-    /**
-     * Get or create session ID
-     */
-    private suspend fun getSessionId(): String = withContext(Dispatchers.IO) {
-        val sessionTimestamp = storage.getSessionTimestamp()
-        val savedSessionId = storage.getSessionId()
-
-        if (savedSessionId == null ||
-            sessionTimestamp == null ||
-            sessionTimestamp + SESSION_DURATION_MS < System.currentTimeMillis()) {
-            val newSessionId = UUID.randomUUID().toString()
-            storage.setSessionId(newSessionId)
-            storage.setSessionTimestamp(System.currentTimeMillis())
-            npsManager.startNewSession()
-            newSessionId
-        } else {
-            savedSessionId
-        }
     }
 
     /**
