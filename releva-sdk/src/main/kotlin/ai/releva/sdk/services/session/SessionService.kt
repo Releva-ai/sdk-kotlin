@@ -2,6 +2,8 @@ package ai.releva.sdk.services.session
 
 import ai.releva.sdk.services.nps.NpsManagerService
 import ai.releva.sdk.services.storage.StorageService
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -36,7 +38,7 @@ class SessionService private constructor() : DefaultLifecycleObserver {
     private var storage: StorageService? = null
     private var npsManager: NpsManagerService? = null
     private var initialized = false
-    private var pausedAtMs: Long? = null
+    @Volatile private var pausedAtMs: Long? = null
 
     fun initialize(storage: StorageService, npsManager: NpsManagerService) {
         synchronized(this) {
@@ -46,7 +48,9 @@ class SessionService private constructor() : DefaultLifecycleObserver {
             initialized = true
         }
 
-        ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+        Handler(Looper.getMainLooper()).post {
+            ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+        }
 
         // Cold start = new session
         startNewSession()
@@ -110,7 +114,9 @@ class SessionService private constructor() : DefaultLifecycleObserver {
 
     fun dispose() {
         if (initialized) {
-            ProcessLifecycleOwner.get().lifecycle.removeObserver(this)
+            Handler(Looper.getMainLooper()).post {
+                ProcessLifecycleOwner.get().lifecycle.removeObserver(this)
+            }
         }
         initialized = false
         storage = null

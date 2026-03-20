@@ -262,7 +262,7 @@ class BannerDisplayManager(
             Log.d(TAG, "Banner link tapped in popup: $url")
             dialog.dismiss()
             trackClick(banner)
-            onLinkTap?.invoke(url)
+            onLinkTap(url)
         }
 
         // Always full-screen
@@ -357,7 +357,7 @@ class BannerDisplayManager(
 
         val contentView = DesignRenderer.render(ctx, banner.design!!, maxWidthPx = availableWidth) { url ->
             trackClick(banner)
-            onLinkTap?.invoke(url)
+            onLinkTap(url)
         }
         val statusBarPad = if (!isBottom) getStatusBarHeight(ctx) else 0
 
@@ -431,7 +431,7 @@ class BannerDisplayManager(
         ) { url ->
             dialog.dismiss()
             trackClick(banner)
-            onLinkTap?.invoke(url)
+            onLinkTap(url)
         }
 
         val overlayLayout = FrameLayout(ctx).apply {
@@ -533,7 +533,7 @@ class BannerDisplayManager(
 
         val contentView = DesignRenderer.render(ctx, banner.design!!) { url ->
             trackClick(banner)
-            onLinkTap?.invoke(url)
+            onLinkTap(url)
         }
 
         contentView.layoutParams = LinearLayout.LayoutParams(
@@ -675,15 +675,6 @@ class BannerDisplayManager(
         DesignRenderer.parseColor(bodyValues["popupOverlay_backgroundColor"])?.let { return it }
         DesignRenderer.parseColor(banner.cssStyles["overlayColor"])?.let { return it }
         return Color.argb(128, 0, 0, 0)
-    }
-
-    private fun getBorderRadius(banner: BannerResponse): Float {
-        val bodyValues = getDesignBodyValues(banner)
-        val str = bodyValues["borderRadius"]?.toString()?.replace(Regex("[a-zA-Z%]"), "")?.trim()
-        str?.toFloatOrNull()?.let { return it }
-        val cssStr = banner.cssStyles["closeButtonBorderRadius"]?.toString()
-        cssStr?.toFloatOrNull()?.let { return it }
-        return 8f
     }
 
     private fun getStatusBarHeight(ctx: android.content.Context): Int {

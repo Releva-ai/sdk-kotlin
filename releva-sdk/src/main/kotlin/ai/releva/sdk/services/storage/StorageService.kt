@@ -79,6 +79,7 @@ class StorageService private constructor(context: Context) {
         preferences.edit().putInt(KEY_DEVICE_SESSION_COUNT, count).apply()
     }
 
+    @Synchronized
     fun getDeviceSessionCount(): Int = preferences.getInt(KEY_DEVICE_SESSION_COUNT, 0)
 
     fun setDeviceFirstSeenAt(iso: String) {
@@ -103,6 +104,7 @@ class StorageService private constructor(context: Context) {
         preferences.edit().putLong(KEY_DEVICE_VIEWS, count).apply()
     }
 
+    @Synchronized
     fun getDeviceViewsCount(): Long = preferences.getLong(KEY_DEVICE_VIEWS, 0L)
 
     @Synchronized
