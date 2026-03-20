@@ -600,7 +600,7 @@ class BannerDisplayManager(
         val bodyValues = getDesignBodyValues(banner)
 
         val bgColor = DesignRenderer.parseColor(bodyValues["popupCloseButton_backgroundColor"])
-            ?: DesignRenderer.parseColor(banner.cssStyles["closeButtonBackgroudColor"])
+            ?: DesignRenderer.parseColor(banner.cssStyles["closeButtonBackgroundColor"])
             ?: Color.WHITE
         val iconColor = DesignRenderer.parseColor(bodyValues["popupCloseButton_iconColor"])
             ?: DesignRenderer.parseColor(banner.cssStyles["closeButtonColor"])
