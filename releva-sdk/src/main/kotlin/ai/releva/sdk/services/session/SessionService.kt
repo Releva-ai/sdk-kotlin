@@ -25,6 +25,9 @@ class SessionService private constructor() : DefaultLifecycleObserver {
     companion object {
         private const val TAG = "SessionService"
         private const val DEBOUNCE_THRESHOLD_MS = 30_000L // 30 seconds
+        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.US).also {
+            it.timeZone = TimeZone.getTimeZone("UTC")
+        }
 
         @Volatile
         private var instance: SessionService? = null
@@ -40,6 +43,7 @@ class SessionService private constructor() : DefaultLifecycleObserver {
     private var npsManager: NpsManagerService? = null
     private var initialized = false
     @Volatile private var pausedAtMs: Long? = null
+    @Volatile private var fallbackSessionId: String? = null
 
     fun initialize(storage: StorageService, npsManager: NpsManagerService) {
         synchronized(this) {
@@ -64,6 +68,7 @@ class SessionService private constructor() : DefaultLifecycleObserver {
     }
 
     override fun onStop(owner: LifecycleOwner) {
+        if (!initialized) return
         pausedAtMs = System.currentTimeMillis()
     }
 
@@ -83,9 +88,7 @@ class SessionService private constructor() : DefaultLifecycleObserver {
 
         // Record first-seen date on first ever session
         if (storage.getDeviceFirstSeenAt() == null) {
-            val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.US)
-            sdf.timeZone = TimeZone.getTimeZone("UTC")
-            storage.setDeviceFirstSeenAt(sdf.format(Date()))
+            storage.setDeviceFirstSeenAt(DATE_FORMAT.format(Date()))
         }
 
         // Increment session count (atomic)
@@ -110,10 +113,11 @@ class SessionService private constructor() : DefaultLifecycleObserver {
         val existing = storage?.getSessionId()
         if (existing != null) return existing
 
-        // Safety fallback
+        // Safety fallback — cache the ID so repeated pre-init calls return the same value
+        val cached = fallbackSessionId
+        if (cached != null) return cached
         val sessionId = UUID.randomUUID().toString()
-        storage?.setSessionId(sessionId)
-        storage?.setSessionTimestamp(System.currentTimeMillis())
+        fallbackSessionId = sessionId
         return sessionId
     }
 
@@ -134,5 +138,6 @@ class SessionService private constructor() : DefaultLifecycleObserver {
         }
         initialized = false
         storage = null
+        npsManager = null
     }
 }

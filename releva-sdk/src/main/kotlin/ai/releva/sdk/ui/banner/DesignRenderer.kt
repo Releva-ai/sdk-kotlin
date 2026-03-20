@@ -24,6 +24,7 @@ object DesignRenderer {
     private val imageExecutor = Executors.newFixedThreadPool(4)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val RGBA_REGEX = Regex("""rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)""")
+    private val RGB_REGEX = Regex("""rgb\((\d+),\s*(\d+),\s*(\d+)\)""")
 
     fun loadImageAsync(url: String, imageView: ImageView) {
         imageExecutor.execute {
@@ -839,6 +840,15 @@ object DesignRenderer {
             val b = rgbaMatch.groupValues[3].toInt()
             val a = (rgbaMatch.groupValues[4].toFloat() * 255).toInt()
             return Color.argb(a, r, g, b)
+        }
+
+        // rgb(r, g, b)
+        val rgbMatch = RGB_REGEX.find(str)
+        if (rgbMatch != null) {
+            val r = rgbMatch.groupValues[1].toInt()
+            val g = rgbMatch.groupValues[2].toInt()
+            val b = rgbMatch.groupValues[3].toInt()
+            return Color.argb(255, r, g, b)
         }
 
         // hex color

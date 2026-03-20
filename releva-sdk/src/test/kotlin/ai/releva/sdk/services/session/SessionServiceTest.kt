@@ -207,6 +207,15 @@ class SessionServiceTest {
         assertTrue(sessionId.isNotEmpty())
     }
 
+    @Test
+    fun `getSessionId returns stable fallback id before initialization`() {
+        // Repeated pre-init calls must return the same UUID
+        val first = service.getSessionId()
+        val second = service.getSessionId()
+
+        assertEquals(first, second)
+    }
+
     // ── Guard Against Calls Before Initialize ───────────────────────────────────
 
     @Test

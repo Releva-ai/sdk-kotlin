@@ -683,14 +683,4 @@ class BannerDisplayManager(
         return if (resourceId > 0) ctx.resources.getDimensionPixelSize(resourceId) else 0
     }
 
-    private fun resolveDimension(value: Any?, relativeTo: Float, dp: Float = 1f): Float? {
-        if (value == null) return null
-        val str = value.toString().trim()
-        if (str.endsWith("%")) {
-            val percent = str.replace("%", "").toFloatOrNull()
-            if (percent != null) return relativeTo * percent / 100f
-        }
-        val raw = str.replace(Regex("[a-zA-Z%]"), "").trim().toFloatOrNull()
-        return raw?.times(dp)
-    }
 }
