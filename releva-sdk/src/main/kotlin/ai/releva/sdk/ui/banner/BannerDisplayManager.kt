@@ -237,50 +237,37 @@ class BannerDisplayManager(
         trackImpression(banner)
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun showPopupBanner(banner: BannerResponse) {
         val ctx = activity ?: return
         val bodyValues = getDesignBodyValues(banner)
         val popupBgColor = DesignRenderer.parseColor(bodyValues["popupBackgroundColor"]) ?: Color.WHITE
         val overlayColor = getOverlayColor(banner)
-        val popupPosition = bodyValues["popupPosition"]?.toString() ?: ""
-        val isFullScreen = popupPosition == "full-screen"
-        val borderRadius = if (isFullScreen) 0f else getBorderRadius(banner)
 
         val dialog = Dialog(ctx, android.R.style.Theme_Translucent_NoTitleBar)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.setCanceledOnTouchOutside(true)
 
-        val contentView = DesignRenderer.render(ctx, banner.design!!) { url ->
+        val dp = ctx.resources.displayMetrics.density
+
+        // Check for body background image
+        val bgImageMap = bodyValues["backgroundImage"] as? Map<String, Any?>
+        val bgImageUrl = bgImageMap?.get("url") as? String ?: ""
+        val hasBgImage = bgImageUrl.isNotEmpty()
+
+        val contentView = DesignRenderer.render(
+            ctx, banner.design!!,
+            transparentBody = hasBgImage
+        ) { url ->
             Log.d(TAG, "Banner link tapped in popup: $url")
             dialog.dismiss()
             trackClick(banner)
             onLinkTap?.invoke(url)
         }
 
-        val dp = ctx.resources.displayMetrics.density
-        val screenWidth = ctx.resources.displayMetrics.widthPixels
-        val screenHeight = ctx.resources.displayMetrics.heightPixels
-
-        val popupWidth: Int
-        val popupHeight: Int
-
-        if (isFullScreen) {
-            popupWidth = screenWidth
-            popupHeight = screenHeight
-        } else {
-            val contentWidthVal = resolveDimension(bodyValues["contentWidth"], screenWidth.toFloat(), dp)
-                ?: resolveDimension(bodyValues["popupWidth"], screenWidth.toFloat(), dp)
-                ?: (400 * dp)
-            popupWidth = contentWidthVal.toInt().coerceAtMost(screenWidth)
-
-            val popupHeightVal = bodyValues["popupHeight"]
-            popupHeight = if (popupHeightVal == "auto" || popupHeightVal == null) {
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            } else {
-                resolveDimension(popupHeightVal, screenHeight.toFloat(), dp)?.toInt()
-                    ?: ViewGroup.LayoutParams.WRAP_CONTENT
-            }
-        }
+        // Always full-screen
+        val popupWidth = WindowManager.LayoutParams.MATCH_PARENT
+        val popupHeight = WindowManager.LayoutParams.MATCH_PARENT
 
         // Outer overlay layout
         val overlayLayout = FrameLayout(ctx).apply {
@@ -291,14 +278,9 @@ class BannerDisplayManager(
             }
         }
 
-        // Popup container
+        // Popup container — no border radius, full screen
         val popupContainer = FrameLayout(ctx).apply {
-            background = GradientDrawable().apply {
-                setColor(popupBgColor)
-                cornerRadius = borderRadius * dp
-            }
-            clipToOutline = true
-            elevation = 16 * dp
+            setBackgroundColor(popupBgColor)
             isClickable = true // Prevent click-through
         }
 
@@ -317,10 +299,21 @@ class BannerDisplayManager(
             ))
         }
 
-        popupContainer.addView(contentWrapper, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ))
+        // If body has a background image, wrap the popup content with it
+        if (hasBgImage) {
+            val bgWrapper = DesignRenderer.wrapWithBackgroundImage(
+                ctx, contentWrapper, bgImageMap!!, forceCover = true
+            )
+            popupContainer.addView(bgWrapper, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+        } else {
+            popupContainer.addView(contentWrapper, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
 
         // Close button
         val closeButton = buildCloseButton(ctx, banner) {
@@ -386,18 +379,22 @@ class BannerDisplayManager(
             ViewGroup.LayoutParams.WRAP_CONTENT
         ))
 
-        // Small close button in the top-right corner
+        // Close button positioned so ~1/4 overlaps the content boundary
+        val closeSize = (24 * dp).toInt()
+        val closeOverlap = closeSize / 4 // ~6dp overlap
         val closeButton = buildCloseButton(ctx, banner) {
             (barLayout.parent as? ViewGroup)?.removeView(barLayout)
             closeBanner(banner)
         }
         barLayout.addView(closeButton, FrameLayout.LayoutParams(
-            (24 * dp).toInt(), (24 * dp).toInt(),
+            closeSize, closeSize,
             Gravity.TOP or Gravity.END
         ).apply {
-            topMargin = statusBarPad + (4 * dp).toInt()
-            rightMargin = (4 * dp).toInt()
+            topMargin = if (isBottom) -closeOverlap else statusBarPad + (4 * dp).toInt()
+            rightMargin = -closeOverlap
         })
+        barLayout.clipChildren = false
+        barLayout.clipToPadding = false
 
         // Add to outer wrapper as overlay
         root.addView(barLayout, FrameLayout.LayoutParams(
@@ -407,6 +404,7 @@ class BannerDisplayManager(
         ))
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun showFlyoutBanner(banner: BannerResponse) {
         val ctx = activity ?: return
         val overlayColor = getOverlayColor(banner)
@@ -420,7 +418,17 @@ class BannerDisplayManager(
         val screenWidth = ctx.resources.displayMetrics.widthPixels
         val flyoutWidth = (screenWidth * 0.8).toInt()
 
-        val contentView = DesignRenderer.render(ctx, banner.design!!, maxWidthPx = flyoutWidth) { url ->
+        // Check for body background image
+        val bodyValues = getDesignBodyValues(banner)
+        val bgImageMap = bodyValues["backgroundImage"] as? Map<String, Any?>
+        val bgImageUrl = bgImageMap?.get("url") as? String ?: ""
+        val hasBgImage = bgImageUrl.isNotEmpty()
+
+        val contentView = DesignRenderer.render(
+            ctx, banner.design!!,
+            maxWidthPx = flyoutWidth,
+            transparentBody = hasBgImage
+        ) { url ->
             dialog.dismiss()
             trackClick(banner)
             onLinkTap?.invoke(url)
@@ -474,8 +482,34 @@ class BannerDisplayManager(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
         ))
 
+        // If body has a background image, wrap the flyout content in a FrameLayout with the image behind
+        val flyoutView: View = if (hasBgImage) {
+            val bgWrapper = FrameLayout(ctx).apply {
+                isClickable = true
+                elevation = 10 * dp
+            }
+            val bgImageView = ImageView(ctx).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
+            DesignRenderer.loadImageAsync(bgImageUrl, bgImageView)
+            bgWrapper.addView(bgImageView)
+            bgWrapper.addView(flyoutContainer, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+            // Make flyout container background transparent so bg image shows through
+            flyoutContainer.setBackgroundColor(Color.TRANSPARENT)
+            bgWrapper
+        } else {
+            flyoutContainer
+        }
+
         val flyoutGravity = if (isLeft) Gravity.START else Gravity.END
-        overlayLayout.addView(flyoutContainer, FrameLayout.LayoutParams(
+        overlayLayout.addView(flyoutView, FrameLayout.LayoutParams(
             flyoutWidth, ViewGroup.LayoutParams.MATCH_PARENT, flyoutGravity
         ))
 

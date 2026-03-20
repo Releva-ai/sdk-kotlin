@@ -24,7 +24,7 @@ object DesignRenderer {
     private val imageExecutor = Executors.newFixedThreadPool(4)
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private fun loadImageAsync(url: String, imageView: ImageView) {
+    fun loadImageAsync(url: String, imageView: ImageView) {
         imageExecutor.execute {
             try {
                 // Download bytes once to support two-pass decode without a second HTTP connection
@@ -64,6 +64,7 @@ object DesignRenderer {
         context: Context,
         design: Map<String, Any?>,
         maxWidthPx: Int = context.resources.displayMetrics.widthPixels,
+        transparentBody: Boolean = false,
         onLinkTap: ((String) -> Unit)? = null
     ): View {
         val body = design["body"] as? Map<String, Any?> ?: return View(context)
@@ -80,9 +81,15 @@ object DesignRenderer {
         val contentWidthPx = if (isPercentWidth) null
             else parseDimension(bodyValues["contentWidth"], context)?.toInt()?.coerceAtMost(maxWidthPx)
 
+        val bgImageMap = bodyValues["backgroundImage"] as? Map<String, Any?>
+        val hasBgImage = !transparentBody && bgImageMap != null
+            && (bgImageMap["url"] as? String)?.isNotEmpty() == true
+
         val outerLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(backgroundColor)
+            if (!transparentBody && !hasBgImage) {
+                setBackgroundColor(backgroundColor)
+            }
             gravity = Gravity.CENTER_HORIZONTAL
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -108,6 +115,11 @@ object DesignRenderer {
         }
 
         outerLayout.addView(innerLayout)
+
+        if (hasBgImage) {
+            return wrapWithBackgroundImage(context, outerLayout, bgImageMap!!)
+        }
+
         return outerLayout
     }
 
@@ -126,6 +138,10 @@ object DesignRenderer {
         val bgColor = parseColor(rowValues["backgroundColor"])
         val columnsBgColor = parseColor(rowValues["columnsBackgroundColor"])
         val padding = parseEdgeInsets(rowValues["padding"])
+
+        val rowBgImageMap = rowValues["backgroundImage"] as? Map<String, Any?>
+        val hasRowBgImage = rowBgImageMap != null
+            && (rowBgImageMap["url"] as? String)?.isNotEmpty() == true
 
         val layout: View = if (columns.size == 1) {
             val colMap = columns[0] as? Map<String, Any?> ?: return View(context)
@@ -148,7 +164,9 @@ object DesignRenderer {
         }
 
         val wrapper = FrameLayout(context).apply {
-            (bgColor ?: columnsBgColor)?.let { setBackgroundColor(it) }
+            if (!hasRowBgImage) {
+                (bgColor ?: columnsBgColor)?.let { setBackgroundColor(it) }
+            }
             padding?.let { setPadding(it[3], it[0], it[1], it[2]) }
             addView(layout, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -158,6 +176,10 @@ object DesignRenderer {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
+        }
+
+        if (hasRowBgImage) {
+            return wrapWithBackgroundImage(context, wrapper, rowBgImageMap!!)
         }
 
         return wrapper
@@ -749,6 +771,56 @@ object DesignRenderer {
         }
 
         return rootLayout
+    }
+
+    /**
+     * Wraps a view in a FrameLayout with an ImageView behind it showing a background image.
+     * The content view's background is made transparent so the image shows through.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun wrapWithBackgroundImage(
+        context: Context,
+        contentView: View,
+        bgImageMap: Map<String, Any?>,
+        forceCover: Boolean = false
+    ): View {
+        val url = bgImageMap["url"] as? String ?: return contentView
+        if (url.isEmpty()) return contentView
+
+        val scaleType = if (forceCover) ImageView.ScaleType.CENTER_CROP else {
+            when (bgImageMap["size"] as? String ?: "cover") {
+                "contain" -> ImageView.ScaleType.FIT_CENTER
+                "custom" -> ImageView.ScaleType.FIT_CENTER
+                else -> ImageView.ScaleType.CENTER_CROP
+            }
+        }
+
+        val bgImageView = ImageView(context).apply {
+            this.scaleType = scaleType
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val wrapper = FrameLayout(context).apply {
+            layoutParams = contentView.layoutParams ?: ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        contentView.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        )
+
+        wrapper.addView(bgImageView)
+        wrapper.addView(contentView)
+
+        loadImageAsync(url, bgImageView)
+
+        return wrapper
     }
 
     // --- Utility functions ---
