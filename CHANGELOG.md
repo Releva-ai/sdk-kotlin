@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.2
+
+### Fixed
+
+* **Session timeout fix** We consider a session has ended after 30 mintues of inactivity (industry standard as of 2026)
+
+
 ## 1.2.1
 **Repackage**
 

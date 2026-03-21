@@ -84,27 +84,27 @@ class SessionServiceTest {
         )
     }
 
-    // ── Foreground After Long Background (>30 s) ────────────────────────────────
+    // ── Foreground After Long Background (>30 min) ────────────────────────────────
 
     @Test
-    fun `foreground after more than 30s creates new session`() {
+    fun `foreground after more than 30min creates new session`() {
         service.initialize(storage, npsManager)
         assertEquals(1, storage.getDeviceSessionCount())
 
         service.onStop(stubOwner)
-        backdateLastPause(31_000L)
+        backdateLastPause(1_900_000L)
         service.onStart(stubOwner)
 
         assertEquals(2, storage.getDeviceSessionCount())
     }
 
     @Test
-    fun `session id changes when foreground after more than 30s`() {
+    fun `session id changes when foreground after more than 30min`() {
         service.initialize(storage, npsManager)
         val firstSessionId = storage.getSessionId()
 
         service.onStop(stubOwner)
-        backdateLastPause(31_000L)
+        backdateLastPause(1_900_000L)
         service.onStart(stubOwner)
 
         val secondSessionId = storage.getSessionId()
@@ -118,7 +118,7 @@ class SessionServiceTest {
         val firstSeenAt = storage.getDeviceFirstSeenAt()
 
         service.onStop(stubOwner)
-        backdateLastPause(31_000L)
+        backdateLastPause(1_900_000L)
         service.onStart(stubOwner)
 
         assertEquals(firstSeenAt, storage.getDeviceFirstSeenAt())
@@ -130,17 +130,17 @@ class SessionServiceTest {
 
         repeat(3) {
             service.onStop(stubOwner)
-            backdateLastPause(31_000L)
+            backdateLastPause(1_900_000L)
             service.onStart(stubOwner)
         }
 
         assertEquals(4, storage.getDeviceSessionCount())
     }
 
-    // ── Foreground After Short Background (<30 s) ────────────────────────────────
+    // ── Foreground After Short Background (<30 min) ────────────────────────────────
 
     @Test
-    fun `foreground within 30s does not create new session`() {
+    fun `foreground within 30min does not create new session`() {
         service.initialize(storage, npsManager)
 
         service.onStop(stubOwner)

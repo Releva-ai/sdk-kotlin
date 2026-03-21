@@ -24,7 +24,7 @@ class SessionService private constructor() : DefaultLifecycleObserver {
 
     companion object {
         private const val TAG = "SessionService"
-        private const val DEBOUNCE_THRESHOLD_MS = 30_000L // 30 seconds
+        private const val DEBOUNCE_THRESHOLD_MS = 30 * 60 * 1000L // 30 minutes
         private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.US).also {
             it.timeZone = TimeZone.getTimeZone("UTC")
         }
