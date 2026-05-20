@@ -11,6 +11,7 @@ import ai.releva.sdk.types.cart.Cart
 import ai.releva.sdk.types.cart.CartProduct
 import ai.releva.sdk.types.customfield.CustomFields
 import ai.releva.sdk.types.device.DeviceType
+import ai.releva.sdk.types.event.CustomEvent
 import ai.releva.sdk.types.filter.AbstractFilter
 import ai.releva.sdk.types.response.BannerResponse
 import ai.releva.sdk.types.response.RelevaResponse
@@ -302,13 +303,21 @@ class RelevaClient(
     suspend fun bannerClicked(banner: BannerResponse, action: String? = null) =
         bannerAction(banner, action)
 
-    /**
-     * Main push method for sending tracking data
-     */
     private fun ensureSessionTracking() {
         SessionService.getInstance().initialize(storage, npsManager)
     }
 
+    /**
+     * Send a [PushRequest] to the Releva tracking endpoint and return the response
+     * (recommenders, banners, etc.). This is the primary entry point for tracking;
+     * compose the request via the [PushRequest] builder (`url`, `screenToken`,
+     * `productView`, `pageProductIds`, `pageCategories`, `pageQuery`, `pageFilter`,
+     * `locale`, `currency`, `cart`, `customEvents`).
+     *
+     * Note: [PushRequest] is a mutable builder and is not thread-safe. Build a fresh
+     * request per call; do not share or mutate a request instance across coroutines
+     * while `push()` is running.
+     */
     suspend fun push(request: PushRequest): RelevaResponse = withContext(Dispatchers.IO) {
         if (!config.enableTracking) {
             return@withContext RelevaResponse(emptyList(), emptyList())
@@ -351,6 +360,8 @@ class RelevaClient(
                 request.pageCategories?.let { put("categories", JSONArray(it)) }
                 request.pageQuery?.let { put("query", it) }
                 request.pageFilter?.let { put("filter", JSONObject(it.toMap())) }
+                request.pageLocale?.let { put("locale", it) }
+                request.pageCurrency?.let { put("currency", it) }
             })
 
             // Include cart if it exists (either from request or storage)
@@ -672,7 +683,7 @@ class RelevaClient(
      */
     suspend fun trackScreenViewWithEvents(
         pageUrl: String? = null,
-        customEvents: List<ai.releva.sdk.types.event.CustomEvent>,
+        customEvents: List<CustomEvent>,
         screenToken: String? = null,
         productIds: List<String>? = null,
         categories: List<String>? = null,
@@ -797,16 +808,16 @@ class RelevaClient(
 
     /**
      * Track a single custom event. Convenience around `push(PushRequest().customEvents(...))`.
+     *
+     * Returns a [RelevaResponse] just like [push] — callers may inspect
+     * `response.recommenders` and `response.banners` to render any recommendations
+     * the server returns alongside the event.
      */
     suspend fun trackCustomEvent(
-        event: ai.releva.sdk.types.event.CustomEvent,
+        event: CustomEvent,
         pageUrl: String? = null,
         screenToken: String? = null
     ): RelevaResponse {
-        if (!config.enableTracking) {
-            return RelevaResponse(emptyList(), emptyList())
-        }
-
         val request = PushRequest().customEvents(listOf(event))
         pageUrl?.let { request.url(it) }
         screenToken?.let { request.screenToken(it) }

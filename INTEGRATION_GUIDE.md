@@ -775,7 +775,12 @@ lifecycleScope.launch {
             tags = listOf("cart", "purchase-intent")
         )
 
-        relevaClient.trackCustomEvent(event)
+        // trackCustomEvent returns a RelevaResponse — recommenders/banners may
+        // be returned alongside the event and can be rendered like any push() response.
+        val response = relevaClient.trackCustomEvent(event)
+        if (response.hasRecommenders) {
+            renderRecommendationsInYourUI(response.recommenders)
+        }
     } catch (e: Exception) {
         Log.e(TAG, "Error tracking custom event", e)
     }
