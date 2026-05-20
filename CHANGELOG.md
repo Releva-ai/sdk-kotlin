@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0
+
+### Added
+
+- **Public `push(PushRequest)` API.** `RelevaClient.push(request)` is now public, so apps can compose a `PushRequest` via the fluent builder (`url`, `screenToken`, `productView`, `pageProductIds`, `pageCategories`, `pageQuery`, `pageFilter`, `locale`, `currency`, `cart`, `customEvents`) and send it directly. This is now the recommended pattern for screen views, product views, search, and checkout tracking.
+- **`trackCustomEvent(event, pageUrl?, screenToken?)`** convenience on `RelevaClient` for tracking a single `CustomEvent` without building a `PushRequest` by hand.
+
+### Documentation
+
+- README and INTEGRATION_GUIDE rewritten around the builder pattern. The existing `trackScreenView` / `trackProductView` / `trackSearchView` / `trackCheckoutSuccess` / `trackScreenViewWithEvents` methods remain available for backward compatibility but are no longer the recommended entry point.
+
 ## 1.2.2
 
 ### Fixed

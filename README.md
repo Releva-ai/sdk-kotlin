@@ -71,13 +71,21 @@ class MyApplication : Application() {
 
 ### Track Events
 
+Most tracking — screen views, product views, search, checkout, recommendations — is sent through a single API: build a `PushRequest` using the fluent builder, then hand it to `client.push(...)`. Custom events are the exception and use `client.trackCustomEvent(...)` directly.
+
 ```kotlin
+import ai.releva.sdk.types.tracking.PushRequest
+import ai.releva.sdk.types.product.ViewedProduct
+import ai.releva.sdk.types.customfield.CustomFields
+
 lifecycleScope.launch {
-    val response = relevaClient.trackProductView(
-        pageUrl = "myapp://product/details",
-        screenToken = null,
-        productId = "product-123"
-    )
+    val request = PushRequest()
+        .url("myapp://product/details")
+        // Use the actual token from Releva admin (UUID) once configured
+        // .screenToken("abc123def456")
+        .productView(ViewedProduct(productId = "product-123", custom = CustomFields.empty()))
+
+    val response = relevaClient.push(request)
 
     if (response.hasRecommenders) {
         // Render recommendations in your UI
