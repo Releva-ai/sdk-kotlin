@@ -38,7 +38,7 @@ Add SDK dependency to your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.Releva-ai:sdk-kotlin:1.1.1")
+    implementation("com.github.Releva-ai:sdk-kotlin:1.3.0")
 }
 ```
 
