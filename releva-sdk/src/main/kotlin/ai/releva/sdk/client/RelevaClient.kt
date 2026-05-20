@@ -70,7 +70,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "1.2.0-kotlin"
+        private const val VERSION = "1.3.0-kotlin"
     }
 
     /**
@@ -309,7 +309,7 @@ class RelevaClient(
         SessionService.getInstance().initialize(storage, npsManager)
     }
 
-    private suspend fun push(request: PushRequest): RelevaResponse = withContext(Dispatchers.IO) {
+    suspend fun push(request: PushRequest): RelevaResponse = withContext(Dispatchers.IO) {
         if (!config.enableTracking) {
             return@withContext RelevaResponse(emptyList(), emptyList())
         }
@@ -793,6 +793,25 @@ class RelevaClient(
         Log.d(TAG, "Cart storage automatically cleared after checkout success")
 
         return response
+    }
+
+    /**
+     * Track a single custom event. Convenience around `push(PushRequest().customEvents(...))`.
+     */
+    suspend fun trackCustomEvent(
+        event: ai.releva.sdk.types.event.CustomEvent,
+        pageUrl: String? = null,
+        screenToken: String? = null
+    ): RelevaResponse {
+        if (!config.enableTracking) {
+            return RelevaResponse(emptyList(), emptyList())
+        }
+
+        val request = PushRequest().customEvents(listOf(event))
+        pageUrl?.let { request.url(it) }
+        screenToken?.let { request.screenToken(it) }
+
+        return push(request)
     }
 
     /**

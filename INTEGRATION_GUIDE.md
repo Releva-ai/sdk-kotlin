@@ -194,9 +194,32 @@ Update your `AndroidManifest.xml`:
 - ❌ Wrong: `pageUrl = "/product"` (must be a full URL, not a relative path)
 - ❌ Wrong: `pageUrl = "product_detail"` (must include scheme like myapp:// or https://)
 
+### Builder Pattern
+
+Most tracking — screen views, product views, search, checkout, recommendations — is sent through a single API: build a `PushRequest` using the fluent builder, then call `relevaClient.push(request)`. Builder methods can be chained in any order.
+
+The relevant builder methods are:
+
+| Method | Purpose |
+|---|---|
+| `url(pageUrl)` | Full page URL (custom scheme or https://) |
+| `screenToken(token)` | Releva-admin token (UUID) for the screen |
+| `productView(viewedProduct)` | Attach a viewed product |
+| `pageProductIds(ids)` | Product IDs visible on a listing/search page |
+| `pageCategories(categories)` | Categories visible on the page |
+| `pageQuery(query)` | Search query string |
+| `pageFilter(filter)` | Applied filter (see "Complex Filtering") |
+| `locale(locale)` / `currency(currency)` | Locale and currency context |
+| `customEvents(events)` | Attach a list of custom events |
+| `cart(cart)` | Attach a cart (used for checkout success) |
+
 ### In Activities
 
 ```kotlin
+import ai.releva.sdk.types.tracking.PushRequest
+import ai.releva.sdk.types.product.ViewedProduct
+import ai.releva.sdk.types.customfield.CustomFields
+
 class ProductDetailActivity : AppCompatActivity() {
 
     private val relevaClient by lazy {
@@ -207,18 +230,19 @@ class ProductDetailActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_product_detail)
 
-        // Track product view
+        // Track product view via the builder
         lifecycleScope.launch {
             try {
-                val response = relevaClient.trackProductView(
-                    pageUrl = "myapp://product/details", // Full URL with custom scheme or https://
-                    screenToken = null, // Use actual token from Releva admin (e.g., "abc123def456")
-                    productId = productId,
-                    categories = listOf("electronics", "phones")
-                )
+                val request = PushRequest()
+                    .url("myapp://product/details") // Full URL with custom scheme or https://
+                    // Use actual token from Releva admin (e.g., "abc123def456")
+                    // .screenToken("abc123def456")
+                    .productView(ViewedProduct(productId = productId, custom = CustomFields.empty()))
+                    .pageCategories(listOf("electronics", "phones"))
+
+                val response = relevaClient.push(request)
 
                 // SDK does NOT provide UI methods - you must implement your own
-                // Check if recommendations are available
                 if (response.hasRecommenders) {
                     // YOUR CODE: Render recommendations in your UI
                     renderRecommendationsInYourUI(response.recommenders)
@@ -239,6 +263,8 @@ class ProductDetailActivity : AppCompatActivity() {
 ### In Fragments
 
 ```kotlin
+import ai.releva.sdk.types.tracking.PushRequest
+
 class SearchFragment : Fragment() {
 
     private val relevaClient by lazy {
@@ -248,11 +274,12 @@ class SearchFragment : Fragment() {
     private fun performSearch(query: String) {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val response = relevaClient.trackSearchView(
-                    pageUrl = "myapp://search/results", // Full URL format
-                    screenToken = null, // Use actual token from Releva admin
-                    query = query
-                )
+                val request = PushRequest()
+                    .url("myapp://search/results") // Full URL format
+                    // .screenToken("abc123def456")
+                    .pageQuery(query)
+
+                val response = relevaClient.push(request)
 
                 // YOUR CODE: Render search results and recommendations
                 renderSearchResultsInYourUI(response)
@@ -274,6 +301,10 @@ class SearchFragment : Fragment() {
 ### In ViewModels
 
 ```kotlin
+import ai.releva.sdk.types.tracking.PushRequest
+import ai.releva.sdk.types.product.ViewedProduct
+import ai.releva.sdk.types.customfield.CustomFields
+
 class ProductViewModel : ViewModel() {
 
     private val _recommendations = MutableLiveData<List<RecommenderResponse>>()
@@ -282,11 +313,11 @@ class ProductViewModel : ViewModel() {
     fun trackProductView(relevaClient: RelevaClient, productId: String) {
         viewModelScope.launch {
             try {
-                val response = relevaClient.trackProductView(
-                    pageUrl = "myapp://product/details", // Full URL format
-                    screenToken = null, // Use actual token from Releva admin
-                    productId = productId
-                )
+                val request = PushRequest()
+                    .url("myapp://product/details")
+                    .productView(ViewedProduct(productId = productId, custom = CustomFields.empty()))
+
+                val response = relevaClient.push(request)
 
                 // Store recommendations in LiveData for UI to observe
                 _recommendations.value = response.recommenders
@@ -300,7 +331,11 @@ class ProductViewModel : ViewModel() {
 
 ## Step 4: Track Cart and Wishlist
 
+`setCart()` and `setWishlist()` are stateful: the SDK stores the values locally and automatically syncs changes to the backend. Checkout success is a tracking event and goes through the builder.
+
 ```kotlin
+import ai.releva.sdk.types.tracking.PushRequest
+
 class CartManager(private val relevaClient: RelevaClient) {
 
     suspend fun updateCart(items: List<CartItem>) {
@@ -312,6 +347,7 @@ class CartManager(private val relevaClient: RelevaClient) {
             )
         }
 
+        // Set the active cart (auto-syncs on change)
         val cart = Cart.active(cartProducts)
         relevaClient.setCart(cart)
     }
@@ -319,6 +355,24 @@ class CartManager(private val relevaClient: RelevaClient) {
     suspend fun updateWishlist(productIds: List<String>) {
         val wishlistProducts = productIds.map { WishlistProduct(id = it) }
         relevaClient.setWishlist(wishlistProducts)
+    }
+
+    suspend fun trackCheckoutSuccess(items: List<CartItem>, orderId: String) {
+        val cartProducts = items.map { item ->
+            CartProduct(
+                id = item.productId,
+                price = item.price,
+                quantity = item.quantity.toDouble()
+            )
+        }
+
+        // Attach the paid cart to the request via the builder
+        val orderedCart = Cart.paid(cartProducts, orderId = orderId)
+        val request = PushRequest()
+            .url("myapp://checkout/success")
+            .cart(orderedCart)
+
+        relevaClient.push(request)
     }
 }
 ```
@@ -703,11 +757,9 @@ class AuthManager(private val relevaClient: RelevaClient) {
 
 ### Track Custom Events
 
-The SDK allows you to track custom user interactions using the `CustomEvent` type. You can submit custom events in two ways:
+Custom events are the one exception to the builder pattern — call `relevaClient.trackCustomEvent(event)` directly for the common single-event case. For combining multiple events with a screen view, attach them to a `PushRequest` via `.customEvents(...)` and call `push()`.
 
-#### Method 1: With Screen View (trackScreenViewWithEvents)
-
-Track custom events along with a screen view for combined tracking:
+#### Single Event
 
 ```kotlin
 import ai.releva.sdk.types.event.CustomEvent
@@ -715,7 +767,33 @@ import ai.releva.sdk.types.event.CustomEventProduct
 
 lifecycleScope.launch {
     try {
-        // Create custom events
+        val event = CustomEvent(
+            action = "product_added_to_cart",
+            products = listOf(
+                CustomEventProduct(id = "product-123", quantity = 2.0)
+            ),
+            tags = listOf("cart", "purchase-intent")
+        )
+
+        relevaClient.trackCustomEvent(event)
+    } catch (e: Exception) {
+        Log.e(TAG, "Error tracking custom event", e)
+    }
+}
+```
+
+#### Multiple Events Combined with a Screen View
+
+```kotlin
+import ai.releva.sdk.types.tracking.PushRequest
+import ai.releva.sdk.types.event.CustomEvent
+import ai.releva.sdk.types.event.CustomEventProduct
+import ai.releva.sdk.types.customfield.CustomFields
+import ai.releva.sdk.types.customfield.StringField
+import ai.releva.sdk.types.customfield.NumericField
+
+lifecycleScope.launch {
+    try {
         val customEvents = listOf(
             // Event without products
             CustomEvent(
@@ -744,14 +822,12 @@ lifecycleScope.launch {
             )
         )
 
-        // Track screen view with custom events
-        val response = relevaClient.trackScreenViewWithEvents(
-            pageUrl = "myapp://home",
-            customEvents = customEvents,
-            screenToken = null
-        )
+        val request = PushRequest()
+            .url("myapp://home")
+            .customEvents(customEvents)
 
-        // Handle response
+        val response = relevaClient.push(request)
+
         if (response.hasRecommenders) {
             renderRecommendationsInYourUI(response.recommenders)
         }
@@ -760,10 +836,6 @@ lifecycleScope.launch {
     }
 }
 ```
-
-#### Method 2: With Any Tracking Method (using PushRequest)
-
-For more advanced use cases, you can pass custom events directly in any tracking call by accessing the lower-level push API (see SDK source code for details).
 
 #### Custom Event Examples
 
@@ -823,7 +895,10 @@ CustomEvent(
 
 ### Complex Filtering
 
+Filters compose with the rest of the request via `pageFilter(...)` on the builder.
+
 ```kotlin
+import ai.releva.sdk.types.tracking.PushRequest
 import ai.releva.sdk.types.filter.*
 
 val filter = NestedFilter.and(listOf(
@@ -836,33 +911,40 @@ val filter = NestedFilter.and(listOf(
 ))
 
 lifecycleScope.launch {
-    val response = relevaClient.trackSearchView(
-        pageUrl = "myapp://search/filtered", // Full URL format
-        screenToken = null, // Use actual token from Releva admin
-        filter = filter
-    )
+    val request = PushRequest()
+        .url("myapp://search/filtered")
+        // .screenToken("abc123def456")
+        .pageFilter(filter)
+
+    val response = relevaClient.push(request)
 
     // YOUR CODE: Render filtered results
     renderFilteredProductsInYourUI(response)
 }
 ```
 
-### Custom Fields
+### Custom Fields on a Product View
+
+`ViewedProduct` carries `CustomFields` directly. Build it once and attach it via the builder's `productView(...)`.
 
 ```kotlin
-val customFields = mapOf(
+import ai.releva.sdk.types.tracking.PushRequest
+import ai.releva.sdk.types.product.ViewedProduct
+import ai.releva.sdk.types.customfield.CustomFields
+
+val customFields = CustomFields.fromMap(mapOf(
     "material" to "cotton",
     "season" to "summer",
     "rating" to 4.5
-)
+))
 
 lifecycleScope.launch {
-    val response = relevaClient.trackProductView(
-        pageUrl = "myapp://product/details", // Full URL format
-        screenToken = null, // Use actual token from Releva admin
-        productId = "123",
-        customFields = customFields
-    )
+    val request = PushRequest()
+        .url("myapp://product/details")
+        // .screenToken("abc123def456")
+        .productView(ViewedProduct(productId = "123", custom = customFields))
+
+    val response = relevaClient.push(request)
 
     // YOUR CODE: Handle response
     if (response.hasRecommenders) {
