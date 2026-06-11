@@ -731,27 +731,56 @@ The SDK handles all notification display and navigation automatically, significa
 
 ## Step 6: Handle User Authentication
 
+`setProfileId` has an optional second parameter that controls profile merging:
+
 ```kotlin
+suspend fun setProfileId(
+    profileId: String,
+    skipMergeWithPreviousProfileId: Boolean = false
+)
+```
+
+By default (`skipMergeWithPreviousProfileId = false`), changing the profile ID merges the previous profile into the new one — this is what you want on **login**, so the user's anonymous behavior carries over to their account.
+
+On **logout** you want the opposite: start a fresh anonymous profile *without* merging the logged-in user's data into it. Pass `skipMergeWithPreviousProfileId = true` and re-register the push token against the new anonymous profile (the merge that would normally carry the token over was skipped).
+
+```kotlin
+import ai.releva.sdk.types.device.DeviceType
+import com.google.firebase.messaging.FirebaseMessaging
+import java.util.UUID
+
 class AuthManager(private val relevaClient: RelevaClient) {
 
     suspend fun onUserLogin(userId: String) {
-        // Set profile ID when user logs in
+        // Default behavior: merges the prior anonymous profile into the logged-in user
         relevaClient.setProfileId(userId)
 
-        // Optionally register push token
+        // Optionally re-register push token
         FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-            lifecycleScope.launch {
+            CoroutineScope(Dispatchers.IO).launch {
                 relevaClient.registerPushToken(DeviceType.ANDROID, token)
             }
         }
     }
 
     suspend fun onUserLogout() {
-        // Clear profile ID
-        relevaClient.setProfileId("")
+        // 1. Assign a fresh anonymous profile, skipping the merge so the
+        //    logged-out user's data is NOT linked to the new anonymous profile.
+        val anonymousProfileId = UUID.randomUUID().toString()
+        relevaClient.setProfileId(anonymousProfileId, skipMergeWithPreviousProfileId = true)
+
+        // 2. Re-register the push token against the new anonymous profile.
+        //    Required because the merge that would normally carry it over was skipped.
+        FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+            CoroutineScope(Dispatchers.IO).launch {
+                relevaClient.registerPushToken(DeviceType.ANDROID, token)
+            }
+        }
     }
 }
 ```
+
+> **Note:** Avoid `setProfileId("")` for logout — assign a fresh anonymous ID with `skipMergeWithPreviousProfileId = true` instead. This keeps the logged-out user's profile data separate from the next session and prevents cross-contamination of behavioral data.
 
 ## Step 7: Advanced Features
 
@@ -928,6 +957,34 @@ lifecycleScope.launch {
 }
 ```
 
+### Custom Field Types
+
+`CustomFields` is a data class (not a fluent builder — that pattern is iOS-only) with three typed field lists. Construct the fields directly with `StringField`, `NumericField`, and `DateField`:
+
+```kotlin
+import ai.releva.sdk.types.customfield.CustomFields
+import ai.releva.sdk.types.customfield.StringField
+import ai.releva.sdk.types.customfield.NumericField
+import ai.releva.sdk.types.customfield.DateField
+import java.util.Date
+
+val customFields = CustomFields(
+    string  = listOf(StringField(key = "material", values = listOf("cotton"))),
+    numeric = listOf(NumericField(key = "rating", values = listOf(4.5))),
+    date    = listOf(DateField(key = "releaseDate", values = listOf(Date())))
+)
+```
+
+| Field type | Constructor | Value type |
+|---|---|---|
+| String | `StringField(key, values)` | `List<String>` |
+| Numeric | `NumericField(key, values)` | `List<Double>` |
+| Date | `DateField(key, values)` | `List<java.util.Date>` |
+
+`DateField` takes native `java.util.Date` values — the SDK serializes them to ISO-8601 UTC strings (`yyyy-MM-dd'T'HH:mm:ss.SSS'Z'`, e.g. `2026-06-11T12:00:00.000Z`) automatically, so you never format the date yourself.
+
+`CustomFields.fromMap(...)` is a convenience for untyped maps (string/numeric only — dates must use `DateField`), and `CustomFields.empty()` returns an empty instance.
+
 ### Custom Fields on a Product View
 
 `ViewedProduct` carries `CustomFields` directly. Build it once and attach it via the builder's `productView(...)`.
@@ -957,6 +1014,150 @@ lifecycleScope.launch {
     }
 }
 ```
+
+### App Inbox
+
+The inbox is a singleton service accessed via `relevaClient.inbox` (type `InboxService`). It exposes its data as an immutable `InboxState` over a Kotlin `StateFlow`, so you observe it the same way you'd observe any other flow.
+
+```kotlin
+val inbox = relevaClient.inbox   // InboxService (singleton; InboxService.instance)
+```
+
+#### Observing inbox state
+
+`inbox.state` is a `StateFlow<InboxState>`. Collect it lifecycle-aware to drive your UI:
+
+```kotlin
+data class InboxState(
+    val messages: List<InboxMessage> = emptyList(),
+    val unreadCount: Int = 0,
+    val nextCursor: String? = null,
+    val isLoading: Boolean = false,
+    val hasMore: Boolean = true,
+    val lastFetchTime: Long? = null  // epoch millis; state.isStale is true after 5 min
+)
+
+viewLifecycleOwner.lifecycleScope.launch {
+    viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+        relevaClient.inbox.state.collect { state ->
+            renderMessages(state.messages)      // your adapter/list
+            updateBadge(state.unreadCount)
+            loadMoreButton.isVisible = state.hasMore
+            progressBar.isVisible = state.isLoading
+        }
+    }
+}
+```
+
+#### Methods
+
+| Method | Signature | Notes |
+|---|---|---|
+| Refresh (first page) | `suspend fun refresh()` | Re-fetches from the server |
+| Load next page | `suspend fun loadMore()` | Cursor-based pagination; no-op when `hasMore == false` |
+| Refresh if stale | `suspend fun refreshIfStale()` | Refreshes only if cache is older than 5 min — call on app/screen resume |
+| Mark one read | `fun markAsRead(messageId: String)` | Optimistic; rolls back on failure |
+| Mark all read | `fun markAllAsRead()` | Optimistic |
+| Delete | `fun deleteMessage(messageId: String)` | Optimistic |
+
+`refresh`/`loadMore`/`refreshIfStale` are `suspend` functions (call from a coroutine). The mutations (`markAsRead`, `markAllAsRead`, `deleteMessage`) are **not** suspend — they update `state` optimistically and run their network call on an internal scope, so they survive fragment lifecycle cancellation.
+
+```kotlin
+lifecycleScope.launch { relevaClient.inbox.refresh() }
+// on scroll to bottom:
+lifecycleScope.launch { relevaClient.inbox.loadMore() }
+// on app resume:
+lifecycleScope.launch { relevaClient.inbox.refreshIfStale() }
+
+// mutations — no coroutine needed
+relevaClient.inbox.markAsRead(message.id)
+relevaClient.inbox.markAllAsRead()
+relevaClient.inbox.deleteMessage(message.id)
+```
+
+#### Message model and rendering
+
+```kotlin
+data class InboxMessage(
+    val id: String,
+    val title: String,
+    val design: Map<String, Any?>,   // Unlayer design — render with DesignRenderer
+    val read: Boolean,
+    val createdAt: Date,
+    val inboxMessageId: Int          // numeric id used for push-to-inbox deep links
+)
+```
+
+The message body lives in `design`. Render it with the same `DesignRenderer` used for banners and stories — it returns a native `View` you can drop into your layout:
+
+```kotlin
+import ai.releva.sdk.ui.banner.DesignRenderer
+
+val view = DesignRenderer.render(
+    context = requireContext(),
+    design = message.design,
+    onLinkTap = { url ->
+        // Handle link/button taps inside the message (deep link or open browser)
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+)
+messageContainer.addView(view)
+```
+
+#### Silent push sync
+
+A data push carrying `data["inbox_sync"] == "true"` triggers a silent inbox refresh — no coroutine or UI work on your side. To open the inbox directly to a message from a notification, look it up by its numeric id (`inboxMessageId`) once the inbox has loaded.
+
+### NPS Surveys
+
+NPS surveys are delivered to the device through normal `push()` responses; the SDK evaluates triggers server- and client-side and emits a survey when it's due. You only need to (1) attach the display manager so the UI can appear, and (2) wire submission back to the client.
+
+#### Attach the display manager
+
+`NpsDisplayManager` is a singleton object. Set callbacks first, then `attach(activity)` from your Activity's `onCreate()`:
+
+```kotlin
+import ai.releva.sdk.ui.nps.NpsDisplayManager
+
+class MainActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // ...
+
+        // onSubmit receives (token, score, comment) when the user completes the survey.
+        NpsDisplayManager.setOnSubmit { token, score, comment ->
+            relevaClient.submitNpsResponse(token, score, comment)
+        }
+        NpsDisplayManager.setOnSkip {
+            // optional: analytics, logging
+        }
+        NpsDisplayManager.attach(this)   // requires a FragmentActivity
+    }
+}
+```
+
+The manager renders the built-in NPS dialog (score selection, follow-up question, thank-you screen) automatically — you don't build any UI.
+
+#### Methods
+
+| Method | Signature | Purpose |
+|---|---|---|
+| `NpsDisplayManager.setOnSubmit` | `fun setOnSubmit(onSubmit: suspend (String, Int, String?) -> Unit)` | Callback with `(token, score, comment)` |
+| `NpsDisplayManager.setOnSkip` | `fun setOnSkip(onSkip: () -> Unit)` | Called when the user skips |
+| `NpsDisplayManager.attach` | `fun attach(activity: FragmentActivity)` | Start showing surveys |
+| `relevaClient.submitNpsResponse` | `suspend fun submitNpsResponse(token: String, score: Int, comment: String? = null)` | Submit a response (score must be 0–10; one silent retry) |
+| `relevaClient.trackEvent` | `fun trackEvent(eventName: String)` | Fire a client-side custom event that can trigger or cancel a survey |
+
+#### Custom-event triggers
+
+NPS surveys can be configured in Releva to fire (or be suppressed) on named app events. Notify the SDK with `trackEvent`:
+
+```kotlin
+relevaClient.trackEvent("checkout_complete")   // may trigger a survey
+relevaClient.trackEvent("checkout_started")    // may cancel a pending survey (cancelOnEvents)
+```
+
+> **Note:** There is no `setAppVersion(...)` method in the Android SDK (this exists only on iOS). App-version-based targeting is not configured through the Kotlin client.
 
 ## Testing
 
