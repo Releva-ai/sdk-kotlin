@@ -15,8 +15,10 @@ data class RelevaResponse(
     companion object {
         @Suppress("UNCHECKED_CAST")
         fun fromMap(map: Map<String, Any?>): RelevaResponse {
-            // NOTE: the /api/v0/push response also carries a top-level `userId` (the backend's
-            // resolved canonical id). We intentionally do NOT read or persist it. Identity is
+            // NOTE: this is the shared parser for several response shapes. The /api/v0/push
+            // response *specifically* also carries a top-level `userId` (the backend's resolved
+            // canonical id) — it is not expected on the inbox/recommendations shapes this also
+            // parses. We intentionally do NOT read or persist that `userId`. Identity is
             // client-owned: the SDK always sends its profileId, and under the userId-only contract
             // the backend returns the same id it was given (anonymous->known merges are driven
             // explicitly via setProfileId + mergeProfileIds), so there is nothing to adopt. Wiring
