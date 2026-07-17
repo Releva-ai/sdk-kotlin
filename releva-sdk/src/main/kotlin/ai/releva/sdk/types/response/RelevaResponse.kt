@@ -15,6 +15,13 @@ data class RelevaResponse(
     companion object {
         @Suppress("UNCHECKED_CAST")
         fun fromMap(map: Map<String, Any?>): RelevaResponse {
+            // NOTE: the /api/v0/push response also carries a top-level `userId` (the backend's
+            // resolved canonical id). We intentionally do NOT read or persist it. Identity is
+            // client-owned: the SDK always sends its profileId, and under the userId-only contract
+            // the backend returns the same id it was given (anonymous->known merges are driven
+            // explicitly via setProfileId + mergeProfileIds), so there is nothing to adopt. Wiring
+            // it up would be dead code. (The web SDK adopts it only because web has an anonymous
+            // email-consolidation flow that the mobile SDKs do not.)
             return RelevaResponse(
                 recommenders = (map["recommenders"] as? List<Map<String, Any?>>)
                     ?.map { RecommenderResponse.fromMap(it) } ?: emptyList(),
