@@ -42,12 +42,29 @@ class NpsManagerService {
         handler.post {
             this.config = config
 
-            if (suppressedThisSession || config == null) return@post
+            if (config == null) {
+                Log.d(TAG, "No NPS config in this push response")
+                return@post
+            }
+            // The customEvent triggers are the ones this class waits on, so name them:
+            // a trigger whose eventName did not survive the wire (the server forwards the
+            // authored JSON verbatim and validates none of it) is otherwise indistinguishable
+            // from a survey that was simply never triggered.
+            Log.d(TAG, "Config ${config.token}: ${config.triggers.size} SDK-side trigger(s)" +
+                config.triggers.joinToString("") { " [${it.type} eventName=${it.eventName}]" } +
+                ", delay=${config.triggerDelaySeconds}s, cancelOn=${config.cancelOnEvents}")
+
+            if (suppressedThisSession) {
+                Log.d(TAG, "Suppressed this session — not arming ${config.token}")
+                return@post
+            }
             if (triggered) return@post  // Timer already running from a previous push call
 
             val hasCustomEventTriggers = config.triggers.any { it.type == "customEvent" }
             if (!hasCustomEventTriggers) {
                 fireTrigger()
+            } else {
+                Log.d(TAG, "Waiting for a custom event to fire ${config.token}")
             }
         }
     }
@@ -57,7 +74,11 @@ class NpsManagerService {
      * and cancel events.
      */
     fun trackEvent(eventName: String) {
-        val cfg = config ?: return
+        val cfg = config
+        if (cfg == null) {
+            Log.d(TAG, "\"$eventName\" ignored — no NPS config held")
+            return
+        }
         if (suppressedThisSession) return
 
         // Cancel events take priority
@@ -78,6 +99,12 @@ class NpsManagerService {
                 return
             }
         }
+
+        // Falling through here is normal — most tracked events are not the trigger. It is
+        // logged anyway because it is also what an unreadable trigger looks like, and
+        // without the expected names beside the received one the two are the same silence.
+        Log.d(TAG, "\"$eventName\" matched no trigger; waiting on " +
+            cfg.triggers.filter { it.type == "customEvent" }.map { it.eventName })
     }
 
     private fun fireTrigger() {
