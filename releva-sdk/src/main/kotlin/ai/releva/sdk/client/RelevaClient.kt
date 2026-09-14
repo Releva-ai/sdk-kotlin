@@ -558,20 +558,13 @@ class RelevaClient(
             url += "&cursor=${URLEncoder.encode(cursor, "UTF-8")}"
         }
 
-        val request = Request.Builder()
-            .url(url)
-            .addHeader("Authorization", "Bearer $accessToken")
-            .get()
-            .build()
-
-        val response = httpClient.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
+        val response = executeGet(url, "/api/v0/inbox/messages")
 
         if (response.code != 200) {
-            throw Exception("List messages API error: ${response.code} - $responseBody")
+            throw Exception("List messages API error: ${response.code} - ${response.body}")
         }
 
-        RelevaResponse.jsonObjectToMap(JSONObject(responseBody))
+        RelevaResponse.jsonObjectToMap(JSONObject(response.body))
     }
 
     override suspend fun inboxFetchUnreadCount(): Int = withContext(Dispatchers.IO) {
@@ -580,21 +573,13 @@ class RelevaClient(
 
         val url = "${getInboxUrl("unread-count")}?userId=${URLEncoder.encode(userId, "UTF-8")}"
 
-        val request = Request.Builder()
-            .url(url)
-            .addHeader("Authorization", "Bearer $accessToken")
-            .get()
-            .build()
-
-        val response = httpClient.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
+        val response = executeGet(url, "/api/v0/inbox/unread-count")
 
         if (response.code != 200) {
-            throw Exception("Unread count API error: ${response.code} - $responseBody")
+            throw Exception("Unread count API error: ${response.code} - ${response.body}")
         }
 
-        val data = JSONObject(responseBody)
-        data.optInt("count", 0)
+        JSONObject(response.body).optInt("count", 0)
     }
 
     override suspend fun inboxMarkAsRead(messageId: String) = withContext(Dispatchers.IO) {
@@ -626,16 +611,17 @@ class RelevaClient(
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val requestBody = body.toString().toRequestBody(mediaType)
 
-        val request = Request.Builder()
-            .url("${getEndpoint()}/api/v0/inbox/messages/$messageId")
-            .addHeader("Content-Type", "application/json")
-            .addHeader("Authorization", "Bearer $accessToken")
-            .delete(requestBody)
-            .build()
-
-        val response = httpClient.newCall(request).execute()
+        val response = execute(
+            Request.Builder()
+                .url("${getEndpoint()}/api/v0/inbox/messages/$messageId")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Authorization", "Bearer $accessToken")
+                .delete(requestBody)
+                .build(),
+            "DELETE", "/api/v0/inbox/messages/:id"
+        )
         if (response.code != 204) {
-            throw Exception("Delete failed: ${response.code}")
+            throw Exception("Delete failed: ${response.code} - ${response.body}")
         }
     }
 
@@ -841,36 +827,68 @@ class RelevaClient(
     /**
      * Execute HTTP request
      */
-    private fun executeRequest(endpoint: String, body: JSONObject): HttpResponse {
-        val mediaType = "application/json; charset=utf-8".toMediaType()
-        val requestBody = body.toString().toRequestBody(mediaType)
-
-        val request = Request.Builder()
-            .url("${getEndpoint()}$endpoint")
-            .addHeader("Content-Type", "application/json")
-            .addHeader("Authorization", "Bearer $accessToken")
-            .post(requestBody)
-            .build()
-
-        // Every call the SDK makes is logged with its endpoint and status. Without this
-        // there was no way to tell a request that was never sent from one that was sent
-        // and rejected — the client logged neither, so a silently failing impression and
-        // a silently skipped one looked identical from a device. Request bodies are
-        // deliberately not logged: they carry profile identifiers and cart contents.
+    /**
+     * Sends a request and logs it. Every call the SDK makes goes through here.
+     *
+     * This is one function rather than a rule each verb follows because it was a rule
+     * each verb followed: POST logged, and the inbox's own GETs and DELETE — added later
+     * and calling httpClient directly — did not. That is the worst place for the gap,
+     * because the list and unread-count endpoints answer an authorisation failure with
+     * an error the service layer swallows, so a 401 and a genuinely empty inbox look
+     * identical in the app. With nothing in the log, there is nothing on the device that
+     * tells them apart.
+     *
+     * [label] is the endpoint path only, never the full URL: a GET carries the profile
+     * id in its query string, and identifiers stay out of the log for the same reason
+     * request bodies do.
+     *
+     * Success is any 2xx, not 200: token registration answers 202 and delete answers 204,
+     * and both were being logged as warnings for succeeding. Whether a given endpoint's
+     * particular 2xx is the one the caller wanted is the caller's business — this decides
+     * only whether the line reads as a failure.
+     */
+    private fun execute(request: Request, verb: String, label: String): HttpResponse {
         val started = SystemClock.elapsedRealtime()
         val response = httpClient.newCall(request).execute()
         val responseBody = response.body?.string() ?: ""
         val tookMs = SystemClock.elapsedRealtime() - started
 
-        if (response.code == 200) {
-            Log.d(TAG, "POST $endpoint -> 200 in ${tookMs}ms (${responseBody.length} bytes)")
+        if (response.isSuccessful) {
+            Log.d(TAG, "$verb $label -> ${response.code} in ${tookMs}ms (${responseBody.length} bytes)")
         } else {
             // The body is included for a failure because that is where the API puts the
             // reason, and a failing call is not the place to be frugal with detail.
-            Log.w(TAG, "POST $endpoint -> ${response.code} in ${tookMs}ms: ${responseBody.take(500)}")
+            Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms: ${responseBody.take(500)}")
         }
 
         return HttpResponse(response.code, responseBody)
+    }
+
+    private fun executeGet(url: String, label: String): HttpResponse =
+        execute(
+            Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $accessToken")
+                .get()
+                .build(),
+            "GET", label
+        )
+
+    private fun executeRequest(endpoint: String, body: JSONObject): HttpResponse {
+        val mediaType = "application/json; charset=utf-8".toMediaType()
+        val requestBody = body.toString().toRequestBody(mediaType)
+
+        // Request bodies are deliberately never logged: they carry profile identifiers
+        // and cart contents.
+        return execute(
+            Request.Builder()
+                .url("${getEndpoint()}$endpoint")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Authorization", "Bearer $accessToken")
+                .post(requestBody)
+                .build(),
+            "POST", endpoint
+        )
     }
 
     private data class HttpResponse(val code: Int, val body: String)
