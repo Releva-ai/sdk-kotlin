@@ -23,4 +23,15 @@ data class CartProduct(
         "quantity" to quantity,
         "custom" to custom.toMap()
     )
+
+    /**
+     * price × quantity. A missing price contributes 0 and a missing quantity counts as
+     * one — the same asymmetry the Swift SDK uses, and for the same reason: "no quantity
+     * given" means one of these, while "no price given" means none was reported.
+     */
+    val totalPrice: Double get() = (price ?: 0.0) * (quantity ?: 1.0)
+
+    /** True when this product reports a price above zero. */
+    val hasPrice: Boolean get() = (price ?: 0.0) > 0
+
 }
