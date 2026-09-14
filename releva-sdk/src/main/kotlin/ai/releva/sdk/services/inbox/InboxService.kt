@@ -8,6 +8,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -48,6 +49,12 @@ class InboxService private constructor() : DefaultLifecycleObserver {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val stateMutex = Mutex()
+
+    // Guards against overlapping refreshes. Several independent things ask for one on a
+    // single cold open — the process lifecycle observer below, and the host screen when it
+    // comes up — and each was starting its own pair of requests.
+    private val refreshMutex = Mutex()
+    private var inFlightRefresh: Deferred<Unit>? = null
 
     /**
      * Initialize with a client reference and storage service.
@@ -90,6 +97,25 @@ class InboxService private constructor() : DefaultLifecycleObserver {
      */
     suspend fun refresh() {
         if (!initialized) return
+        if (client == null) return
+
+        // Callers join a refresh already in flight instead of starting another. They
+        // await it rather than returning early, because refresh() means "the state is
+        // fresh once this returns" — openMessageById reads state.value on the next line
+        // and would see the pre-refresh list if this were a no-op.
+        //
+        // isActive is what makes a finished refresh un-reusable: a completed Deferred
+        // left in the field would be awaited instantly by the next caller and skip the
+        // fetch entirely. It also means a caller whose own coroutine is cancelled cannot
+        // strand the field pointing at work nobody finishes.
+        val job = refreshMutex.withLock {
+            inFlightRefresh?.takeIf { it.isActive }
+                ?: scope.async { performRefresh() }.also { inFlightRefresh = it }
+        }
+        job.await()
+    }
+
+    private suspend fun performRefresh() {
         val c = client ?: return
 
         _state.value = _state.value.copy(isLoading = true)
