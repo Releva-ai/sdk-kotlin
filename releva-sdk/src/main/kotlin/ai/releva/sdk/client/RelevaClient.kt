@@ -20,6 +20,7 @@ import ai.releva.sdk.types.tracking.*
 import ai.releva.sdk.types.product.ViewedProduct
 import ai.releva.sdk.types.wishlist.WishlistProduct
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -851,8 +852,23 @@ class RelevaClient(
             .post(requestBody)
             .build()
 
+        // Every call the SDK makes is logged with its endpoint and status. Without this
+        // there was no way to tell a request that was never sent from one that was sent
+        // and rejected — the client logged neither, so a silently failing impression and
+        // a silently skipped one looked identical from a device. Request bodies are
+        // deliberately not logged: they carry profile identifiers and cart contents.
+        val started = SystemClock.elapsedRealtime()
         val response = httpClient.newCall(request).execute()
         val responseBody = response.body?.string() ?: ""
+        val tookMs = SystemClock.elapsedRealtime() - started
+
+        if (response.code == 200) {
+            Log.d(TAG, "POST $endpoint -> 200 in ${tookMs}ms (${responseBody.length} bytes)")
+        } else {
+            // The body is included for a failure because that is where the API puts the
+            // reason, and a failing call is not the place to be frugal with detail.
+            Log.w(TAG, "POST $endpoint -> ${response.code} in ${tookMs}ms: ${responseBody.take(500)}")
+        }
 
         return HttpResponse(response.code, responseBody)
     }
