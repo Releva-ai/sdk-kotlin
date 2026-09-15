@@ -13,6 +13,7 @@ import ai.releva.sdk.types.tracking.PushRequest
 import ai.releva.sdk.types.wishlist.WishlistProduct
 import android.content.Context
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.*
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -27,6 +28,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.json.JSONObject
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -180,6 +184,50 @@ class RelevaClientTest {
         client.registerPushToken(DeviceType.ANDROID, "token-xyz")
 
         assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `a successful push clears only the ids it sent, not ones queued while it was in flight`() = runTest {
+        storageService.setDeviceId("device-1")
+        val requestReceived = CountDownLatch(1)
+        val releaseResponse = CountDownLatch(1)
+        val server = MockWebServer()
+        server.start()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                // The client has already built and sent the body (with the pre-request
+                // snapshot of mergeProfileIds) by the time this runs; withholding the
+                // response lets the test append to the live queue while the push is
+                // still "in flight" from the client's perspective.
+                requestReceived.countDown()
+                releaseResponse.await(2, TimeUnit.SECONDS)
+                return MockResponse().setResponseCode(200).setBody("{}")
+            }
+        }
+        mockWebServer = server
+
+        val client = createTestClient()
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B") // queues "profile-A"
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+
+        // push() calls OkHttp's blocking execute(), so it needs a real thread to hold onto
+        // while this test drives a second setProfileId "concurrently" against the held request.
+        val pushThread = thread { runBlocking { client.push(PushRequest()) } }
+        assertTrue(requestReceived.await(2, TimeUnit.SECONDS))
+
+        // Appended after the request body was built but before the response (and the
+        // resulting clear) arrives — this id was never on the wire.
+        runBlocking { client.setProfileId("profile-C") } // queues "profile-B" behind it
+        assertEquals(listOf("profile-A", "profile-B"), storageService.getMergeProfileIds())
+
+        releaseResponse.countDown()
+        pushThread.join(2000)
+
+        // "profile-A" was sent and is cleared; "profile-B" was queued mid-flight and survives,
+        // in memory and in storage, for the next push to send.
+        assertEquals(listOf("profile-B"), storageService.getMergeProfileIds())
     }
 
     @Test

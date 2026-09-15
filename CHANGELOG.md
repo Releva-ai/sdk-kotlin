@@ -11,16 +11,17 @@
   one — so the two identities were never linked, silently and permanently. Device-verified with a
   control: online, the push body carried `mergeProfileIds = ["ctl-A-000036"]`; with the radios off
   and a force-stop before any successful push, the next launch sent `mergeProfileIds = []`. The
-  queue is now persisted through `StorageService` and restored when a client is constructed, and
-  cleared from storage after a successful push, matching the in-memory behaviour that already
-  existed there. `skipMergeWithPreviousProfileId` (the logout path) now clears the queue too —
-  previously it only suppressed adding to it, so a stale entry from an earlier merge could survive
-  a logout; that gap is closed regardless of whether the profile id passed alongside the flag has
-  actually changed. `registerPushToken` no longer clears the queue on success: its request never
-  carried `mergeProfileIds`, so doing so only ever discarded a merge that a later push still needed
-  to send — harmless while the queue was in-memory only, but not once it is durable. Matching the
-  Swift SDK, a previous id already in the queue is no longer appended twice, so A → B → A → B
-  queues `["A", "B"]` rather than `["A", "B", "A"]`. The wire format is unchanged.
+  queue is now persisted through `StorageService` and restored from it on first use, and a
+  successful push clears from storage only the ids that push actually sent — not the whole queue —
+  so an id queued by a concurrent `setProfileId` call while a push is in flight is not lost along
+  with it. `skipMergeWithPreviousProfileId` (the logout path) now clears the queue too — previously
+  it only suppressed adding to it, so a stale entry from an earlier merge could survive a logout;
+  that gap is closed regardless of whether the profile id passed alongside the flag has actually
+  changed. `registerPushToken` no longer clears the queue on success: its request never carried
+  `mergeProfileIds`, so doing so only ever discarded a merge that a later push still needed to send
+  — harmless while the queue was in-memory only, but not once it is durable. Matching the Swift
+  SDK, a previous id already in the queue is no longer appended twice, so A → B → A → B queues
+  `["A", "B"]` rather than `["A", "B", "A"]`. The wire format is unchanged.
 
 ## 1.4.0
 

@@ -53,8 +53,15 @@ class RelevaClient(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // Restored from storage so a merge queued before a failed push is not lost with the process
-    private val mergeProfileIds = storage.getMergeProfileIds().toMutableList()
+    // Restored from storage so a merge queued before a failed push is not lost with the process.
+    // Deferred to first use rather than read here in the field initialiser: the documented
+    // integration constructs RelevaClient in Application.onCreate() — the main thread — and the
+    // first SharedPreferences read after construction blocks on SharedPreferencesImpl's load of
+    // the whole prefs file (which also holds cart_data/wishlist_data), which is exactly what
+    // StrictMode's detectDiskReads() flags. Every consumer below already runs on
+    // Dispatchers.IO, so deferring costs nothing. Default SYNCHRONIZED mode keeps concurrent
+    // first access safe.
+    private val mergeProfileIds: MutableList<String> by lazy { storage.getMergeProfileIds().toMutableList() }
     private var cartChanged = false
     private var wishlistChanged = false
     private var deviceIdChanged = false
@@ -360,6 +367,15 @@ class RelevaClient(
         val deviceId = storage.getDeviceId()
             ?: throw Exception("Please provide deviceId using client.setDeviceId() before using the client!")
 
+        // Snapshot before the network round trip, not read again after it returns: a
+        // concurrent setProfileId() on another Dispatchers.IO coroutine can append to
+        // mergeProfileIds while this request is in flight (setCart/setWishlist auto-push
+        // through trackScreenView, and the documented login path calls setProfileId from the
+        // host's own coroutine), and an id appended after this snapshot was never sent, so it
+        // must not be cleared on success. The copy also removes the alternative of iterating
+        // the live list into JSONArray() while another coroutine mutates it underneath.
+        val sentMergeIds = mergeProfileIds.toList()
+
         val payload = JSONObject().apply {
             put("deviceId", deviceId)
             put("deviceIdChanged", deviceIdChanged)
@@ -396,7 +412,7 @@ class RelevaClient(
                 } ?: JSONArray())
             })
             put("wishlistChanged", wishlistChanged)
-            put("mergeProfileIds", JSONArray(mergeProfileIds))
+            put("mergeProfileIds", JSONArray(sentMergeIds))
 
             // Add custom events if present
             request.getCustomEvents()?.let { events ->
@@ -442,7 +458,18 @@ class RelevaClient(
         wishlistChanged = false
         profileChanged = false
         deviceIdChanged = false
-        clearMergeProfileIds()
+        // Remove only what this request actually sent. An id appended by a concurrent
+        // setProfileId() while this push was in flight (see sentMergeIds above) is not in
+        // sentMergeIds, so it survives here — in memory and, by rewriting rather than
+        // clearing storage, on disk too — for the next push to pick up.
+        if (sentMergeIds.isNotEmpty()) {
+            mergeProfileIds.removeAll(sentMergeIds)
+            if (mergeProfileIds.isEmpty()) {
+                storage.clearMergeProfileIds()
+            } else {
+                storage.setMergeProfileIds(mergeProfileIds)
+            }
+        }
 
         val relevaResponse = RelevaResponse.fromJson(response.body)
 
