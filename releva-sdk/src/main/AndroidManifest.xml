@@ -23,9 +23,14 @@
             android:excludeFromRecents="true"
             android:noHistory="true" />
 
-        <!-- Full-screen story viewer activity -->
+        <!-- Full-screen story viewer activity. Explicit theme because this is an
+             AppCompatActivity in a library module: without one, it silently inherits
+             whatever theme the host app's <application> tag declares, and a host built on
+             plain Material3 (no AppCompat ancestor) crashes with "You need to use a
+             Theme.AppCompat theme" the first time this activity opens. -->
         <activity
             android:name=".ui.story.StoryViewerActivity"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
             android:exported="false" />
     </application>
 

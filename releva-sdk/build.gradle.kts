@@ -17,6 +17,13 @@ android {
 
     testOptions {
         targetSdk = 35
+        unitTests {
+            // StoryViewerActivityTest builds a real AppCompatActivity under Robolectric,
+            // which needs the merged manifest and AppCompat's own theme resources; without
+            // this, Robolectric falls back to bare AOSP resources and every setContentView
+            // call throws.
+            isIncludeAndroidResources = true
+        }
     }
 
     lint {
