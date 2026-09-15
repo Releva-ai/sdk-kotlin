@@ -22,14 +22,17 @@ import ai.releva.sdk.types.wishlist.WishlistProduct
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.URLEncoder
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -70,9 +73,21 @@ class RelevaClient(
     var engagementTrackingService: EngagementTrackingService? = null
         private set
 
+    /**
+     * How [execute] waits between attempts. Replaced in tests so a retry costs no real
+     * seconds; nothing else has a reason to touch it.
+     */
+    @VisibleForTesting
+    internal var retryWait: (Long) -> Unit = { Thread.sleep(it) }
+
     companion object {
         private const val TAG = "RelevaClient"
         private const val VERSION = "1.4.0-kotlin"
+
+        // The Swift SDK's waits, kept identical so an outage costs both SDKs the same time:
+        // a server that answered at all gets longer to recover than a network that did not.
+        private const val TRANSPORT_RETRY_DELAY_MS = 1000L
+        private const val SERVER_ERROR_RETRY_DELAY_MS = 2000L
     }
 
     /**
@@ -862,25 +877,67 @@ class RelevaClient(
      * offending field value, which for this SDK is a profile identifier or cart contents, and
      * a 4xx is exactly the class of failure a bad or replayed request produces. [RelevaConfig.enableRequestLogging]
      * gates all of this so an integrator can silence it in their own release builds.
+     *
+     * A failure that says nothing about the request — it never reached the server, or the
+     * server answered 5xx — is retried up to [RelevaConfig.maxRetryAttempts] attempts in
+     * total, matching the Swift SDK's policy and its waits. A 4xx and any 2xx are returned
+     * to the caller on the spot: a 4xx is the server's verdict on this request, and repeating
+     * it would only produce the same verdict. Once the attempts are spent the last failure
+     * reaches the caller exactly as it did before, response or exception.
+     *
+     * The wait happens on the calling thread. Every caller of this method is already inside
+     * `withContext(Dispatchers.IO)` and blocked on the call itself, so there is no main
+     * thread to block, and sleeping there costs one pooled IO thread for a second or two
+     * rather than turning this and `executeGet`/`executeRequest` into suspending functions.
      */
     private fun execute(request: Request, verb: String, label: String): HttpResponse {
-        val started = SystemClock.elapsedRealtime()
-        val response = httpClient.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
-        val tookMs = SystemClock.elapsedRealtime() - started
-
-        if (config.enableRequestLogging) {
-            when {
-                response.isSuccessful ->
-                    Log.d(TAG, "$verb $label -> ${response.code} in ${tookMs}ms (${responseBody.length} bytes)")
-                response.code >= 500 ->
-                    Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms: ${responseBody.take(500)}")
-                else ->
-                    Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms")
+        val maxAttempts = config.maxRetryAttempts.coerceAtLeast(1)
+        var attempt = 1
+        while (true) {
+            val started = SystemClock.elapsedRealtime()
+            val response: Response
+            val responseBody: String
+            try {
+                response = httpClient.newCall(request).execute()
+                responseBody = response.body?.string() ?: ""
+            } catch (e: IOException) {
+                if (attempt >= maxAttempts) throw e
+                retryAfter(TRANSPORT_RETRY_DELAY_MS, verb, label, attempt, maxAttempts)
+                attempt++
+                continue
             }
-        }
+            val tookMs = SystemClock.elapsedRealtime() - started
 
-        return HttpResponse(response.code, responseBody)
+            if (config.enableRequestLogging) {
+                when {
+                    response.isSuccessful ->
+                        Log.d(TAG, "$verb $label -> ${response.code} in ${tookMs}ms (${responseBody.length} bytes)")
+                    response.code >= 500 ->
+                        Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms: ${responseBody.take(500)}")
+                    else ->
+                        Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms")
+                }
+            }
+
+            if (response.code >= 500 && attempt < maxAttempts) {
+                retryAfter(SERVER_ERROR_RETRY_DELAY_MS, verb, label, attempt, maxAttempts)
+                attempt++
+                continue
+            }
+
+            return HttpResponse(response.code, responseBody)
+        }
+    }
+
+    /**
+     * Logs the attempt that just failed and takes the wait before the next one. One function
+     * for both retry paths so the line keeps the shape the rest of the request log has.
+     */
+    private fun retryAfter(delayMs: Long, verb: String, label: String, attempt: Int, maxAttempts: Int) {
+        if (config.enableRequestLogging) {
+            Log.w(TAG, "$verb $label -> attempt $attempt of $maxAttempts failed, retrying in ${delayMs}ms")
+        }
+        retryWait(delayMs)
     }
 
     private fun executeGet(url: String, label: String): HttpResponse =

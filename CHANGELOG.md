@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+1.4.0 is tagged and published to JitPack, so this sits above it rather than inside it. The
+version in `build.gradle.kts` and the `VERSION` constant move together when this section is
+cut into a release.
+
+### Fixed
+
+- **A momentary network failure or a transient 5xx dropped the event for good.**
+  `RelevaClient.execute` made exactly one call and handed whatever came back — or whatever it
+  threw — straight to the caller, so a pageview, cart sync, impression or push-token
+  registration that met a blip was lost, while the Swift SDK against the same API retried and
+  recovered. A failure that says nothing about the request itself — it never reached the server,
+  or the server answered 5xx — is now retried on the Swift SDK's schedule: 1s after a transport
+  failure, 2s after a 5xx, three attempts in total, configurable through the new
+  `RelevaConfig.maxRetryAttempts` (0 or 1 means a single attempt, no retries). A 4xx and any 2xx
+  are still returned on the first attempt, each retry is logged under the existing
+  `enableRequestLogging` gate, and once the attempts are spent the last failure reaches the
+  caller exactly as it did before. Retrying carries the duplicate-POST risk the Swift SDK has
+  shipped with: a request the server processed but whose answer was lost in transit is sent
+  again.
+
 ## 1.4.0
 
 Everything here came out of a device pass against a real domain, replicating the
