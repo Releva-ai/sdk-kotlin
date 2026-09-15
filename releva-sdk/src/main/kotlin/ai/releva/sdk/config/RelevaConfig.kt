@@ -9,7 +9,12 @@ data class RelevaConfig(
     val enableInAppMessaging: Boolean = true,
     val enablePushNotifications: Boolean = true,
     val enableAnalytics: Boolean = true,
-    val enableInbox: Boolean = true
+    val enableInbox: Boolean = true,
+    // RelevaClient logs every request/response through its central execute() path (method,
+    // path, status, timing, and — for failures — up to 500 chars of the response body).
+    // Defaults on since it has shipped that way; an integrator who cannot have SDK output in
+    // their release logcat needs a way to turn it off entirely.
+    val enableRequestLogging: Boolean = true
 ) {
     companion object {
         fun full() = RelevaConfig(
@@ -55,6 +60,7 @@ data class RelevaConfig(
         "enableInAppMessaging" to enableInAppMessaging,
         "enablePushNotifications" to enablePushNotifications,
         "enableAnalytics" to enableAnalytics,
-        "enableInbox" to enableInbox
+        "enableInbox" to enableInbox,
+        "enableRequestLogging" to enableRequestLogging
     )
 }

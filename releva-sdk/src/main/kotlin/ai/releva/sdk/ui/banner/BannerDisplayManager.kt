@@ -337,9 +337,16 @@ class BannerDisplayManager(
             val bars = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            scrollView.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            // Floored at statusBarHeight, not just bars.top: a window that reports zero
+            // system-bar insets (observed on some OEM skins even with the status bar drawn
+            // and opaque) would otherwise zero out the content padding and drop the close
+            // button to 8dp — under the status bar rather than below it. bars.top still wins
+            // wherever it exceeds the resource estimate (a taller cutout, a landscape bar),
+            // since the resource is only ever a floor, not the true value.
+            val top = maxOf(bars.top, statusBarHeight)
+            scrollView.setPadding(bars.left, top, bars.right, bars.bottom)
             (closeButton.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
-                lp.topMargin = bars.top + (8 * dp).toInt()
+                lp.topMargin = top + (8 * dp).toInt()
                 lp.rightMargin = bars.right + (8 * dp).toInt()
                 closeButton.layoutParams = lp
             }

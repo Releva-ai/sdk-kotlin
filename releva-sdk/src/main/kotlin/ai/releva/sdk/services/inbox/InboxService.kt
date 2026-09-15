@@ -121,27 +121,30 @@ class InboxService private constructor() : DefaultLifecycleObserver {
         val c = client ?: return
 
         // Every other mutator (loadMore, markAsRead, markAllAsRead, deleteMessage) takes
-        // stateMutex for its whole read-modify-write. This one didn't, so a refresh landing
-        // between another mutator's read and its write clobbered that mutator's update —
-        // e.g. an optimistic markAsRead() could be overwritten by a refresh's copy() built
-        // from the pre-read state, silently reviving a message the user had just read.
-        // _state.update{} inside the same lock makes each write atomic with respect to the
-        // *current* value at the moment it applies, not just the one read at the top.
+        // stateMutex around its own read-modify-write, and _state.update{} is what makes
+        // each of those writes atomic with respect to the current value at the moment it
+        // applies — not the read at the top of the block. That means the lock only needs
+        // to bracket this function's own writes, not the network round trip between them:
+        // holding it across both fetches blocked every optimistic update (a tap on
+        // markAsRead while a refresh is in flight) behind two round trips they have
+        // nothing to do with, which defeats the point of "optimistic".
         stateMutex.withLock {
             _state.update { it.copy(isLoading = true) }
+        }
 
-            try {
-                val (messagesResult, unreadCount) = coroutineScope {
-                    val messagesDeferred = async(Dispatchers.IO) { c.inboxFetchMessages(limit = 20) }
-                    val countDeferred = async(Dispatchers.IO) { c.inboxFetchUnreadCount() }
-                    messagesDeferred.await() to countDeferred.await()
-                }
+        try {
+            val (messagesResult, unreadCount) = coroutineScope {
+                val messagesDeferred = async(Dispatchers.IO) { c.inboxFetchMessages(limit = 20) }
+                val countDeferred = async(Dispatchers.IO) { c.inboxFetchUnreadCount() }
+                messagesDeferred.await() to countDeferred.await()
+            }
 
-                @Suppress("UNCHECKED_CAST")
-                val messagesList = (messagesResult["messages"] as? List<Map<String, Any?>>)
-                    ?.map { InboxMessage.fromMap(it) } ?: emptyList()
-                val nextCursor = messagesResult["nextCursor"] as? String
+            @Suppress("UNCHECKED_CAST")
+            val messagesList = (messagesResult["messages"] as? List<Map<String, Any?>>)
+                ?.map { InboxMessage.fromMap(it) } ?: emptyList()
+            val nextCursor = messagesResult["nextCursor"] as? String
 
+            stateMutex.withLock {
                 _state.update {
                     it.copy(
                         messages = messagesList,
@@ -153,12 +156,14 @@ class InboxService private constructor() : DefaultLifecycleObserver {
                         lastRefreshError = null
                     )
                 }
-
-                persistState()
-            } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false, lastRefreshError = e.message ?: e.toString()) }
-                Log.e(TAG, "Error refreshing inbox: ${e.message}")
             }
+
+            persistState()
+        } catch (e: Exception) {
+            stateMutex.withLock {
+                _state.update { it.copy(isLoading = false, lastRefreshError = e.message ?: e.toString()) }
+            }
+            Log.e(TAG, "Error refreshing inbox: ${e.message}")
         }
     }
 

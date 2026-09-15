@@ -26,6 +26,12 @@ class NpsManagerService {
     private val handler = Handler(Looper.getMainLooper())
     private var delayRunnable: Runnable? = null
 
+    // trackEvent() runs on every custom event the host app tracks, so both of these are hot:
+    // rebuilding them per call means most sessions (no NPS config at all) build and throw away
+    // a log string on every single tracked event for nothing.
+    private var loggedNoConfig = false
+    private var pendingCustomEventNames: List<String?> = emptyList()
+
     /**
      * Called on every push response with the server's NPS config (or null).
      *
@@ -41,11 +47,15 @@ class NpsManagerService {
     fun initialize(config: NpsConfig?) {
         handler.post {
             this.config = config
+            this.loggedNoConfig = false
 
             if (config == null) {
                 Log.d(TAG, "No NPS config in this push response")
                 return@post
             }
+            pendingCustomEventNames = config.triggers
+                .filter { it.type == "customEvent" }
+                .map { it.eventName }
             // The customEvent triggers are the ones this class waits on, so name them:
             // a trigger whose eventName did not survive the wire (the server forwards the
             // authored JSON verbatim and validates none of it) is otherwise indistinguishable
@@ -76,7 +86,10 @@ class NpsManagerService {
     fun trackEvent(eventName: String) {
         val cfg = config
         if (cfg == null) {
-            Log.d(TAG, "\"$eventName\" ignored — no NPS config held")
+            if (!loggedNoConfig) {
+                Log.d(TAG, "\"$eventName\" ignored — no NPS config held")
+                loggedNoConfig = true
+            }
             return
         }
         if (suppressedThisSession) return
@@ -103,8 +116,9 @@ class NpsManagerService {
         // Falling through here is normal — most tracked events are not the trigger. It is
         // logged anyway because it is also what an unreadable trigger looks like, and
         // without the expected names beside the received one the two are the same silence.
-        Log.d(TAG, "\"$eventName\" matched no trigger; waiting on " +
-            cfg.triggers.filter { it.type == "customEvent" }.map { it.eventName })
+        // pendingCustomEventNames is precomputed in initialize() rather than filtered/mapped
+        // here, since this line runs for every non-matching event — most of them.
+        Log.d(TAG, "\"$eventName\" matched no trigger; waiting on $pendingCustomEventNames")
     }
 
     private fun fireTrigger() {

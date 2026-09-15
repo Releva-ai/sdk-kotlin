@@ -825,27 +825,33 @@ class RelevaClient(
     }
 
     /**
-     * Execute HTTP request
-     */
-    /**
-     * Sends a request and logs it. Every call the SDK makes goes through here.
+     * Sends a request and logs it. Every call `RelevaClient` itself makes goes through here —
+     * `NavigationService`, `EngagementTrackingService` and `NotificationTrampolineActivity`
+     * call `httpClient.newCall(...)` directly and are out of scope for this fix; they already
+     * log (in their own formats), and folding them into this path is a separate, larger change
+     * than the inbox gap this was written to close.
      *
-     * This is one function rather than a rule each verb follows because it was a rule
-     * each verb followed: POST logged, and the inbox's own GETs and DELETE — added later
-     * and calling httpClient directly — did not. That is the worst place for the gap,
-     * because the list and unread-count endpoints answer an authorisation failure with
-     * an error the service layer swallows, so a 401 and a genuinely empty inbox look
-     * identical in the app. With nothing in the log, there is nothing on the device that
-     * tells them apart.
+     * This is one function rather than a rule each verb follows because it was a rule each
+     * verb followed: POST logged, and the inbox's own GETs and DELETE — added later and
+     * calling httpClient directly — did not. That is the worst place for the gap, because the
+     * list and unread-count endpoints answer an authorisation failure with an error the
+     * service layer swallows, so a 401 and a genuinely empty inbox look identical in the app.
+     * With nothing in the log, there is nothing on the device that tells them apart.
      *
-     * [label] is the endpoint path only, never the full URL: a GET carries the profile
-     * id in its query string, and identifiers stay out of the log for the same reason
-     * request bodies do.
+     * [label] is the endpoint path only, never the full URL: a GET carries the profile id in
+     * its query string, and identifiers stay out of the log for the same reason request
+     * bodies do.
      *
-     * Success is any 2xx, not 200: token registration answers 202 and delete answers 204,
-     * and both were being logged as warnings for succeeding. Whether a given endpoint's
-     * particular 2xx is the one the caller wanted is the caller's business — this decides
-     * only whether the line reads as a failure.
+     * Success is any 2xx, not 200: token registration answers 202 and delete answers 204, and
+     * both were being logged as warnings for succeeding. Whether a given endpoint's particular
+     * 2xx is the one the caller wanted is the caller's business — this decides only whether
+     * the line reads as a failure.
+     *
+     * The response body is only ever logged for a 5xx, and capped at 500 chars even then.
+     * A 4xx gets status and timing only: several of this API's validation errors echo the
+     * offending field value, which for this SDK is a profile identifier or cart contents, and
+     * a 4xx is exactly the class of failure a bad or replayed request produces. [RelevaConfig.enableRequestLogging]
+     * gates all of this so an integrator can silence it in their own release builds.
      */
     private fun execute(request: Request, verb: String, label: String): HttpResponse {
         val started = SystemClock.elapsedRealtime()
@@ -853,12 +859,15 @@ class RelevaClient(
         val responseBody = response.body?.string() ?: ""
         val tookMs = SystemClock.elapsedRealtime() - started
 
-        if (response.isSuccessful) {
-            Log.d(TAG, "$verb $label -> ${response.code} in ${tookMs}ms (${responseBody.length} bytes)")
-        } else {
-            // The body is included for a failure because that is where the API puts the
-            // reason, and a failing call is not the place to be frugal with detail.
-            Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms: ${responseBody.take(500)}")
+        if (config.enableRequestLogging) {
+            when {
+                response.isSuccessful ->
+                    Log.d(TAG, "$verb $label -> ${response.code} in ${tookMs}ms (${responseBody.length} bytes)")
+                response.code >= 500 ->
+                    Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms: ${responseBody.take(500)}")
+                else ->
+                    Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms")
+            }
         }
 
         return HttpResponse(response.code, responseBody)

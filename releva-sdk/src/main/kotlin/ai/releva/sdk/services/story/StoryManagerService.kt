@@ -33,7 +33,14 @@ class StoryManagerService {
         // initialize() could surface after this one's own "immediately" stories, out of
         // order and out of context. clearQueue() deliberately leaves any viewer currently
         // on screen alone — see its KDoc.
-        StoryDisplayManager.clearQueue()
+        //
+        // Posted rather than called inline: StoryDisplayManager's queue and seenTokens are
+        // only ever touched from the main thread elsewhere (pump() runs off a
+        // lifecycleScope collector, which defaults to Main) but nothing guarantees
+        // initialize() itself is called from the main thread — a host wiring this service
+        // up from a background data-load callback would otherwise race pump() clearing and
+        // reading those same collections concurrently.
+        handler.post { StoryDisplayManager.clearQueue() }
 
         setupTriggers()
     }
