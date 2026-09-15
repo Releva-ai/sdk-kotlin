@@ -74,6 +74,9 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation("org.robolectric:robolectric:4.11.1")
+    // Firebase Messaging is compileOnly for consumers, but the FCM service's own tests
+    // need RemoteMessage on the test classpath to drive onMessageReceived.
+    testImplementation("com.google.firebase:firebase-messaging:23.4.0")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
