@@ -90,13 +90,11 @@ class StoryViewerActivity : AppCompatActivity() {
         private const val STATE_STORY_COMPLETE_TRACKED = "releva_story_complete_tracked"
         private const val STATE_ADVANCE_REMAINING_MS = "releva_story_advance_remaining_ms"
 
-        // The launch data for every viewer whose launch is still running. Held until the
-        // launch is retired rather than consumed by the first onCreate: a configuration
-        // change (rotation, dark mode, font or display size, locale, multi-window resize)
-        // destroys the activity and recreates it from the *same* intent, so onCreate runs
-        // again with the same key and has to find the entry still there. Consuming it on
-        // first read left the second onCreate with nothing to show and it finished — the
-        // story vanished on rotation.
+        // The launch data for every viewer whose launch is still running. Keyed by launch
+        // key and held until the launch is retired, not consumed by the first onCreate: a
+        // configuration change destroys the activity and recreates it from the *same*
+        // intent, so a second onCreate arrives with the same key and has to find the entry
+        // still there. Consuming it on first read is what made a story vanish on rotation.
         private val pendingLaunches = java.util.concurrent.ConcurrentHashMap<String, PendingLaunchData>()
 
         // Keys for viewers currently alive, so a caller holding a launch key can ask "is
@@ -215,20 +213,7 @@ class StoryViewerActivity : AppCompatActivity() {
             trackEvent("storyImpression")
             trackSlideView()
         }
-        // A restored instance may never reach onResume: the platform can relaunch a
-        // non-resumed activity straight through onCreate -> onStart -> onStop without ever
-        // resuming it (e.g. the host was already backgrounded when the configuration
-        // change arrived). onPause cancels what scheduleAdvance posts, and onPause never
-        // runs for such an instance — so scheduling the full-duration advance here would
-        // leave it to fire, unattended, against an invisible viewer. onResume already
-        // reposts advanceRemainingMs whenever it does run (including the ordinary, visible
-        // rotation this fix targets), so it is the only place that may schedule a restored
-        // instance's advance. A genuinely new viewer has no such gap: launch() starts it to
-        // the foreground directly.
-        //
-        // Not pinned by a test: see StoryViewerActivityTest's class KDoc for why Robolectric
-        // cannot land a recreated activity in the created-but-not-resumed state this guards
-        // against.
+        // A restored instance leaves its advance to onResume; see scheduleAdvanceNow.
         startSlideTimer(scheduleAdvanceNow = savedInstanceState == null)
     }
 
@@ -438,10 +423,18 @@ class StoryViewerActivity : AppCompatActivity() {
      * So the advance is a posted callback on a real clock, and the animator now only
      * paints.
      *
-     * @param scheduleAdvanceNow Whether to post the advance immediately. False on a
-     * restored instance's onCreate, where onResume — not onCreate — must be the one to
-     * schedule it (see the call site's comment). The progress bars and the decorative
-     * animator are unaffected: they still reflect the current slide either way.
+     * @param scheduleAdvanceNow Whether to post the advance immediately. False on a restored
+     * instance's [onCreate], because such an instance may never reach [onResume]: the platform
+     * can relaunch a non-resumed activity straight through `onCreate -> onStart -> onStop`,
+     * e.g. when the host was already backgrounded as the configuration change arrived. Such an
+     * instance is stopped, not destroyed, so neither of the two places that cancel a posted
+     * advance reaches it — [onPause] never runs, and [onDestroy] has not yet. Posting here
+     * would leave a full-duration advance to fire unattended against an invisible viewer:
+     * tracking slide views nobody saw, and on the default end behaviour closing the story.
+     * [onResume] reposts [advanceRemainingMs] whenever it does run, including on the ordinary
+     * visible rotation, so it is the one place that may start a restored slide's clock. A
+     * genuinely new viewer has no such gap: `launch` starts it to the foreground directly.
+     * The progress bars and the decorative animator are unaffected either way.
      */
     private fun startSlideTimer(scheduleAdvanceNow: Boolean = true) {
         progressAnimator?.cancel()

@@ -55,18 +55,13 @@ import org.robolectric.annotation.Config
  * which by contract only drains already-due messages. The animator only paints; disabling it
  * changes nothing about the Handler-driven advance these tests assert on.
  *
- * One `onCreate` invariant is documented rather than tested: a restored instance may never
- * reach `onResume` (the platform can relaunch a non-resumed activity straight through
- * `onCreate -> onStart -> onStop`), so only `onResume` may schedule a restored instance's
- * advance. There is no test for the created-but-not-resumed case here because
- * `ActivityController.configurationChange` (and `recreate()`) on Robolectric 4.11.1 always
- * drives the recreated instance through to `RESUMED`, regardless of the stage — even
- * `STOPPED` — the original was in beforehand: verified by instrumenting `onResume` with a
- * counter and calling `pause().stop()` on the controller before `configurationChange()`; the
- * counter was already 1, i.e. the recreated instance's `onResume` had already run, by the
- * time `configurationChange()` returned. There is no seam to land a Robolectric activity in
- * that state, so a test here would only re-assert the ordinary resumed path the survival
- * tests below already cover.
+ * One `onCreate` invariant is documented rather than tested — that only `onResume` may
+ * schedule a restored instance's advance, see `startSlideTimer`'s `scheduleAdvanceNow`. It
+ * guards the recreated-but-never-resumed instance, and Robolectric 4.11.1 cannot produce
+ * one: `ActivityController.configurationChange` drives the successor through to `RESUMED`
+ * whatever stage the original was in, including `STOPPED` (checked with a counter on
+ * `onResume` and `pause().stop()` before the change — already 1 on return). A test here
+ * would only re-assert the resumed path the tests below already cover.
  */
 @RunWith(RobolectricTestRunner::class)
 // StoryViewerActivity's own manifest entry already pins android:theme to
@@ -436,12 +431,8 @@ class StoryViewerActivityTest {
         )
         val original = controller.create().start().resume().get()
 
-        controller.configurationChange(rotated(original))
+        val recreated = rotate(controller, original)
 
-        val recreated = controller.get()
-        // Without this the rest would pass vacuously on a Robolectric that decided the
-        // activity handles the change itself: no recreation, nothing to survive.
-        assertNotSame(original, recreated)
         assertFalse(recreated.isFinishing)
         assertNotNull(findViewWithText(recreated, "Open"))
         assertTrue(StoryViewerActivity.isAlive(key))
@@ -479,12 +470,7 @@ class StoryViewerActivityTest {
             awaitUntil { actions.containsAll(listOf("storyImpression", "storySlideView")) }
         )
 
-        controller.configurationChange(rotated(original))
-
-        // Without this the counts below would pass vacuously on a Robolectric that decided
-        // the activity handles the change itself: no recreation, no second onCreate to
-        // double-track from.
-        assertNotSame(original, controller.get())
+        rotate(controller, original)
 
         // A duplicate is dispatched by the recreated instance's onCreate, which has already
         // run by here; this only gives it time to reach the server, and returns as soon as
@@ -520,33 +506,25 @@ class StoryViewerActivityTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(6))
         assertEquals(1, original.currentSlideIndexForTest())
 
-        controller.configurationChange(rotated(original))
+        val recreated = rotate(controller, original)
 
-        val recreated = controller.get()
-        // Without this the assertions below would pass vacuously on a Robolectric that
-        // decided the activity handles the change itself: same instance, index already 1.
-        assertNotSame(original, recreated)
         assertEquals(1, recreated.currentSlideIndexForTest())
         assertNotNull(findViewWithText(recreated, "Second"))
     }
 
     /**
-     * The other two saved fields have no coverage above: [StoryViewerActivity.onSaveInstanceState]
-     * also writes `STATE_ADVANCE_REMAINING_MS`, and nothing here has idled the fake clock
-     * *after* a recreation to observe what it restores to. If the remainder were dropped —
-     * e.g. `onCreate` restoring it but nothing ever reposting it, or `onResume` reposting
-     * from a fresh full duration instead of the saved remainder — `startSlideTimer`'s
-     * `scheduleAdvanceNow = savedInstanceState == null` still leaves the recreated instance
-     * with nothing scheduled, and it would sit on its current slide for the rest of its life.
-     * Every other test in this suite stops idling at (or before) the recreation and would
-     * not notice.
+     * The rotated story has to keep *playing*, which is the one thing no other test here
+     * idles far enough to see: they all stop at or before the recreation. That makes
+     * `STATE_ADVANCE_REMAINING_MS` the field whose loss would hurt most and show least — with
+     * nothing restored, `scheduleAdvanceNow = savedInstanceState == null` leaves the
+     * recreated instance with no advance posted and it sits on its slide for the rest of its
+     * life, silently, with every other test still green.
      *
-     * Two slides of five seconds. Two seconds in, rotate; `ActivityController
+     * Two slides of five seconds, rotated two seconds in. `ActivityController
      * .configurationChange` runs the whole destroy/create sequence inside `runPaused`, so it
-     * does not itself advance the fake clock. Idling two more seconds (t+4 of the first
-     * slide's five) must still show slide 0 — a remainder restarted from the full duration
-     * would already have fired here — and idling past t+5 must show slide 1 — a remainder
-     * silently dropped (stuck at 0, nothing ever reposted) would never advance at all.
+     * does not itself advance the fake clock. t+4 must still show slide 0 (a remainder
+     * restarted from the full duration would already have fired), and past t+5 must show
+     * slide 1 (a remainder dropped to 0 would never fire at all).
      */
     @Test
     fun `the restored slide's remaining time survives a configuration change`() {
@@ -562,7 +540,7 @@ class StoryViewerActivityTest {
         val original = controller.create().start().resume().get()
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
 
-        controller.configurationChange(rotated(original))
+        rotate(controller, original)
 
         // t+4 of the first slide's 5s: still due, whether or not the fix landed correctly.
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
@@ -613,7 +591,7 @@ class StoryViewerActivityTest {
             awaitUntil { actions.count { it == "storyComplete" } == 1 && actions.size == 4 }
         )
 
-        controller.configurationChange(rotated(original))
+        rotate(controller, original)
 
         // Past the duration again in the recreated instance. The loop's end-of-story branch
         // re-tracks storySlideView on every lap regardless of this bug, so the list is
@@ -726,14 +704,29 @@ class StoryViewerActivityTest {
     }
 
     /**
-     * [activity]'s own configuration, rotated. The activity declares no
-     * `android:configChanges`, so any difference at all is a configuration change it cannot
-     * handle itself and Robolectric recreates it, exactly as the platform does.
+     * Rotates [original]'s own configuration and returns the instance that comes back.
+     *
+     * The activity declares no `android:configChanges`, so any difference at all is a change
+     * it cannot handle itself and Robolectric recreates it, exactly as the platform does. The
+     * `assertNotSame` is the reason every caller's assertions mean anything: were that ever to
+     * stop being true — someone adds an `android:configChanges` attribute, say — the original
+     * instance would keep its own slide index, its own posted advance and its own tracking
+     * flags, and every test below would pass while testing nothing. Recreating through here
+     * rather than at each call site is what stops a later test from omitting the guard.
      */
-    private fun rotated(activity: StoryViewerActivity): Configuration =
-        Configuration(activity.resources.configuration).apply {
-            orientation = Configuration.ORIENTATION_LANDSCAPE
-        }
+    private fun rotate(
+        controller: ActivityController<StoryViewerActivity>,
+        original: StoryViewerActivity
+    ): StoryViewerActivity {
+        controller.configurationChange(
+            Configuration(original.resources.configuration).apply {
+                orientation = Configuration.ORIENTATION_LANDSCAPE
+            }
+        )
+        val recreated = controller.get()
+        assertNotSame(original, recreated)
+        return recreated
+    }
 
     private fun findViewWithText(activity: StoryViewerActivity, text: String): TextView? {
         fun find(view: View): TextView? {
