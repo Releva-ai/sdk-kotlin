@@ -3,7 +3,8 @@
 ## 1.4.0
 
 Everything here came out of a device pass against a real domain, replicating the
-iOS/Swift QA on Android. Each fix was reproduced on a device before and after.
+iOS/Swift QA on Android. Each fix was reproduced on a device before and after,
+except where an entry below says otherwise.
 
 ### Fixed
 
@@ -27,6 +28,14 @@ iOS/Swift QA on Android. Each fix was reproduced on a device before and after.
   animations off (accessibility, battery saving, developer options) the system scaled the
   duration to zero and the whole story played in one frame. The advance is now a posted callback
   on a real clock; the animator only paints.
+- **A story slide's call to action could not be tapped.** The action button was a child of the
+  content layer, underneath the slide-navigation overlay, so the only way a tap could reach it was
+  the overlay's own hit test — and on a device that test missed it: a tap well inside the button's
+  bounds was handled as slide navigation and the button did nothing. Why it missed was not
+  established, so rather than repairing the hit test the button now sits above the overlay and is
+  reached by ordinary touch dispatch, the same way the close button already was. Taps that miss the
+  button still fall through to navigation. Device retest pending: the "before" here is the QA
+  observation above, the "after" still needs a device pass on the retap.
 - **Banner popup content rendered behind the status bar.** The content is now inset by the real
   window insets, including the display cutout, while the background still runs edge to edge.
 - **Design padding was applied in raw pixels rather than dp.** `parseEdgeInsets` left the density

@@ -72,6 +72,11 @@ class StoryViewerActivity : AppCompatActivity() {
     private var launchKey: String? = null
 
     private lateinit var contentContainer: FrameLayout
+    /**
+     * Holds the current slide's action button, as a sibling *above* the navigation overlay
+     * instead of a child of [contentContainer] underneath it. See [setupUI].
+     */
+    private lateinit var actionContainer: FrameLayout
     private lateinit var progressContainer: LinearLayout
     private val progressBars = mutableListOf<View>()
     private val progressFills = mutableListOf<View>()
@@ -209,7 +214,8 @@ class StoryViewerActivity : AppCompatActivity() {
             )
         }
 
-        // Content area below progress bars
+        // Content area below progress bars. actionContainer, added further down, must keep
+        // identical layout params to this — see the comment there.
         contentContainer = FrameLayout(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -259,6 +265,24 @@ class StoryViewerActivity : AppCompatActivity() {
             ).apply { topMargin = dp(40) }
         }
         root.addView(touchOverlay)
+
+        // The action button lives here, not in contentContainer, because anything under the
+        // overlay is reachable only through findClickableViewAt — which compares the event's
+        // raw coordinates against the view's screen coordinates — and on a device that
+        // comparison missed the button: a tap well inside its reported bounds navigated
+        // instead. Above the overlay the button is reached by ordinary dispatch, the path
+        // topRow's close button already takes and the one that works on that device.
+        // Nothing in here is clickable but the button, so a tap that misses it is not
+        // consumed and still reaches the overlay as navigation; the layout params below
+        // must stay identical to contentContainer's, which is what keeps the button in the
+        // place it renders today.
+        actionContainer = FrameLayout(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ).apply { topMargin = dp(40) }
+        }
+        root.addView(actionContainer)
 
         // Progress bar row + close button
         val topRow = LinearLayout(this).apply {
@@ -515,6 +539,7 @@ class StoryViewerActivity : AppCompatActivity() {
 
     private fun renderSlideContent(slide: StorySlideResponse) {
         contentContainer.removeAllViews()
+        actionContainer.removeAllViews()
 
         // Update background color
         (contentContainer.parent as? View)?.setBackgroundColor(getSlideBackgroundColor(slide))
@@ -566,7 +591,7 @@ class StoryViewerActivity : AppCompatActivity() {
                 }
                 setOnClickListener { handleSlideAction(slide) }
             }
-            contentContainer.addView(actionBtn)
+            actionContainer.addView(actionBtn)
         }
     }
 
