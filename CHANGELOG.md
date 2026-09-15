@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.4.1
+
+Not yet released. 1.4.0 is tagged and published, so this lands under its own version
+rather than in the section above.
+
+### Fixed
+
+- **A request that never got an answer was logged as nothing at all.** `RelevaClient`'s
+  request log runs entirely after `newCall(...).execute()` returns, so a transport failure —
+  no network, DNS failure, connect or read timeout, TLS failure — propagated to the caller
+  without a line of its own, leaving an integrator debugging a flaky network with silence from
+  the SDK. Observed during the Android device pass: a cold start in airplane mode produced zero
+  `RelevaClient` lines, against four with the network up. The failure is now logged in the same
+  `VERB path -> … in Nms` shape, with the exception's class and message, under the same
+  `enableRequestLogging` gate, and rethrown unchanged — the request body is still never logged.
+
 ## 1.4.0
 
 Everything here came out of a device pass against a real domain, replicating the

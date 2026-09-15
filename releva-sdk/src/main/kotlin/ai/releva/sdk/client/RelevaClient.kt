@@ -28,8 +28,10 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.URLEncoder
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -72,7 +74,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "1.4.0-kotlin"
+        private const val VERSION = "1.4.1-kotlin"
     }
 
     /**
@@ -862,11 +864,27 @@ class RelevaClient(
      * offending field value, which for this SDK is a profile identifier or cart contents, and
      * a 4xx is exactly the class of failure a bad or replayed request produces. [RelevaConfig.enableRequestLogging]
      * gates all of this so an integrator can silence it in their own release builds.
+     *
+     * A request that never gets an answer — no network, DNS failure, connect or read timeout,
+     * TLS failure — is logged in the same shape and then rethrown unchanged; this is the one
+     * outcome the log used to be silent about, which is the outcome an integrator most needs
+     * it for. The exception's class and message name the host and the cause, never the request
+     * body.
      */
     private fun execute(request: Request, verb: String, label: String): HttpResponse {
         val started = SystemClock.elapsedRealtime()
-        val response = httpClient.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
+        val response: Response
+        val responseBody: String
+        try {
+            response = httpClient.newCall(request).execute()
+            responseBody = response.body?.string() ?: ""
+        } catch (e: IOException) {
+            if (config.enableRequestLogging) {
+                val failedAfterMs = SystemClock.elapsedRealtime() - started
+                Log.w(TAG, "$verb $label -> failed in ${failedAfterMs}ms: ${e.javaClass.simpleName}: ${e.message}")
+            }
+            throw e
+        }
         val tookMs = SystemClock.elapsedRealtime() - started
 
         if (config.enableRequestLogging) {
