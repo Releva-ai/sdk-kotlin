@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## 1.4.2
 
-1.4.0 is tagged and published to JitPack, so this sits above it rather than inside it. The
-version in `build.gradle.kts` and the `VERSION` constant move together when this section is
-cut into a release.
+Not yet released. 1.4.0 is tagged and published to JitPack, and `fix/log-transport-failures`
+(not yet merged) already claims 1.4.1 for its own entry, so this takes the version after that
+one. The retry this section describes changes `sdkVersion` on every request, which is also the
+field a server-side duplicate would be attributed through, so the bump is not just bookkeeping:
+without it, a duplicate produced by this change and one produced by the 1.4.0 build it replaces
+would carry the same version string and be indistinguishable after the fact.
 
 ### Fixed
 

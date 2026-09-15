@@ -82,7 +82,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "1.4.0-kotlin"
+        private const val VERSION = "1.4.2-kotlin"
 
         // The Swift SDK's waits, kept identical so an outage costs both SDKs the same time:
         // a server that answered at all gets longer to recover than a network that did not.
@@ -461,8 +461,12 @@ class RelevaClient(
 
     /**
      * Submits an NPS survey response to the server.
-     * Failures are swallowed with one retry — the thank-you screen is shown
-     * regardless of network outcome (per spec).
+     * Failures are swallowed — the thank-you screen is shown regardless of network outcome
+     * (per spec). This used to also retry once itself on top of whatever `execute` did; now
+     * that `execute` retries a 5xx or transport failure on its own, that second layer only
+     * doubled the effective budget (and, at default settings, doubled the worst-case wait) for
+     * this one endpoint. Removed so NPS submission gets exactly the policy every other request
+     * gets, no more.
      */
     suspend fun submitNpsResponse(
         token: String,
@@ -480,23 +484,14 @@ class RelevaClient(
             if (!comment.isNullOrEmpty()) put("comment", comment)
         }
 
-        suspend fun doPost() {
+        try {
             val encodedToken = URLEncoder.encode(token, "UTF-8")
             val response = executeRequest("/api/v0/nps/$encodedToken/submissions", body)
             if (response.code != 202) {
                 throw Exception("NPS submit error: ${response.code} - ${response.body}")
             }
-        }
-
-        try {
-            doPost()
         } catch (e: Exception) {
-            // One silent retry
-            try {
-                doPost()
-            } catch (retryError: Exception) {
-                Log.d(TAG, "NPS submission failed (silent): $retryError")
-            }
+            Log.d(TAG, "NPS submission failed (silent): $e")
         }
     }
 
@@ -919,7 +914,7 @@ class RelevaClient(
                 }
             }
 
-            if (response.code >= 500 && attempt < maxAttempts) {
+            if (response.code in 500..599 && attempt < maxAttempts) {
                 retryAfter(SERVER_ERROR_RETRY_DELAY_MS, verb, label, attempt, maxAttempts)
                 attempt++
                 continue
