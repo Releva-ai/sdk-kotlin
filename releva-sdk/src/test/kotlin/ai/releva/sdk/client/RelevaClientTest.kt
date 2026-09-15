@@ -132,6 +132,21 @@ class RelevaClientTest {
     }
 
     @Test
+    fun `setProfileId with skipMerge clears the queue even when the profile id is unchanged`() = runTest {
+        val client = createTestClient()
+
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B")
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+
+        // Same id as already stored: the outer changed-id guard alone would skip this,
+        // but a caller passing skipMerge here still means "cancel any pending merge".
+        client.setProfileId("profile-B", skipMergeWithPreviousProfileId = true)
+
+        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+    }
+
+    @Test
     fun `the same previous profile id is not queued for merging twice`() = runTest {
         val client = createTestClient()
 
@@ -141,6 +156,30 @@ class RelevaClientTest {
         client.setProfileId("profile-B")
 
         assertEquals(listOf("profile-A", "profile-B"), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `a successful push token registration leaves the persisted merge queue intact`() = runTest {
+        storageService.setDeviceId("device-1")
+        val server = MockWebServer()
+        server.start()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) =
+                MockResponse().setResponseCode(202).setBody("{}")
+        }
+        mockWebServer = server
+
+        val client = createTestClient()
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B")
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+
+        // registerPushToken's request body never carries mergeProfileIds, so a successful
+        // call here must not discard the queue a later push() would still need to send.
+        client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
     }
 
     @Test

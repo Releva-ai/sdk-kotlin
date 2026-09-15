@@ -73,7 +73,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "1.4.0-kotlin"
+        private const val VERSION = "1.4.1-kotlin"
     }
 
     /**
@@ -92,14 +92,19 @@ class RelevaClient(
      * Set profile ID
      */
     suspend fun setProfileId(profileId: String, skipMergeWithPreviousProfileId: Boolean = false) = withContext(Dispatchers.IO) {
+        // Checked before the changed-id guard below: a caller that re-asserts the current
+        // profile id with this flag set (e.g. a host that calls setProfileId on every launch)
+        // still means "cancel any pending merge", even though the id itself did not change.
+        if (skipMergeWithPreviousProfileId) {
+            clearMergeProfileIds()
+        }
+
         val previousProfileId = storage.getProfileId()
 
         if (previousProfileId == null || previousProfileId != profileId) {
             profileChanged = true
             storage.setProfileId(profileId)
-            if (skipMergeWithPreviousProfileId) {
-                clearMergeProfileIds()
-            } else if (previousProfileId != null && !mergeProfileIds.contains(previousProfileId)) {
+            if (!skipMergeWithPreviousProfileId && previousProfileId != null && !mergeProfileIds.contains(previousProfileId)) {
                 mergeProfileIds.add(previousProfileId)
                 storage.setMergeProfileIds(mergeProfileIds)
             }
@@ -253,7 +258,9 @@ class RelevaClient(
         wishlistChanged = false
         profileChanged = false
         deviceIdChanged = false
-        clearMergeProfileIds()
+        // Deliberately does not touch mergeProfileIds: the request body built above never
+        // carries it, so clearing here would discard a queued merge — durable since this PR,
+        // in memory before it — on a request that could not have delivered it.
     }
 
     /**
