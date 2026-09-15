@@ -38,7 +38,7 @@ Add SDK dependency to your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.Releva-ai:sdk-kotlin:1.3.0")
+    implementation("com.github.Releva-ai:sdk-kotlin:1.4.0")
 }
 ```
 
@@ -131,7 +131,7 @@ lifecycleScope.launch {
 - Configurable delay before display
 - Built-in bottom sheet/modal UI with score selection, follow-up questions, and thank-you screen
 - Dark mode support
-- Submission with one silent retry
+- Submission fails silently on the client (the thank-you screen shows regardless); transport and 5xx failures get the SDK's standard retry, same as every other request
 
 ### Stories
 - Full-screen story viewer (`StoryViewerActivity`) with progress bars and tap navigation (left half = previous, right half = next)

@@ -49,7 +49,7 @@ Add to your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.Releva-ai:sdk-kotlin:1.0.0")
+    implementation("com.github.Releva-ai:sdk-kotlin:1.4.0")
 }
 ```
 
@@ -57,7 +57,7 @@ Or in `build.gradle`:
 
 ```groovy
 dependencies {
-    implementation 'com.github.Releva-ai:sdk-kotlin:1.0.0'
+    implementation 'com.github.Releva-ai:sdk-kotlin:1.4.0'
 }
 ```
 
@@ -1145,7 +1145,7 @@ The manager renders the built-in NPS dialog (score selection, follow-up question
 | `NpsDisplayManager.setOnSubmit` | `fun setOnSubmit(onSubmit: suspend (String, Int, String?) -> Unit)` | Callback with `(token, score, comment)` |
 | `NpsDisplayManager.setOnSkip` | `fun setOnSkip(onSkip: () -> Unit)` | Called when the user skips |
 | `NpsDisplayManager.attach` | `fun attach(activity: FragmentActivity)` | Start showing surveys |
-| `relevaClient.submitNpsResponse` | `suspend fun submitNpsResponse(token: String, score: Int, comment: String? = null)` | Submit a response (score must be 0–10; one silent retry) |
+| `relevaClient.submitNpsResponse` | `suspend fun submitNpsResponse(token: String, score: Int, comment: String? = null)` | Submit a response (score must be 0–10). Fails silently on the client; transport and 5xx failures get the SDK's standard retry, same as every other request |
 | `relevaClient.trackEvent` | `fun trackEvent(eventName: String)` | Fire a client-side custom event that can trigger or cancel a survey |
 
 #### Custom-event triggers

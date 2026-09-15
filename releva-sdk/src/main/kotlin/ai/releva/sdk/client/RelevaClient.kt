@@ -22,14 +22,17 @@ import ai.releva.sdk.types.wishlist.WishlistProduct
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.URLEncoder
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -69,9 +72,21 @@ class RelevaClient(
     var engagementTrackingService: EngagementTrackingService? = null
         private set
 
+    /**
+     * How [execute] waits between attempts. Replaced in tests so a retry costs no real
+     * seconds; nothing else has a reason to touch it.
+     */
+    @VisibleForTesting
+    internal var retryWait: (Long) -> Unit = { Thread.sleep(it) }
+
     companion object {
         private const val TAG = "RelevaClient"
         private const val VERSION = "1.4.1-kotlin"
+
+        // The Swift SDK's waits, kept identical so an outage costs both SDKs the same time:
+        // a server that answered at all gets longer to recover than a network that did not.
+        private const val TRANSPORT_RETRY_DELAY_MS = 1000L
+        private const val SERVER_ERROR_RETRY_DELAY_MS = 2000L
     }
 
     /**
@@ -470,8 +485,12 @@ class RelevaClient(
 
     /**
      * Submits an NPS survey response to the server.
-     * Failures are swallowed with one retry — the thank-you screen is shown
-     * regardless of network outcome (per spec).
+     * Failures are swallowed — the thank-you screen is shown regardless of network outcome
+     * (per spec). This used to also retry once itself on top of whatever `execute` did; now
+     * that `execute` retries a 5xx or transport failure on its own, that second layer only
+     * doubled the effective budget (and, at default settings, doubled the worst-case wait) for
+     * this one endpoint. Removed so NPS submission gets exactly the policy every other request
+     * gets, no more.
      */
     suspend fun submitNpsResponse(
         token: String,
@@ -489,23 +508,14 @@ class RelevaClient(
             if (!comment.isNullOrEmpty()) put("comment", comment)
         }
 
-        suspend fun doPost() {
+        try {
             val encodedToken = URLEncoder.encode(token, "UTF-8")
             val response = executeRequest("/api/v0/nps/$encodedToken/submissions", body)
             if (response.code != 202) {
                 throw Exception("NPS submit error: ${response.code} - ${response.body}")
             }
-        }
-
-        try {
-            doPost()
         } catch (e: Exception) {
-            // One silent retry
-            try {
-                doPost()
-            } catch (retryError: Exception) {
-                Log.d(TAG, "NPS submission failed (silent): $retryError")
-            }
+            Log.d(TAG, "NPS submission failed (silent): $e")
         }
     }
 
@@ -886,25 +896,111 @@ class RelevaClient(
      * offending field value, which for this SDK is a profile identifier or cart contents, and
      * a 4xx is exactly the class of failure a bad or replayed request produces. [RelevaConfig.enableRequestLogging]
      * gates all of this so an integrator can silence it in their own release builds.
+     *
+     * A failure that says nothing about the request — it never reached the server — is
+     * retried, and so is a 5xx response, up to [RelevaConfig.maxRetryAttempts] retries on
+     * top of the first try (so the default of 3 makes 4 requests total). The counting matches
+     * the Swift SDK's `NetworkService.executeRequest(_:retryAttempts:)`, which decrements an
+     * `attemptsLeft` starting at `retryAttempts` the same way — but only two of Swift's call
+     * sites (`sendPushRequest`, `registerPushToken`) actually read `maxRetryAttempts`; every
+     * other retryable endpoint there hardcodes a smaller budget at the call site, so the
+     * request *count* at the shared default matches Swift for those two endpoints only, not
+     * for every request this method serves. A 4xx and any 2xx are returned
+     * to the caller on the spot: a 4xx is the server's verdict on this request, and repeating
+     * it would only produce the same verdict. Once the retries are spent the last failure
+     * reaches the caller exactly as it did before, response or exception.
+     *
+     * Only the call itself is retried, not the body read: `httpClient.newCall(request).execute()`
+     * returning means the server has already answered with a status code it chose, so an
+     * `IOException` reading the body afterwards (a read timeout mid-transfer, the connection
+     * dropping after the headers) is a different failure from "never reached the server" and
+     * is handed straight to the caller, exactly as it was before this loop existed — retrying
+     * it would re-send a request the server may already have committed for that status.
+     * `.use { }` still closes the response on that path so it does not leak the connection.
+     *
+     * A transport failure is logged with its exception class and message before any retry
+     * decision, so the one outcome the log used to be silent about is never silent again —
+     * the request body is still never logged.
+     *
+     * The wait happens on the calling thread. Every caller of this method is already inside
+     * `withContext(Dispatchers.IO)` and blocked on the call itself, so there is no main
+     * thread to block, and sleeping there costs one pooled IO thread for a second or two
+     * rather than turning this and `executeGet`/`executeRequest` into suspending functions.
      */
     private fun execute(request: Request, verb: String, label: String): HttpResponse {
-        val started = SystemClock.elapsedRealtime()
-        val response = httpClient.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
-        val tookMs = SystemClock.elapsedRealtime() - started
-
-        if (config.enableRequestLogging) {
-            when {
-                response.isSuccessful ->
-                    Log.d(TAG, "$verb $label -> ${response.code} in ${tookMs}ms (${responseBody.length} bytes)")
-                response.code >= 500 ->
-                    Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms: ${responseBody.take(500)}")
-                else ->
-                    Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms")
+        val totalAttempts = config.maxRetryAttempts.coerceAtLeast(0) + 1
+        var attempt = 1
+        while (true) {
+            val started = SystemClock.elapsedRealtime()
+            val response: Response
+            try {
+                response = httpClient.newCall(request).execute()
+            } catch (e: IOException) {
+                // Logged before deciding whether to retry. `retryAfter` names the attempt but
+                // not the cause, and the last attempt throws without going through it — so
+                // without this line the retry loop would put back exactly the silence the
+                // transport-failure logging fix was opened for.
+                if (config.enableRequestLogging) {
+                    val failedAfterMs = SystemClock.elapsedRealtime() - started
+                    Log.w(TAG, "$verb $label -> failed in ${failedAfterMs}ms: ${e.javaClass.simpleName}: ${e.message}")
+                }
+                if (attempt >= totalAttempts) throw e
+                retryAfter(TRANSPORT_RETRY_DELAY_MS, verb, label, attempt, totalAttempts)
+                attempt++
+                continue
             }
-        }
+            // Outside the RETRY try on purpose — see the function doc above. A response object
+            // here means the request already reached the server, so a body-read failure from
+            // here on is not retried. It still has to be logged, though: it is an IOException
+            // reaching the caller, which is the one outcome the request log exists to stop
+            // being silent about, and because OkHttp returns at the response headers a read
+            // timeout or a mid-transfer disconnect — the ordinary mobile failure — lands here
+            // rather than on the pre-response path. Its own catch, so it is logged and
+            // rethrown without being retried.
+            val responseBody = try {
+                response.use { it.body?.string() ?: "" }
+            } catch (e: IOException) {
+                if (config.enableRequestLogging) {
+                    val failedAfterMs = SystemClock.elapsedRealtime() - started
+                    Log.w(TAG, "$verb $label -> failed in ${failedAfterMs}ms: ${e.javaClass.simpleName}: ${e.message}")
+                }
+                throw e
+            }
+            val tookMs = SystemClock.elapsedRealtime() - started
+            // One flag for both the log classification and the retry decision below, so the
+            // two can no longer read differently for the same response.
+            val isServerError = response.code in 500..599
 
-        return HttpResponse(response.code, responseBody)
+            if (config.enableRequestLogging) {
+                when {
+                    response.isSuccessful ->
+                        Log.d(TAG, "$verb $label -> ${response.code} in ${tookMs}ms (${responseBody.length} bytes)")
+                    isServerError ->
+                        Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms: ${responseBody.take(500)}")
+                    else ->
+                        Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms")
+                }
+            }
+
+            if (isServerError && attempt < totalAttempts) {
+                retryAfter(SERVER_ERROR_RETRY_DELAY_MS, verb, label, attempt, totalAttempts)
+                attempt++
+                continue
+            }
+
+            return HttpResponse(response.code, responseBody)
+        }
+    }
+
+    /**
+     * Logs the attempt that just failed and takes the wait before the next one. One function
+     * for both retry paths so the line keeps the shape the rest of the request log has.
+     */
+    private fun retryAfter(delayMs: Long, verb: String, label: String, attempt: Int, totalAttempts: Int) {
+        if (config.enableRequestLogging) {
+            Log.w(TAG, "$verb $label -> attempt $attempt of $totalAttempts failed, retrying in ${delayMs}ms")
+        }
+        retryWait(delayMs)
     }
 
     private fun executeGet(url: String, label: String): HttpResponse =

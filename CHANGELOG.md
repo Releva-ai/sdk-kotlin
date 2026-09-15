@@ -7,6 +7,52 @@ rather than in the section above.
 
 ### Fixed
 
+- **A request that never got an answer was logged as nothing at all.** `RelevaClient`'s
+  request log runs entirely after `newCall(...).execute()` returns, so a transport failure —
+  no network, DNS failure, connect or read timeout, TLS failure — propagated to the caller
+  without a line of its own, leaving an integrator debugging a flaky network with silence from
+  the SDK. Observed during the Android device pass: a cold start in airplane mode produced zero
+  `RelevaClient` lines, against four with the network up. The failure is now logged in the same
+  `VERB path -> … in Nms` shape, with the exception's class and message, under the same
+  `enableRequestLogging` gate, and rethrown unchanged — the request body is still never logged.
+- **A story closed itself when the device was rotated.** The viewer's launch data was passed
+  through a static map and consumed by the first `onCreate`, and the activity declares no
+  `android:configChanges` — so a configuration change destroyed it, recreated it from the same
+  intent, found nothing under the same key and finished. Rotation is the easiest trigger; a
+  dark-mode toggle, a font- or display-size change, a locale change and a multi-window resize
+  all take the same path. The data now lives as long as the launch does and is dropped when the
+  viewer finishes, and the recreated viewer restores its slide, its remaining slide time and the
+  fact that it has already tracked the story — so a rotation neither restarts the story nor
+  counts a second impression. An intent with no launch key, and a story with no slides, still
+  close immediately.
+
+- **A momentary network failure or a transient 5xx dropped the event for good.**
+  `RelevaClient.execute` made exactly one call and handed whatever came back — or whatever it
+  threw — straight to the caller, so a pageview, cart sync, impression or push-token
+  registration that met a blip was lost, while the Swift SDK against the same API retried and
+  recovered. A failure that says nothing about the request itself — it never reached the server,
+  or the server answered 5xx — is now retried on the Swift SDK's schedule: 1s after a transport
+  failure, 2s after a 5xx, up to `RelevaConfig.maxRetryAttempts` retries on top of the first try
+  (default 3, so 4 requests before giving up; 0 means a single attempt, no retries). The counting
+  matches `NetworkService.executeRequest`'s `attemptsLeft` counter on the Swift side exactly, but
+  the request count at that shared default only matches Swift's for `sendPushRequest` and
+  `registerPushToken` — Swift hardcodes a smaller budget at every other retryable call site (NPS
+  and inbox at 1 retry, banner/push-event at 2, `inboxTrackAction` at none), so this SDK now
+  retries those endpoints more than Swift does; see the PR's Out of scope note for the
+  per-endpoint gap. A 4xx and any 2xx are still returned on the first attempt, each retry is
+  logged under the existing
+  `enableRequestLogging` gate, and once the retries are spent the last failure reaches the
+  caller exactly as it did before. Retrying carries the duplicate-POST risk the Swift SDK has
+  shipped with: a request the server processed but whose answer was lost in transit is sent
+  again — but only for a failure *before* a response arrives; a response that did arrive, whose
+  body read then failed partway (a read timeout mid-transfer, the connection dropping after the
+  headers), is handed to the caller after exactly one request, the same as before this change,
+  since the server has already committed to that status. `submitNpsResponse` loses its own
+  separate one-shot retry as part of this — it now gets exactly the same policy as every other
+  request instead of a second, stacked retry layer, so a 4xx on that endpoint is no longer
+  re-sent and a 5xx now gets this SDK's shared four-request budget instead of its old two — still
+  more than Swift's own NPS budget of two, per the note above.
+
 - **A profile merge was lost permanently if the app died before the first successful push.**
   `RelevaClient` kept the ids queued by `setProfileId` in an in-memory list only, while the new
   profile id itself was written to storage immediately. On the next launch the list was empty and

@@ -4,6 +4,7 @@ import ai.releva.sdk.client.RelevaClient
 import ai.releva.sdk.types.response.StoryResponse
 import ai.releva.sdk.types.response.StorySlideResponse
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Looper
 import android.os.SystemClock
 import android.view.MotionEvent
@@ -12,9 +13,17 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.fragment.app.FragmentActivity
 import java.time.Duration
+import java.util.concurrent.CopyOnWriteArrayList
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -24,6 +33,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 
 /**
@@ -44,6 +54,14 @@ import org.robolectric.annotation.Config
  * slide duration on the very next [shadowOf]-driven idle — even a bare, no-argument `idle()`,
  * which by contract only drains already-due messages. The animator only paints; disabling it
  * changes nothing about the Handler-driven advance these tests assert on.
+ *
+ * One `onCreate` invariant is documented rather than tested — that only `onResume` may
+ * schedule a restored instance's advance, see `startSlideTimer`'s `scheduleAdvanceNow`. It
+ * guards the recreated-but-never-resumed instance, and Robolectric 4.11.1 cannot produce
+ * one: `ActivityController.configurationChange` drives the successor through to `RESUMED`
+ * whatever stage the original was in, including `STOPPED` (checked with a counter on
+ * `onResume` and `pause().stop()` before the change — already 1 on return). A test here
+ * would only re-assert the resumed path the tests below already cover.
  */
 @RunWith(RobolectricTestRunner::class)
 // StoryViewerActivity's own manifest entry already pins android:theme to
@@ -56,6 +74,7 @@ import org.robolectric.annotation.Config
 class StoryViewerActivityTest {
 
     private lateinit var client: RelevaClient
+    private var trackingServer: MockWebServer? = null
 
     @Before
     fun setUp() {
@@ -66,6 +85,7 @@ class StoryViewerActivityTest {
     @After
     fun tearDown() {
         StoryViewerActivity.disableProgressAnimatorForTest = false
+        trackingServer?.shutdown()
     }
 
     private fun launchViewer(story: StoryResponse): StoryViewerActivity {
@@ -224,6 +244,47 @@ class StoryViewerActivityTest {
     }
 
     /**
+     * `retireLaunch` does two things: it drops the key from `aliveKeys` (asserted by
+     * [isAlive] in the tests above) and the launch data from `pendingLaunches`. Only the
+     * former was pinned anywhere in this suite — every survival test asserts on `isAlive`
+     * alone, and none of them can tell `pendingLaunches.remove(key)` apart from a no-op,
+     * since a genuinely new instance never looks the key up twice.
+     *
+     * Pinned the same way the genuinely-invalid-key case below is: finish a viewer, then
+     * build a *second* controller on an intent carrying the *same* key. That second
+     * `onCreate` only finds nothing — and finishes — if the entry was actually dropped;
+     * otherwise the static map would keep growing by one `PendingLaunchData` (story, client
+     * and both callbacks) for every story ever shown in the process, unnoticed.
+     */
+    @Test
+    fun `finishing drops the launch data, so a later onCreate with the same key finds nothing`() {
+        val story = StoryResponse(
+            token = "retired-data-story",
+            slides = listOf(StorySlideResponse(id = 1, durationSeconds = 5))
+        )
+        val host = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val key = StoryViewerActivity.launch(context = host, story = story, client = client)
+        val intent = Intent(host, StoryViewerActivity::class.java).apply {
+            putExtra("releva_story_key", key)
+        }
+        val first = Robolectric.buildActivity(StoryViewerActivity::class.java, intent)
+            .create()
+            .start()
+            .resume()
+            .get()
+
+        // finish() runs synchronously (unlike onBackPressed()'s dispatcher indirection
+        // above), so retireLaunch has already run by the next line.
+        first.finish()
+
+        val second = Robolectric.buildActivity(StoryViewerActivity::class.java, intent)
+            .create()
+            .get()
+
+        assertTrue(second.isFinishing)
+    }
+
+    /**
      * Device QA found the slide's call to action dead: a tap well inside the button's
      * reported bounds never reached its click listener, and the navigation overlay advanced
      * a slide instead. Everything the overlay covers is only reachable through the overlay's
@@ -340,6 +401,239 @@ class StoryViewerActivityTest {
     }
 
     /**
+     * Device QA found a story closing itself the moment the phone was turned. The activity
+     * declares no `android:configChanges`, so a configuration change — rotation, but equally
+     * a dark-mode toggle, a font- or display-size change, a locale change or a multi-window
+     * resize — destroys it and recreates it from the *same* intent, and the launch data was
+     * consumed by the first `onCreate`. The second one found nothing under its key and
+     * finished.
+     *
+     * `isAlive` is asserted alongside, because the other half of the same recreation is
+     * `onDestroy` retiring the key: a viewer that survives the rotation but whose key does
+     * not is a viewer `StoryDisplayManager` believes is gone, and it will start the next
+     * story over the top of it.
+     */
+    @Test
+    fun `a story survives a configuration change`() {
+        val (key, controller) = launchController(
+            StoryResponse(
+                token = "rotation-story",
+                slides = listOf(
+                    StorySlideResponse(
+                        id = 1,
+                        durationSeconds = 30,
+                        actionType = "link",
+                        actionUrl = "https://example.com/offer",
+                        actionLabel = "Open"
+                    )
+                )
+            )
+        )
+        val original = controller.create().start().resume().get()
+
+        val recreated = rotate(controller, original)
+
+        assertFalse(recreated.isFinishing)
+        assertNotNull(findViewWithText(recreated, "Open"))
+        assertTrue(StoryViewerActivity.isAlive(key))
+    }
+
+    /**
+     * The viewer that comes back from a configuration change is the same impression of the
+     * same story, so the tracking calls `onCreate` makes unconditionally must not be made
+     * again — one rotation would otherwise report a second view of the story and of the
+     * slide.
+     *
+     * Counted at the wire rather than through a test seam: the events are fired from the
+     * activity's own IO scope, so a [MockWebServer] standing in for the tracking endpoint is
+     * what actually observes how many of them there are.
+     */
+    @Test
+    fun `a configuration change does not track the story twice`() {
+        val actions = CopyOnWriteArrayList<String>()
+        val trackingClient = clientPostingTo(actions)
+        val (_, controller) = launchController(
+            story = StoryResponse(
+                token = "impression-story",
+                slides = listOf(
+                    StorySlideResponse(id = 1, durationSeconds = 30),
+                    StorySlideResponse(id = 2, durationSeconds = 30)
+                )
+            ),
+            client = trackingClient
+        )
+        val original = controller.create().start().resume().get()
+        // The new viewer's own pair, so the rotation below starts from a known state
+        // instead of racing them.
+        assertTrue(
+            "initial tracking calls never arrived: $actions",
+            awaitUntil { actions.containsAll(listOf("storyImpression", "storySlideView")) }
+        )
+
+        rotate(controller, original)
+
+        // A duplicate is dispatched by the recreated instance's onCreate, which has already
+        // run by here; this only gives it time to reach the server, and returns as soon as
+        // one shows up.
+        awaitUntil(timeoutMs = 1_000) { actions.size > 2 }
+        assertEquals("tracked: $actions", 1, actions.count { it == "storyImpression" })
+        assertEquals("tracked: $actions", 1, actions.count { it == "storySlideView" })
+    }
+
+    /**
+     * Recreation must not rewind the story either: the slide the viewer was on is the one it
+     * comes back on. Slide 1 rather than slide 0 is also what catches a `setupUI` that still
+     * renders `slides[0]` regardless of where the story had got to.
+     */
+    @Test
+    fun `the current slide survives a configuration change`() {
+        val (_, controller) = launchController(
+            StoryResponse(
+                token = "slide-index-story",
+                slides = listOf(
+                    StorySlideResponse(id = 1, durationSeconds = 5),
+                    StorySlideResponse(
+                        id = 2,
+                        durationSeconds = 5,
+                        actionType = "link",
+                        actionUrl = "https://example.com/second",
+                        actionLabel = "Second"
+                    )
+                )
+            )
+        )
+        val original = controller.create().start().resume().get()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(6))
+        assertEquals(1, original.currentSlideIndexForTest())
+
+        val recreated = rotate(controller, original)
+
+        assertEquals(1, recreated.currentSlideIndexForTest())
+        assertNotNull(findViewWithText(recreated, "Second"))
+    }
+
+    /**
+     * The rotated story has to keep *playing*, which is the one thing no other test here
+     * idles far enough to see: they all stop at or before the recreation. That makes
+     * `STATE_ADVANCE_REMAINING_MS` the field whose loss would hurt most and show least — with
+     * nothing restored, `scheduleAdvanceNow = savedInstanceState == null` leaves the
+     * recreated instance with no advance posted and it sits on its slide for the rest of its
+     * life, silently, with every other test still green.
+     *
+     * Two slides of five seconds, rotated two seconds in. `ActivityController
+     * .configurationChange` runs the whole destroy/create sequence inside `runPaused`, so it
+     * does not itself advance the fake clock. t+4 must still show slide 0 (a remainder
+     * restarted from the full duration would already have fired), and past t+5 must show
+     * slide 1 (a remainder dropped to 0 would never fire at all).
+     */
+    @Test
+    fun `the restored slide's remaining time survives a configuration change`() {
+        val (_, controller) = launchController(
+            StoryResponse(
+                token = "remaining-time-story",
+                slides = listOf(
+                    StorySlideResponse(id = 1, durationSeconds = 5),
+                    StorySlideResponse(id = 2, durationSeconds = 5)
+                )
+            )
+        )
+        val original = controller.create().start().resume().get()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+
+        rotate(controller, original)
+
+        // t+4 of the first slide's 5s: still due, whether or not the fix landed correctly.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, controller.get().currentSlideIndexForTest())
+
+        // Past t+5: due only if the ~3s remainder was actually restored and reposted.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(1, controller.get().currentSlideIndexForTest())
+    }
+
+    /**
+     * [StoryViewerActivity.storyCompleteTracked] is the third saved field, and is equally
+     * unobserved above. Rather than tapping to re-trigger `goToNextSlide` post-rotation
+     * (which needs a laid-out view tree — see [launchVisibleViewer] — that a configuration
+     * change does not preserve), an `endBehavior = "loop"` story does it on its own clock: a
+     * single slide loops back onto itself every `durationSeconds`, and each lap's
+     * end-of-story branch only calls `trackEvent("storyComplete")` when the flag is still
+     * false. Rotate mid-lap, then idle past the same slide's duration again — if the flag
+     * came back `false` instead of the true it was saved as, this second lap tracks a
+     * second `storyComplete` for what the flag says should still be the first.
+     */
+    @Test
+    fun `a configuration change does not double-track storyComplete on a looping story`() {
+        val actions = CopyOnWriteArrayList<String>()
+        val trackingClient = clientPostingTo(actions)
+        val (_, controller) = launchController(
+            story = StoryResponse(
+                token = "loop-complete-story",
+                slides = listOf(StorySlideResponse(id = 1, durationSeconds = 2)),
+                endBehavior = "loop"
+            ),
+            client = trackingClient
+        )
+        val original = controller.create().start().resume().get()
+        assertTrue(
+            "initial tracking calls never arrived: $actions",
+            awaitUntil { actions.containsAll(listOf("storyImpression", "storySlideView")) }
+        )
+
+        // Past the 2s slide once: the loop's own end-of-story branch tracks the first
+        // storyComplete, then wraps back to slide 0, re-tracks storySlideView and
+        // reschedules. Waiting for the exact count of 4 (rather than just storyComplete's
+        // count reaching 1, which the pre-rotation state already satisfies) gives the
+        // post-rotation wait below a real baseline to grow past.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        assertTrue(
+            "first lap's storyComplete/storySlideView pair never arrived: $actions",
+            awaitUntil { actions.count { it == "storyComplete" } == 1 && actions.size == 4 }
+        )
+
+        rotate(controller, original)
+
+        // Past the duration again in the recreated instance. The loop's end-of-story branch
+        // re-tracks storySlideView on every lap regardless of this bug, so the list is
+        // guaranteed to grow past 4 either way — that growth is what is waited for, not
+        // storyComplete's count directly, which the fixed behaviour would leave unchanged
+        // and a naive "count >= 1" wait would therefore return on immediately, before a
+        // second storyComplete dispatched by the bug had any real time to reach the server.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        assertTrue(
+            "second lap's storySlideView never arrived: $actions",
+            awaitUntil { actions.size > 4 }
+        )
+        assertEquals("tracked: $actions", 1, actions.count { it == "storyComplete" })
+    }
+
+    /**
+     * The launch data outliving its first `onCreate` must not turn the genuinely invalid
+     * cases into viewers that stay open: an intent with no launch key still has nothing to
+     * show.
+     */
+    @Test
+    fun `a viewer with no launch key still finishes`() {
+        val host = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+
+        val activity = Robolectric.buildActivity(
+            StoryViewerActivity::class.java, Intent(host, StoryViewerActivity::class.java)
+        ).create().get()
+
+        assertTrue(activity.isFinishing)
+    }
+
+    /** The other invalid case: a story that has no slides to show. */
+    @Test
+    fun `a viewer whose story has no slides still finishes`() {
+        val (_, controller) = launchController(
+            StoryResponse(token = "empty-story", slides = emptyList())
+        )
+
+        assertTrue(controller.create().get().isFinishing)
+    }
+
+    /**
      * As [launchViewer], but also drives the controller to `visible()` so the view hierarchy
      * is attached, measured and laid out — without that the views have no bounds and no touch
      * dispatch, by any path, can land on them.
@@ -361,6 +655,77 @@ class StoryViewerActivityTest {
             .resume()
             .visible()
             .get()
+    }
+
+    /**
+     * As [launchViewer], but hands back the launch key and an uncreated controller: a
+     * configuration change has to be driven through the controller, and it is the controller
+     * that hands back the *recreated* activity afterwards.
+     */
+    private fun launchController(
+        story: StoryResponse,
+        client: RelevaClient = this.client
+    ): Pair<String, ActivityController<StoryViewerActivity>> {
+        val host = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val key = StoryViewerActivity.launch(context = host, story = story, client = client)
+        val intent = Intent(host, StoryViewerActivity::class.java).apply {
+            putExtra("releva_story_key", key)
+        }
+        return key to Robolectric.buildActivity(StoryViewerActivity::class.java, intent)
+    }
+
+    /**
+     * A client whose tracking calls go to a [MockWebServer] instead of the real endpoint,
+     * appending each call's `action` to [actions]. The server answers 202 — the code
+     * `storyAction` requires — so nothing is retried or logged as an error.
+     */
+    private fun clientPostingTo(actions: MutableList<String>): RelevaClient {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                actions.add(JSONObject(request.body.readUtf8()).optString("action"))
+                return MockResponse().setResponseCode(202)
+            }
+        }
+        server.start()
+        trackingServer = server
+        return RelevaClient(RuntimeEnvironment.getApplication(), "", "test-token").apply {
+            setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        }
+    }
+
+    /** Polls [condition] until it holds or [timeoutMs] runs out, reporting which happened. */
+    private fun awaitUntil(timeoutMs: Long = 5_000, condition: () -> Boolean): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (!condition() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10)
+        }
+        return condition()
+    }
+
+    /**
+     * Rotates [original]'s own configuration and returns the instance that comes back.
+     *
+     * The activity declares no `android:configChanges`, so any difference at all is a change
+     * it cannot handle itself and Robolectric recreates it, exactly as the platform does. The
+     * `assertNotSame` is the reason every caller's assertions mean anything: were that ever to
+     * stop being true — someone adds an `android:configChanges` attribute, say — the original
+     * instance would keep its own slide index, its own posted advance and its own tracking
+     * flags, and every test below would pass while testing nothing. Recreating through here
+     * rather than at each call site is what stops a later test from omitting the guard.
+     */
+    private fun rotate(
+        controller: ActivityController<StoryViewerActivity>,
+        original: StoryViewerActivity
+    ): StoryViewerActivity {
+        controller.configurationChange(
+            Configuration(original.resources.configuration).apply {
+                orientation = Configuration.ORIENTATION_LANDSCAPE
+            }
+        )
+        val recreated = controller.get()
+        assertNotSame(original, recreated)
+        return recreated
     }
 
     private fun findViewWithText(activity: StoryViewerActivity, text: String): TextView? {
