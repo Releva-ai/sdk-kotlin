@@ -894,7 +894,10 @@ class RelevaClient(
             val responseBody: String
             try {
                 response = httpClient.newCall(request).execute()
-                responseBody = response.body?.string() ?: ""
+                // .use{} so a body read that fails partway (a read timeout mid-transfer)
+                // still closes the response instead of leaking the connection — a leak this
+                // loop could now repeat up to maxAttempts times for one logical request.
+                responseBody = response.use { it.body?.string() ?: "" }
             } catch (e: IOException) {
                 if (attempt >= maxAttempts) throw e
                 retryAfter(TRANSPORT_RETRY_DELAY_MS, verb, label, attempt, maxAttempts)

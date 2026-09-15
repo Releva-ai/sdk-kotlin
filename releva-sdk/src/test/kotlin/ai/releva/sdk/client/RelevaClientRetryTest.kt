@@ -1,6 +1,7 @@
 package ai.releva.sdk.client
 
 import ai.releva.sdk.config.RelevaConfig
+import ai.releva.sdk.services.session.SessionService
 import ai.releva.sdk.services.storage.StorageService
 import android.content.Context
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -48,6 +49,9 @@ class RelevaClientRetryTest {
         storage.setProfileId("profile-1")
         waits.clear()
         ShadowLog.reset()
+        // submitNpsResponse's tests below go through SessionService, a process-wide singleton
+        // that only initializes once; dispose() resets it so each test starts cold.
+        SessionService.getInstance().dispose()
         server = MockWebServer()
         server.start()
     }
@@ -56,6 +60,7 @@ class RelevaClientRetryTest {
     fun tearDown() {
         server.shutdown()
         storage.clear()
+        SessionService.getInstance().dispose()
         ShadowLog.reset()
     }
 
@@ -134,6 +139,40 @@ class RelevaClientRetryTest {
 
         assertTrue("expected the transport failure itself: $failure", failure is IOException)
         assertEquals(listOf(1000L, 1000L), waits)
+    }
+
+    // submitNpsResponse used to wrap its own call in a one-shot retry on top of whatever
+    // execute() did. That layer is gone: NPS submission now relies solely on execute()'s loop,
+    // same policy as every other endpoint. submitNpsResponse swallows every failure itself
+    // (the thank-you screen shows regardless), so these assert the only thing observable from
+    // outside — how many requests reached the server — rather than an exception.
+
+    @Test
+    fun `submitNpsResponse does not retry a 4xx, one request total`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(404).setBody("no such survey"))
+        server.enqueue(MockResponse().setResponseCode(202))
+
+        createClient(RelevaConfig.full().copy(maxRetryAttempts = 1))
+            .submitNpsResponse("survey-token", score = 8)
+
+        // Old behaviour (the removed caller-level retry) issued 2 requests here regardless of
+        // maxRetryAttempts, since it retried on any non-202 independently of execute()'s budget.
+        assertEquals(1, server.requestCount)
+        assertEquals(emptyList<Long>(), waits)
+    }
+
+    @Test
+    fun `submitNpsResponse retries a 5xx up to the default budget, three requests`() = runTest {
+        repeat(3) { server.enqueue(MockResponse().setResponseCode(500).setBody("upstream unavailable")) }
+        server.enqueue(MockResponse().setResponseCode(202))
+
+        createClient().submitNpsResponse("survey-token", score = 3)
+
+        // Old behaviour: 1 initial request + 1 caller-level retry = 2, since execute() itself
+        // had no loop yet. New behaviour: execute()'s loop alone carries it to the default
+        // budget of 3, with no doubling from a second retry layer on top.
+        assertEquals(3, server.requestCount)
+        assertEquals(listOf(2000L, 2000L), waits)
     }
 
     private fun retryLogLines(): List<String> =

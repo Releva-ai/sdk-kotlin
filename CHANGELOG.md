@@ -4,10 +4,7 @@
 
 Not yet released. 1.4.0 is tagged and published to JitPack, and `fix/log-transport-failures`
 (not yet merged) already claims 1.4.1 for its own entry, so this takes the version after that
-one. The retry this section describes changes `sdkVersion` on every request, which is also the
-field a server-side duplicate would be attributed through, so the bump is not just bookkeeping:
-without it, a duplicate produced by this change and one produced by the 1.4.0 build it replaces
-would carry the same version string and be indistinguishable after the fact.
+one.
 
 ### Fixed
 
@@ -23,7 +20,9 @@ would carry the same version string and be indistinguishable after the fact.
   `enableRequestLogging` gate, and once the attempts are spent the last failure reaches the
   caller exactly as it did before. Retrying carries the duplicate-POST risk the Swift SDK has
   shipped with: a request the server processed but whose answer was lost in transit is sent
-  again.
+  again. `submitNpsResponse` loses its own separate one-shot retry as part of this — it now gets
+  exactly the same policy as every other request instead of a second, stacked retry layer, so a
+  4xx on that endpoint is no longer re-sent and a 5xx gets three attempts (not the old two).
 
 ## 1.4.0
 
