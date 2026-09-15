@@ -41,6 +41,8 @@ class StoryViewerActivity : AppCompatActivity() {
     private var storyCompleteTracked = false
     private var progressAnimator: ValueAnimator? = null
     private val handler = Handler(Looper.getMainLooper())
+    /** Pending advance to the next slide. Cancelled wherever the progress animator is. */
+    private var advanceRunnable: Runnable? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private lateinit var contentContainer: FrameLayout
@@ -246,8 +248,30 @@ class StoryViewerActivity : AppCompatActivity() {
         setContentView(root)
     }
 
+    /**
+     * Advance to the next slide after this one's duration, filling its progress bar as it
+     * goes.
+     *
+     * Two separate concerns, and they used to be one. The progress bar is decoration: a
+     * ValueAnimator is exactly right for it, and a user who has turned animations off is
+     * entitled to have it snap. How long the slide *stays* is not decoration — it is the
+     * content's own pacing, the difference between reading a story and watching it flash
+     * past.
+     *
+     * Driving both from the animator meant that with animations disabled — an accessibility
+     * setting, a battery saver, a developer option, or a test environment — every slide
+     * ended the moment it began and the whole story played instantly. The animator's
+     * duration is scaled to zero by the system, its end listener fires immediately, and
+     * that listener was what advanced the slide. It also made tapping back look broken:
+     * the previous slide appeared and was skipped forward again before anything could be
+     * seen.
+     *
+     * So the advance is a posted callback on a real clock, and the animator now only
+     * paints.
+     */
     private fun startSlideTimer() {
         progressAnimator?.cancel()
+        advanceRunnable?.let { handler.removeCallbacks(it) }
 
         val slide = story.slides[currentSlideIndex]
         val duration = slide.durationSeconds * 1000L
@@ -267,13 +291,12 @@ class StoryViewerActivity : AppCompatActivity() {
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
             }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    goToNextSlide()
-                }
-            })
             start()
         }
+
+        val advance = Runnable { goToNextSlide() }
+        advanceRunnable = advance
+        handler.postDelayed(advance, duration)
     }
 
     private fun updateProgressBars() {
@@ -298,8 +321,8 @@ class StoryViewerActivity : AppCompatActivity() {
     }
 
     private fun goToNextSlide() {
-        progressAnimator?.removeAllListeners()
         progressAnimator?.cancel()
+        advanceRunnable?.let { handler.removeCallbacks(it) }
 
         if (currentSlideIndex < story.slides.size - 1) {
             currentSlideIndex++
@@ -334,8 +357,8 @@ class StoryViewerActivity : AppCompatActivity() {
     }
 
     private fun goToPreviousSlide() {
-        progressAnimator?.removeAllListeners()
         progressAnimator?.cancel()
+        advanceRunnable?.let { handler.removeCallbacks(it) }
 
         if (currentSlideIndex > 0) {
             currentSlideIndex--
@@ -494,6 +517,7 @@ class StoryViewerActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         progressAnimator?.cancel()
+        advanceRunnable?.let { handler.removeCallbacks(it) }
         scope.cancel()
         super.onDestroy()
     }
