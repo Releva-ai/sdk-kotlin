@@ -139,7 +139,7 @@ object DesignRenderer {
 
         val bgColor = parseColor(rowValues["backgroundColor"])
         val columnsBgColor = parseColor(rowValues["columnsBackgroundColor"])
-        val padding = parseEdgeInsets(rowValues["padding"])
+        val padding = parseEdgeInsets(rowValues["padding"], context)
 
         val rowBgImageMap = rowValues["backgroundImage"] as? Map<String, Any?>
         val hasRowBgImage = rowBgImageMap != null
@@ -199,7 +199,7 @@ object DesignRenderer {
         val colValues = column["values"] as? Map<String, Any?> ?: emptyMap()
 
         val backgroundColor = parseColor(colValues["backgroundColor"])
-        val padding = parseEdgeInsets(colValues["padding"])
+        val padding = parseEdgeInsets(colValues["padding"], context)
         val borderRadius = parseDimensionRaw(colValues["borderRadius"])
 
         val layout = LinearLayout(context).apply {
@@ -237,7 +237,7 @@ object DesignRenderer {
     ): View {
         val type = content["type"] as? String ?: ""
         val values = content["values"] as? Map<String, Any?> ?: emptyMap()
-        val containerPadding = parseEdgeInsets(values["containerPadding"])
+        val containerPadding = parseEdgeInsets(values["containerPadding"], context)
 
         val child = when (type) {
             "image" -> buildImage(context, values, onLinkTap)
@@ -374,7 +374,7 @@ object DesignRenderer {
         val textColor = parseColor(buttonColors["color"]) ?: Color.WHITE
 
         val fontSize = parseDimensionRaw(values["fontSize"]) ?: 14f
-        val padding = parseEdgeInsets(values["padding"])
+        val padding = parseEdgeInsets(values["padding"], context)
         val borderRadius = parseDimensionRaw(values["borderRadius"]) ?: 0f
         val textAlign = parseTextAlign(values["textAlign"])
 
@@ -402,12 +402,8 @@ object DesignRenderer {
                 cornerRadius = borderRadius * dp
             }
             if (padding != null) {
-                setPadding(
-                    (padding[3] * dp).toInt(),
-                    (padding[0] * dp).toInt(),
-                    (padding[1] * dp).toInt(),
-                    (padding[2] * dp).toInt()
-                )
+                // Already in device pixels — parseEdgeInsets scales.
+                setPadding(padding[3], padding[0], padding[1], padding[2])
             } else {
                 setPadding((20 * dp).toInt(), (10 * dp).toInt(), (20 * dp).toInt(), (10 * dp).toInt())
             }
@@ -875,14 +871,24 @@ object DesignRenderer {
     }
 
     /**
-     * Parses a CSS padding string into [top, right, bottom, left] as raw values.
+     * Parses a CSS padding string into [top, right, bottom, left] **in device pixels**.
+     *
+     * The values in a design are CSS pixels, which are density-independent — the same
+     * units Unlayer previews them in and, on iOS, the points SwiftUI's `.padding` takes.
+     * Android's `setPadding` takes device pixels, so they have to be scaled or a design
+     * renders at a third of its intended padding on a 3x screen. Returning raw values
+     * here and leaving each caller to remember the multiply is what let three of the
+     * four call sites forget it.
      */
-    private fun parseEdgeInsets(value: Any?): IntArray? {
+    private fun parseEdgeInsets(value: Any?, context: Context): IntArray? {
         if (value == null) return null
         val str = value.toString().trim()
         if (str.isEmpty()) return null
 
-        val parts = str.split(Regex("\\s+")).mapNotNull { parseDimensionRaw(it)?.toInt() }
+        val density = context.resources.displayMetrics.density
+        val parts = str.split(Regex("\\s+")).mapNotNull {
+            parseDimensionRaw(it)?.let { raw -> (raw * density).toInt() }
+        }
         return when (parts.size) {
             1 -> intArrayOf(parts[0], parts[0], parts[0], parts[0])
             2 -> intArrayOf(parts[0], parts[1], parts[0], parts[1])

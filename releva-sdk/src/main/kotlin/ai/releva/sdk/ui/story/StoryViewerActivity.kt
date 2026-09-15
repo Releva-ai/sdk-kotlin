@@ -13,6 +13,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
@@ -24,6 +25,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.annotation.VisibleForTesting
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,7 +43,33 @@ class StoryViewerActivity : AppCompatActivity() {
     private var storyCompleteTracked = false
     private var progressAnimator: ValueAnimator? = null
     private val handler = Handler(Looper.getMainLooper())
+    /** Pending advance to the next slide. Cancelled wherever the progress animator is. */
+    private var advanceRunnable: Runnable? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    /**
+     * [SystemClock.uptimeMillis] at which the pending [advanceRunnable] is due, or 0L if
+     * none is scheduled. The timer's own stamp rather than the animator's: reading the
+     * animator back (`currentPlayTime`, `isPaused`) is exactly the coupling this fix
+     * removes, and `Animator.pause()` is a no-op once the animation has ended — which, at
+     * animator duration scale 0 (animations disabled — the setting fix #4 is about), it
+     * always has been by the time [onPause] runs. Because this is an absolute deadline it
+     * keeps counting down while backgrounded, so [onPause] converts it into
+     * [advanceRemainingMs] before anything reads it again; [onResume] reposts from that
+     * remainder rather than from this stamp directly.
+     */
+    private var advanceDueAt: Long = 0L
+    /**
+     * Milliseconds still owed to the current slide as of the last [onPause], or 0L while
+     * the timer is running (or nothing is scheduled). [advanceDueAt] is an absolute
+     * deadline, so it keeps counting down while the app is backgrounded; reposting from it
+     * directly in [onResume] would subtract the whole background interval from the
+     * remainder, firing the advance immediately after almost any real pause. Capturing the
+     * remainder here and reposting *that* in [onResume] is what actually stops the clock.
+     */
+    private var advanceRemainingMs: Long = 0L
+    /** This activity's own launch key, published via [aliveKeys] for [isAlive]. */
+    private var launchKey: String? = null
 
     private lateinit var contentContainer: FrameLayout
     private lateinit var progressContainer: LinearLayout
@@ -56,6 +84,47 @@ class StoryViewerActivity : AppCompatActivity() {
 
         private val pendingLaunches = java.util.concurrent.ConcurrentHashMap<String, PendingLaunchData>()
 
+        // Keys for viewers currently alive, so a caller holding a launch key can ask "is
+        // this viewer still on screen (or on its way to it)?" without relying on a boolean
+        // some other call site is responsible for clearing. Backed by a thread-safe set
+        // since StoryDisplayManager.pump() and lifecycle callbacks can both touch it.
+        //
+        // Liveness spans launch-requested to gone, not created-to-destroyed: the key is
+        // added in launch(), before startActivity, and removed the moment finish() is
+        // called — not in onDestroy. Both ends of that matter for StoryDisplayManager's
+        // host-onResume observer, which runs synchronously inside the host's own onResume:
+        //   - Added at onCreate rather than launch() left a window between launch() and
+        //     onCreate where isAlive was false for a viewer already on its way to the
+        //     screen; a host resume in that window (e.g. a fast double-resume) cleared the
+        //     active-viewer key and pump() started a second viewer over the first.
+        //   - Removed at onDestroy rather than finish() missed the back-press path
+        //     entirely: the host's onResume runs after the finishing viewer's onPause but
+        //     before its onStop/onDestroy (documented Activity lifecycle ordering), so
+        //     isAlive(key) was still true at the exact moment the observer checked it, the
+        //     active-viewer key was never cleared, and the rest of the queue stalled behind
+        //     a viewer that was already gone.
+        private val aliveKeys = java.util.Collections.newSetFromMap(
+            java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+        )
+
+        /** True if the viewer launched with this key has been requested and is not finishing. */
+        fun isAlive(key: String): Boolean = aliveKeys.contains(key)
+
+        /**
+         * Skips creating the decorative progress-fill [ValueAnimator] in [startSlideTimer]
+         * when true. Test-only: a real `ValueAnimator` posts its ticks through
+         * `Choreographer`, and under Robolectric's paused main looper that interacts badly
+         * with the fake clock — even a bare, no-argument
+         * [org.robolectric.shadows.ShadowLooper.idle], which by contract only drains
+         * already-due messages, has been observed to jump the clock forward by whole
+         * multiples of the slide duration and fire the real advance early. The animator
+         * only paints; disabling it changes nothing about the behaviour this class's tests
+         * assert on (the Handler-driven advance), so it is the animator that yields here
+         * rather than the test contorting itself around a Robolectric/Choreographer quirk.
+         */
+        @VisibleForTesting
+        internal var disableProgressAnimatorForTest = false
+
         private data class PendingLaunchData(
             val story: StoryResponse,
             val client: RelevaClient,
@@ -63,19 +132,23 @@ class StoryViewerActivity : AppCompatActivity() {
             val onClose: (() -> Unit)?
         )
 
+        /** Launches the viewer and returns its launch key, for use with [isAlive]. */
         fun launch(
             context: Context,
             story: StoryResponse,
             client: RelevaClient,
             onLinkTap: ((String) -> Unit)? = null,
             onClose: (() -> Unit)? = null
-        ) {
+        ): String {
             val key = java.util.UUID.randomUUID().toString()
             pendingLaunches[key] = PendingLaunchData(story, client, onLinkTap, onClose)
+            // Published before startActivity, not in onCreate: see the note on aliveKeys.
+            aliveKeys.add(key)
             val intent = Intent(context, StoryViewerActivity::class.java).apply {
                 putExtra(EXTRA_LAUNCH_KEY, key)
             }
             context.startActivity(intent)
+            return key
         }
     }
 
@@ -88,6 +161,11 @@ class StoryViewerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         val key = intent.getStringExtra(EXTRA_LAUNCH_KEY) ?: run { finish(); return }
+        // launchKey is set before either early-exit call to finish() below: launch() added
+        // this key to aliveKeys before startActivity, and finish() (overridden below) is
+        // what retires it, so an instance that aborts before reaching setupUI() still has
+        // to clear its own key rather than leaving it alive forever.
+        launchKey = key
         val data = pendingLaunches.remove(key) ?: run { finish(); return }
 
         story = data.story
@@ -105,6 +183,15 @@ class StoryViewerActivity : AppCompatActivity() {
         trackSlideView()
         startSlideTimer()
     }
+
+    /**
+     * The slide the timer will advance from next, so a test can assert the advance happens
+     * on the content's own clock rather than an animator whose duration the system can
+     * scale to zero. Avoids reflection on the private [currentSlideIndex] field, the same
+     * reasoning as [ai.releva.sdk.services.session.SessionService.setLastPauseMs].
+     */
+    @VisibleForTesting
+    internal fun currentSlideIndexForTest(): Int = currentSlideIndex
 
     private fun dp(value: Int): Int {
         return TypedValue.applyDimension(
@@ -246,33 +333,99 @@ class StoryViewerActivity : AppCompatActivity() {
         setContentView(root)
     }
 
+    /**
+     * Advance to the next slide after this one's duration, filling its progress bar as it
+     * goes.
+     *
+     * Two separate concerns, and they used to be one. The progress bar is decoration: a
+     * ValueAnimator is exactly right for it, and a user who has turned animations off is
+     * entitled to have it snap. How long the slide *stays* is not decoration — it is the
+     * content's own pacing, the difference between reading a story and watching it flash
+     * past.
+     *
+     * Driving both from the animator meant that with animations disabled — an accessibility
+     * setting, a battery saver, a developer option, or a test environment — every slide
+     * ended the moment it began and the whole story played instantly. The animator's
+     * duration is scaled to zero by the system, its end listener fires immediately, and
+     * that listener was what advanced the slide. It also made tapping back look broken:
+     * the previous slide appeared and was skipped forward again before anything could be
+     * seen.
+     *
+     * So the advance is a posted callback on a real clock, and the animator now only
+     * paints.
+     */
     private fun startSlideTimer() {
         progressAnimator?.cancel()
+        advanceRunnable?.let { handler.removeCallbacks(it) }
 
         val slide = story.slides[currentSlideIndex]
-        val duration = slide.durationSeconds * 1000L
+        // durationSeconds comes off the wire. 0 combined with endBehavior "loop" is an
+        // unbounded main-thread re-render loop, and a negative value throws out of
+        // ValueAnimator.setDuration; clamp to a sane range instead of trusting either.
+        val duration = slide.durationSeconds.coerceIn(1, 60) * 1000L
 
         // Update progress fills for completed/current slides
         updateProgressBars()
 
-        progressAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            this.duration = duration
-            interpolator = LinearInterpolator()
-            addUpdateListener { animation ->
-                val progress = animation.animatedValue as Float
-                val fill = progressFills[currentSlideIndex]
-                val parent = fill.parent as? View ?: return@addUpdateListener
-                fill.layoutParams = FrameLayout.LayoutParams(
-                    (parent.width * progress).toInt().coerceAtLeast(0),
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    goToNextSlide()
+        if (!disableProgressAnimatorForTest) {
+            progressAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+                this.duration = duration
+                interpolator = LinearInterpolator()
+                addUpdateListener { animation ->
+                    val progress = animation.animatedValue as Float
+                    val fill = progressFills[currentSlideIndex]
+                    val parent = fill.parent as? View ?: return@addUpdateListener
+                    fill.layoutParams = FrameLayout.LayoutParams(
+                        (parent.width * progress).toInt().coerceAtLeast(0),
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
                 }
-            })
-            start()
+                start()
+            }
+        }
+
+        scheduleAdvance(duration)
+    }
+
+    private fun scheduleAdvance(delayMs: Long) {
+        advanceRunnable?.let { handler.removeCallbacks(it) }
+        advanceDueAt = SystemClock.uptimeMillis() + delayMs
+        val advance = Runnable { goToNextSlide() }
+        advanceRunnable = advance
+        handler.postDelayed(advance, delayMs)
+    }
+
+    /**
+     * Backgrounding the app used to leave the real-clock advance running, so the user came
+     * back to a finished (or looped-past) story with storySlideView/storyComplete already
+     * tracked for content nobody saw. Cancelling the pending advance stops further
+     * *advances*, but [advanceDueAt] is an absolute [SystemClock.uptimeMillis] deadline
+     * that keeps counting down regardless — reposting from it directly in [onResume] would
+     * subtract the whole background interval from the remainder, so a slide backgrounded
+     * with time left is gone the instant the app comes back. Converting it into
+     * [advanceRemainingMs] here, and reposting that fixed amount in [onResume] instead of
+     * recomputing from the stale deadline, is what actually stops the clock.
+     *
+     * The animator is paused too, but only because it paints — pausing it is not what
+     * stops the timer, and [onResume] does not ask it anything before deciding whether to
+     * repost. `Animator.pause()` is a no-op once the animation has ended, which at animator
+     * duration scale 0 (animations disabled) it always has by the time this runs; reading
+     * `isPaused` back to gate the repost is exactly the bug this fixes.
+     */
+    override fun onPause() {
+        super.onPause()
+        progressAnimator?.pause()
+        advanceRunnable?.let { handler.removeCallbacks(it) }
+        advanceRemainingMs =
+            if (advanceDueAt > 0L) (advanceDueAt - SystemClock.uptimeMillis()).coerceAtLeast(0L) else 0L
+    }
+
+    override fun onResume() {
+        super.onResume()
+        progressAnimator?.takeIf { it.isPaused }?.resume()
+        if (advanceRemainingMs > 0L) {
+            scheduleAdvance(advanceRemainingMs)
+            advanceRemainingMs = 0L
         }
     }
 
@@ -298,8 +451,14 @@ class StoryViewerActivity : AppCompatActivity() {
     }
 
     private fun goToNextSlide() {
-        progressAnimator?.removeAllListeners()
         progressAnimator?.cancel()
+        advanceRunnable?.let { handler.removeCallbacks(it) }
+        // Cleared here and reset by the next scheduleAdvance() call (via startSlideTimer())
+        // on whichever branch below restarts the timer. The "stayOnLast" branch does not,
+        // so it must clear this itself — otherwise a stale due-time left over from the
+        // slide that just ended would make the next onPause/onResume cycle fire an advance
+        // immediately, despite the timer having no runnable pending.
+        advanceDueAt = 0L
 
         if (currentSlideIndex < story.slides.size - 1) {
             currentSlideIndex++
@@ -334,8 +493,8 @@ class StoryViewerActivity : AppCompatActivity() {
     }
 
     private fun goToPreviousSlide() {
-        progressAnimator?.removeAllListeners()
         progressAnimator?.cancel()
+        advanceRunnable?.let { handler.removeCallbacks(it) }
 
         if (currentSlideIndex > 0) {
             currentSlideIndex--
@@ -492,9 +651,30 @@ class StoryViewerActivity : AppCompatActivity() {
         return parent.hasOnClickListeners() || parent.tag == INTERACTIVE_VIEW_TAG
     }
 
+    /**
+     * Retires [launchKey] from [aliveKeys] the moment finishing is requested, not in
+     * [onDestroy]. `finish()` runs synchronously and marks [android.app.Activity.isFinishing]
+     * before any of `onPause`/`onStop`/`onDestroy` are dispatched, so this is the earliest
+     * point at which `isAlive(key)` can honestly become false — and on the back-press path,
+     * it is the only point that runs before the host's `onResume`: the host resumes between
+     * this viewer's `onPause` and its `onStop`/`onDestroy` (documented Activity lifecycle
+     * ordering), so clearing the key in `onDestroy` was always too late for the one caller
+     * — `StoryDisplayManager`'s host-resume observer — this exists for.
+     */
+    override fun finish() {
+        launchKey?.let { aliveKeys.remove(it) }
+        super.finish()
+    }
+
     override fun onDestroy() {
         progressAnimator?.cancel()
+        advanceRunnable?.let { handler.removeCallbacks(it) }
         scope.cancel()
+        // Safety net: finish() is the normal retirement point (see its KDoc), but a viewer
+        // that is destroyed without finish() ever being called (e.g. the host process/task
+        // is torn down directly) must not leave a stale key alive forever. Set.remove is
+        // idempotent, so this is a no-op on the normal finish()-then-destroy path.
+        launchKey?.let { aliveKeys.remove(it) }
         super.onDestroy()
     }
 }

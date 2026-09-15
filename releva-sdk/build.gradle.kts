@@ -17,6 +17,13 @@ android {
 
     testOptions {
         targetSdk = 35
+        unitTests {
+            // StoryViewerActivityTest builds a real AppCompatActivity under Robolectric,
+            // which needs the merged manifest and AppCompat's own theme resources; without
+            // this, Robolectric falls back to bare AOSP resources and every setContentView
+            // call throws.
+            isIncludeAndroidResources = true
+        }
     }
 
     lint {
@@ -77,7 +84,7 @@ publishing {
         create<MavenPublication>("release") {
             groupId = "ai.releva"
             artifactId = "releva-sdk"
-            version = "1.3.0"
+            version = "1.4.0"
 
             afterEvaluate {
                 from(components["release"])

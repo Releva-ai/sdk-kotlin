@@ -1,6 +1,7 @@
 package ai.releva.sdk.services.story
 
 import ai.releva.sdk.types.response.StoryResponse
+import ai.releva.sdk.ui.story.StoryDisplayManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -26,6 +27,20 @@ class StoryManagerService {
             handler.removeCallbacks(runnable)
         }
         delayRunnables.clear()
+
+        // A fresh trigger set means the previous queue's stories belong to a screen this
+        // session has left; without clearing it, a story queued for a previous
+        // initialize() could surface after this one's own "immediately" stories, out of
+        // order and out of context. clearQueue() deliberately leaves any viewer currently
+        // on screen alone — see its KDoc.
+        //
+        // Posted rather than called inline: StoryDisplayManager's queue and seenTokens are
+        // only ever touched from the main thread elsewhere (pump() runs off a
+        // lifecycleScope collector, which defaults to Main) but nothing guarantees
+        // initialize() itself is called from the main thread — a host wiring this service
+        // up from a background data-load callback would otherwise race pump() clearing and
+        // reading those same collections concurrently.
+        handler.post { StoryDisplayManager.clearQueue() }
 
         setupTriggers()
     }

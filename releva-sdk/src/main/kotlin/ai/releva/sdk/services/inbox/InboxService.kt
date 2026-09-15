@@ -4,10 +4,12 @@ import ai.releva.sdk.services.storage.StorageService
 import ai.releva.sdk.types.inbox.InboxMessage
 import ai.releva.sdk.types.inbox.InboxState
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -15,6 +17,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -48,6 +51,12 @@ class InboxService private constructor() : DefaultLifecycleObserver {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val stateMutex = Mutex()
+
+    // Guards against overlapping refreshes. Several independent things ask for one on a
+    // single cold open — the process lifecycle observer below, and the host screen when it
+    // comes up — and each was starting its own pair of requests.
+    private val refreshMutex = Mutex()
+    private var inFlightRefresh: Deferred<Unit>? = null
 
     /**
      * Initialize with a client reference and storage service.
@@ -87,12 +96,46 @@ class InboxService private constructor() : DefaultLifecycleObserver {
 
     /**
      * Fetch first page of messages + unread count in parallel.
+     *
+     * Never throws: a failure is caught, logged, and surfaced through
+     * [InboxState.lastRefreshError] instead, so callers that just want "state is fresh
+     * when this returns" don't also need a try/catch — check `lastRefreshError` if you
+     * need to know whether it actually succeeded.
      */
     suspend fun refresh() {
         if (!initialized) return
+        if (client == null) return
+
+        // Callers join a refresh already in flight instead of starting another. They
+        // await it rather than returning early, because refresh() means "the state is
+        // fresh once this returns" — openMessageById reads state.value on the next line
+        // and would see the pre-refresh list if this were a no-op.
+        //
+        // isActive is what makes a finished refresh un-reusable: a completed Deferred
+        // left in the field would be awaited instantly by the next caller and skip the
+        // fetch entirely. It also means a caller whose own coroutine is cancelled cannot
+        // strand the field pointing at work nobody finishes.
+        val job = refreshMutex.withLock {
+            inFlightRefresh?.takeIf { it.isActive }
+                ?: scope.async { performRefresh() }.also { inFlightRefresh = it }
+        }
+        job.await()
+    }
+
+    private suspend fun performRefresh() {
         val c = client ?: return
 
-        _state.value = _state.value.copy(isLoading = true)
+        // Every other mutator (loadMore, markAsRead, markAllAsRead, deleteMessage) takes
+        // stateMutex around its own read-modify-write, and _state.update{} is what makes
+        // each of those writes atomic with respect to the current value at the moment it
+        // applies — not the read at the top of the block. That means the lock only needs
+        // to bracket this function's own writes, not the network round trip between them:
+        // holding it across both fetches blocked every optimistic update (a tap on
+        // markAsRead while a refresh is in flight) behind two round trips they have
+        // nothing to do with, which defeats the point of "optimistic".
+        stateMutex.withLock {
+            _state.update { it.copy(isLoading = true) }
+        }
 
         try {
             val (messagesResult, unreadCount) = coroutineScope {
@@ -106,18 +149,25 @@ class InboxService private constructor() : DefaultLifecycleObserver {
                 ?.map { InboxMessage.fromMap(it) } ?: emptyList()
             val nextCursor = messagesResult["nextCursor"] as? String
 
-            _state.value = _state.value.copy(
-                messages = messagesList,
-                unreadCount = unreadCount,
-                nextCursor = nextCursor,
-                isLoading = false,
-                hasMore = nextCursor != null,
-                lastFetchTime = System.currentTimeMillis()
-            )
+            stateMutex.withLock {
+                _state.update {
+                    it.copy(
+                        messages = messagesList,
+                        unreadCount = unreadCount,
+                        nextCursor = nextCursor,
+                        isLoading = false,
+                        hasMore = nextCursor != null,
+                        lastFetchTime = System.currentTimeMillis(),
+                        lastRefreshError = null
+                    )
+                }
+            }
 
             persistState()
         } catch (e: Exception) {
-            _state.value = _state.value.copy(isLoading = false)
+            stateMutex.withLock {
+                _state.update { it.copy(isLoading = false, lastRefreshError = e.message ?: e.toString()) }
+            }
             Log.e(TAG, "Error refreshing inbox: ${e.message}")
         }
     }
@@ -308,6 +358,21 @@ class InboxService private constructor() : DefaultLifecycleObserver {
         if (_state.value.isStale) {
             refresh()
         }
+    }
+
+    /**
+     * Restores this singleton to its pre-[initialize] state. [instance] lives for the process,
+     * so without this, tests that call [initialize] leak client/storage/state into whichever
+     * test runs next in the same process — flaky failures that depend on run order and vanish
+     * when the leaking test is run alone.
+     */
+    @VisibleForTesting
+    fun resetForTest() {
+        client = null
+        storage = null
+        initialized = false
+        inFlightRefresh = null
+        _state.value = InboxState()
     }
 
     // -- Private helpers --

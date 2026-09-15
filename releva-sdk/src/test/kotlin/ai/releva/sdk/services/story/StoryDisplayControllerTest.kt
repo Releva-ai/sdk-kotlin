@@ -2,6 +2,7 @@ package ai.releva.sdk.services.story
 
 import ai.releva.sdk.types.response.StoryResponse
 import ai.releva.sdk.types.response.StorySlideResponse
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
@@ -84,6 +85,50 @@ class StoryDisplayControllerTest {
         assertEquals("loop", received.endBehavior)
         assertEquals(2, received.slides.size)
         assertEquals("Click", received.slides[0].actionLabel)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `buffer overflow drops newest emissions, not oldest`() = runTest {
+        val emitted = mutableListOf<StoryResponse>()
+        val gate = CompletableDeferred<Unit>()
+        var gateHit = false
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) {
+            StoryDisplayController.storyFlow.collect {
+                emitted.add(it)
+                // The first emission is delivered synchronously and parks the collector
+                // here, so every subsequent emission below queues up in the shared buffer
+                // instead of being drained immediately.
+                if (!gateHit) {
+                    gateHit = true
+                    gate.await()
+                }
+            }
+        }
+
+        repeat(90) { i ->
+            StoryDisplayController.showStory(
+                StoryResponse(
+                    token = "overflow-$i",
+                    slides = listOf(StorySlideResponse(id = i, durationSeconds = 5))
+                )
+            )
+        }
+        gate.complete(Unit)
+
+        // DROP_LATEST: the buffer keeps what it already had and refuses new arrivals once
+        // full, so the tail of what was emitted must be missing while the head survives
+        // intact and in order. DROP_OLDEST would show the opposite (missing head, intact
+        // tail) — this is the behavioural difference the review asked to have covered.
+        assertTrue("expected some emissions to overflow the buffer", emitted.size < 90)
+        val tokens = emitted.map { it.token }
+        val expectedPrefix = tokens.indices.map { "overflow-$it" }
+        assertEquals(expectedPrefix, tokens)
+        assertFalse(
+            "newest emission should have been dropped, not delivered",
+            tokens.contains("overflow-89")
+        )
 
         job.cancel()
     }

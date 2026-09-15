@@ -11,6 +11,8 @@ import android.util.Log
 import android.view.*
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -314,6 +316,42 @@ class BannerDisplayManager(
             topMargin = statusBarHeight + (8 * dp).toInt()
             rightMargin = (8 * dp).toInt()
         })
+
+        // A full-screen popup's *background* is meant to run edge to edge — that is what
+        // makes it read as a takeover rather than a card. Its *content* is not: with the
+        // scroll view filling the window, the design's first line sat under the status
+        // bar, so a popup whose design was a heading and a button showed as an empty
+        // coloured rectangle with a working close button.
+        //
+        // The inset goes on the scroll view, which is transparent, so the container's
+        // colour or background image still fills the screen behind it. Real window insets
+        // rather than the status_bar_height resource: that resource is the height the bar
+        // *would* have, so it is wrong wherever the bar is hidden, and it says nothing
+        // about a display cutout, the gesture pill, or a landscape bar that sits on the
+        // side. displayCutout is unioned in for notches deeper than the bar itself.
+        //
+        // Swift arrives at the same place from the other direction: BannerDisplayView
+        // reads geometry.safeAreaInsets and hands them to the chrome, which ignores the
+        // safe area for its background only.
+        ViewCompat.setOnApplyWindowInsetsListener(popupContainer) { _, windowInsets ->
+            val bars = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            // Floored at statusBarHeight, not just bars.top: a window that reports zero
+            // system-bar insets (observed on some OEM skins even with the status bar drawn
+            // and opaque) would otherwise zero out the content padding and drop the close
+            // button to 8dp — under the status bar rather than below it. bars.top still wins
+            // wherever it exceeds the resource estimate (a taller cutout, a landscape bar),
+            // since the resource is only ever a floor, not the true value.
+            val top = maxOf(bars.top, statusBarHeight)
+            scrollView.setPadding(bars.left, top, bars.right, bars.bottom)
+            (closeButton.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+                lp.topMargin = top + (8 * dp).toInt()
+                lp.rightMargin = bars.right + (8 * dp).toInt()
+                closeButton.layoutParams = lp
+            }
+            windowInsets
+        }
 
         // Ensure close button is visible above content
         closeButton.bringToFront()

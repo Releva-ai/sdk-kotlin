@@ -20,6 +20,7 @@ import ai.releva.sdk.types.tracking.*
 import ai.releva.sdk.types.product.ViewedProduct
 import ai.releva.sdk.types.wishlist.WishlistProduct
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -71,7 +72,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "1.3.0-kotlin"
+        private const val VERSION = "1.4.0-kotlin"
     }
 
     /**
@@ -557,20 +558,19 @@ class RelevaClient(
             url += "&cursor=${URLEncoder.encode(cursor, "UTF-8")}"
         }
 
-        val request = Request.Builder()
-            .url(url)
-            .addHeader("Authorization", "Bearer $accessToken")
-            .get()
-            .build()
-
-        val response = httpClient.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
+        val response = executeGet(url, "/api/v0/inbox/messages")
 
         if (response.code != 200) {
-            throw Exception("List messages API error: ${response.code} - $responseBody")
+            // Mirrors execute()'s own policy one function away: the body is only useful (and
+            // only included) for a 5xx, capped at 500 chars. A 4xx here is exactly the class
+            // of failure this API answers by echoing the offending field back — a profile
+            // identifier or cart contents — and this exception message reaches both Log.e
+            // and the public InboxState.lastRefreshError, so it must not carry that.
+            val detail = if (response.code >= 500) " - ${response.body.take(500)}" else ""
+            throw Exception("List messages API error: ${response.code}$detail")
         }
 
-        RelevaResponse.jsonObjectToMap(JSONObject(responseBody))
+        RelevaResponse.jsonObjectToMap(JSONObject(response.body))
     }
 
     override suspend fun inboxFetchUnreadCount(): Int = withContext(Dispatchers.IO) {
@@ -579,21 +579,15 @@ class RelevaClient(
 
         val url = "${getInboxUrl("unread-count")}?userId=${URLEncoder.encode(userId, "UTF-8")}"
 
-        val request = Request.Builder()
-            .url(url)
-            .addHeader("Authorization", "Bearer $accessToken")
-            .get()
-            .build()
-
-        val response = httpClient.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
+        val response = executeGet(url, "/api/v0/inbox/unread-count")
 
         if (response.code != 200) {
-            throw Exception("Unread count API error: ${response.code} - $responseBody")
+            // See inboxFetchMessages above: body only for a 5xx, capped at 500 chars.
+            val detail = if (response.code >= 500) " - ${response.body.take(500)}" else ""
+            throw Exception("Unread count API error: ${response.code}$detail")
         }
 
-        val data = JSONObject(responseBody)
-        data.optInt("count", 0)
+        JSONObject(response.body).optInt("count", 0)
     }
 
     override suspend fun inboxMarkAsRead(messageId: String) = withContext(Dispatchers.IO) {
@@ -625,16 +619,19 @@ class RelevaClient(
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val requestBody = body.toString().toRequestBody(mediaType)
 
-        val request = Request.Builder()
-            .url("${getEndpoint()}/api/v0/inbox/messages/$messageId")
-            .addHeader("Content-Type", "application/json")
-            .addHeader("Authorization", "Bearer $accessToken")
-            .delete(requestBody)
-            .build()
-
-        val response = httpClient.newCall(request).execute()
+        val response = execute(
+            Request.Builder()
+                .url("${getEndpoint()}/api/v0/inbox/messages/$messageId")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Authorization", "Bearer $accessToken")
+                .delete(requestBody)
+                .build(),
+            "DELETE", "/api/v0/inbox/messages/:id"
+        )
         if (response.code != 204) {
-            throw Exception("Delete failed: ${response.code}")
+            // See inboxFetchMessages above: body only for a 5xx, capped at 500 chars.
+            val detail = if (response.code >= 500) " - ${response.body.take(500)}" else ""
+            throw Exception("Delete failed: ${response.code}$detail")
         }
     }
 
@@ -838,23 +835,79 @@ class RelevaClient(
     }
 
     /**
-     * Execute HTTP request
+     * Sends a request and logs it. Every call `RelevaClient` itself makes goes through here —
+     * `NavigationService`, `EngagementTrackingService` and `NotificationTrampolineActivity`
+     * call `httpClient.newCall(...)` directly and are out of scope for this fix; they already
+     * log (in their own formats), and folding them into this path is a separate, larger change
+     * than the inbox gap this was written to close.
+     *
+     * This is one function rather than a rule each verb follows because it was a rule each
+     * verb followed: POST logged, and the inbox's own GETs and DELETE — added later and
+     * calling httpClient directly — did not. That is the worst place for the gap, because the
+     * list and unread-count endpoints answer an authorisation failure with an error the
+     * service layer swallows, so a 401 and a genuinely empty inbox look identical in the app.
+     * With nothing in the log, there is nothing on the device that tells them apart.
+     *
+     * [label] is the endpoint path only, never the full URL: a GET carries the profile id in
+     * its query string, and identifiers stay out of the log for the same reason request
+     * bodies do.
+     *
+     * Success is any 2xx, not 200: token registration answers 202 and delete answers 204, and
+     * both were being logged as warnings for succeeding. Whether a given endpoint's particular
+     * 2xx is the one the caller wanted is the caller's business — this decides only whether
+     * the line reads as a failure.
+     *
+     * The response body is only ever logged for a 5xx, and capped at 500 chars even then.
+     * A 4xx gets status and timing only: several of this API's validation errors echo the
+     * offending field value, which for this SDK is a profile identifier or cart contents, and
+     * a 4xx is exactly the class of failure a bad or replayed request produces. [RelevaConfig.enableRequestLogging]
+     * gates all of this so an integrator can silence it in their own release builds.
      */
+    private fun execute(request: Request, verb: String, label: String): HttpResponse {
+        val started = SystemClock.elapsedRealtime()
+        val response = httpClient.newCall(request).execute()
+        val responseBody = response.body?.string() ?: ""
+        val tookMs = SystemClock.elapsedRealtime() - started
+
+        if (config.enableRequestLogging) {
+            when {
+                response.isSuccessful ->
+                    Log.d(TAG, "$verb $label -> ${response.code} in ${tookMs}ms (${responseBody.length} bytes)")
+                response.code >= 500 ->
+                    Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms: ${responseBody.take(500)}")
+                else ->
+                    Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms")
+            }
+        }
+
+        return HttpResponse(response.code, responseBody)
+    }
+
+    private fun executeGet(url: String, label: String): HttpResponse =
+        execute(
+            Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $accessToken")
+                .get()
+                .build(),
+            "GET", label
+        )
+
     private fun executeRequest(endpoint: String, body: JSONObject): HttpResponse {
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val requestBody = body.toString().toRequestBody(mediaType)
 
-        val request = Request.Builder()
-            .url("${getEndpoint()}$endpoint")
-            .addHeader("Content-Type", "application/json")
-            .addHeader("Authorization", "Bearer $accessToken")
-            .post(requestBody)
-            .build()
-
-        val response = httpClient.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
-
-        return HttpResponse(response.code, responseBody)
+        // Request bodies are deliberately never logged: they carry profile identifiers
+        // and cart contents.
+        return execute(
+            Request.Builder()
+                .url("${getEndpoint()}$endpoint")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Authorization", "Bearer $accessToken")
+                .post(requestBody)
+                .build(),
+            "POST", endpoint
+        )
     }
 
     private data class HttpResponse(val code: Int, val body: String)
