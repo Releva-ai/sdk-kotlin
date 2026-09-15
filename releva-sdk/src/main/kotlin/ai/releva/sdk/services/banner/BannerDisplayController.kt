@@ -24,23 +24,29 @@ object BannerDisplayController {
     // no impression, nothing to tell a tester the page was incomplete. The old capacity
     // was 10.
     //
-    // DROP_OLDEST rather than the default SUSPEND because showBanner is a plain function
+    // DROP_LATEST rather than the default SUSPEND because showBanner is a plain function
     // called from a non-suspending trigger path; tryEmit on a SUSPEND flow is exactly what
-    // dropped silently before. If this capacity is ever exceeded, losing the oldest and
-    // saying so is the honest failure.
+    // dropped silently before. Not DROP_OLDEST: the producer emits in priority/server
+    // order, so DROP_OLDEST would discard the highest-priority banners first, and it also
+    // makes tryEmit's false-return case unreachable at this buffer size, which is what the
+    // CHANGELOG's "a dropped item is logged" claim depends on being reachable. DROP_LATEST
+    // keeps whatever is already buffered and refuses new arrivals once full, so the log
+    // line below fires for real overflow past this capacity.
     private const val BUFFER_CAPACITY = 128
 
     private val _bannerFlow = MutableSharedFlow<BannerResponse>(
         extraBufferCapacity = BUFFER_CAPACITY,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST
+        onBufferOverflow = BufferOverflow.DROP_LATEST
     )
     val bannerFlow: SharedFlow<BannerResponse> = _bannerFlow.asSharedFlow()
 
     fun showBanner(banner: BannerResponse) {
-        // tryEmit's result was previously discarded. With DROP_OLDEST it cannot return
-        // false, but the check stays: if the flow's configuration is ever changed back to
-        // a suspending overflow policy, a silent drop would return here rather than
-        // disappear.
+        // replay = 0, so a banner emitted before any host has called attach() is discarded
+        // regardless of buffer size — tryEmit still returns true, and no buffer capacity
+        // can fix it. Worth its own log line since it looks identical to a successful emit.
+        if (_bannerFlow.subscriptionCount.value == 0) {
+            Log.w(TAG, "Emitting banner ${banner.token} with no attached collector; it will be lost")
+        }
         if (!_bannerFlow.tryEmit(banner)) {
             Log.w(TAG, "Dropped banner ${banner.token}: display buffer full ($BUFFER_CAPACITY)")
         }

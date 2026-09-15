@@ -18,15 +18,24 @@ object StoryDisplayController {
     // launches an Activity per story. A page with more stories than the buffer holds lost
     // the tail with no log line. Fewer stories than banners are realistic on one page, so
     // this was latent rather than observed — fixed together because it is the same defect.
+    //
+    // DROP_LATEST, not DROP_OLDEST: see BannerDisplayController for why — DROP_OLDEST both
+    // discards the highest-priority buffered item first and makes tryEmit's false-return
+    // unreachable against a buffer sized like this one.
     private const val BUFFER_CAPACITY = 64
 
     private val _storyFlow = MutableSharedFlow<StoryResponse>(
         extraBufferCapacity = BUFFER_CAPACITY,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST
+        onBufferOverflow = BufferOverflow.DROP_LATEST
     )
     val storyFlow: SharedFlow<StoryResponse> = _storyFlow.asSharedFlow()
 
     fun showStory(story: StoryResponse) {
+        // No replay and no subscribers means this story is lost the moment this call
+        // returns, regardless of buffer size.
+        if (_storyFlow.subscriptionCount.value == 0) {
+            Log.w(TAG, "Emitting story ${story.token} with no attached collector; it will be lost")
+        }
         if (!_storyFlow.tryEmit(story)) {
             Log.w(TAG, "Dropped story ${story.token}: display buffer full ($BUFFER_CAPACITY)")
         }
