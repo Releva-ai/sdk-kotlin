@@ -82,7 +82,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "1.4.2-kotlin"
+        private const val VERSION = "1.4.1-kotlin"
 
         // The Swift SDK's waits, kept identical so an outage costs both SDKs the same time:
         // a server that answered at all gets longer to recover than a network that did not.
@@ -894,6 +894,10 @@ class RelevaClient(
      * it would re-send a request the server may already have committed for that status.
      * `.use { }` still closes the response on that path so it does not leak the connection.
      *
+     * A transport failure is logged with its exception class and message before any retry
+     * decision, so the one outcome the log used to be silent about is never silent again —
+     * the request body is still never logged.
+     *
      * The wait happens on the calling thread. Every caller of this method is already inside
      * `withContext(Dispatchers.IO)` and blocked on the call itself, so there is no main
      * thread to block, and sleeping there costs one pooled IO thread for a second or two
@@ -908,6 +912,14 @@ class RelevaClient(
             try {
                 response = httpClient.newCall(request).execute()
             } catch (e: IOException) {
+                // Logged before deciding whether to retry. `retryAfter` names the attempt but
+                // not the cause, and the last attempt throws without going through it — so
+                // without this line the retry loop would put back exactly the silence the
+                // transport-failure logging fix was opened for.
+                if (config.enableRequestLogging) {
+                    val failedAfterMs = SystemClock.elapsedRealtime() - started
+                    Log.w(TAG, "$verb $label -> failed in ${failedAfterMs}ms: ${e.javaClass.simpleName}: ${e.message}")
+                }
                 if (attempt >= totalAttempts) throw e
                 retryAfter(TRANSPORT_RETRY_DELAY_MS, verb, label, attempt, totalAttempts)
                 attempt++

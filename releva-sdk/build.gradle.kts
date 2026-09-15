@@ -87,7 +87,7 @@ publishing {
         create<MavenPublication>("release") {
             groupId = "ai.releva"
             artifactId = "releva-sdk"
-            version = "1.4.2"
+            version = "1.4.1"
 
             afterEvaluate {
                 from(components["release"])

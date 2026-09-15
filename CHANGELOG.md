@@ -1,12 +1,20 @@
 # Changelog
 
-## 1.4.2
+## 1.4.1
 
-Not yet released. 1.4.0 is tagged and published to JitPack, and `fix/log-transport-failures`
-(not yet merged) already claims 1.4.1 for its own entry, so this takes the version after that
-one.
+Not yet released. 1.4.0 is tagged and published, so this lands under its own version
+rather than in the section above.
 
 ### Fixed
+
+- **A request that never got an answer was logged as nothing at all.** `RelevaClient`'s
+  request log runs entirely after `newCall(...).execute()` returns, so a transport failure —
+  no network, DNS failure, connect or read timeout, TLS failure — propagated to the caller
+  without a line of its own, leaving an integrator debugging a flaky network with silence from
+  the SDK. Observed during the Android device pass: a cold start in airplane mode produced zero
+  `RelevaClient` lines, against four with the network up. The failure is now logged in the same
+  `VERB path -> … in Nms` shape, with the exception's class and message, under the same
+  `enableRequestLogging` gate, and rethrown unchanged — the request body is still never logged.
 
 - **A momentary network failure or a transient 5xx dropped the event for good.**
   `RelevaClient.execute` made exactly one call and handed whatever came back — or whatever it
@@ -34,6 +42,7 @@ one.
   request instead of a second, stacked retry layer, so a 4xx on that endpoint is no longer
   re-sent and a 5xx now gets this SDK's shared four-request budget instead of its old two — still
   more than Swift's own NPS budget of two, per the note above.
+
 
 ## 1.4.0
 

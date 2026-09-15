@@ -1,4 +1,4 @@
-.PHONY: help build test clean release tag-release
+.PHONY: help build test clean release tag-release update-docs update-readme
 
 # Extract version from build.gradle.kts
 VERSION := $(shell grep 'version = "' releva-sdk/build.gradle.kts | sed -n 's/.*version = "\([^"]*\)".*/\1/p')
@@ -32,11 +32,37 @@ clean:
 	./gradlew clean
 	@echo "✓ Clean complete!"
 
-# Update version in README.md
-update-readme:
-	@echo "Updating README.md to version $(VERSION)..."
-	@sed -i 's/Current version: \*\*[0-9]*\.[0-9]*\.[0-9]*\*\*/Current version: **$(VERSION)**/' README.md
-	@echo "✓ README.md updated"
+# Rewrite the dependency coordinate an integrator copies, everywhere it appears.
+#
+# This used to target `Current version: **X.Y.Z**`, a string that exists in neither
+# README.md nor INTEGRATION_GUIDE.md — so sed matched nothing, changed nothing, and the
+# step printed its tick anyway. That is why README sat at 1.3.0 through the 1.4.0 release
+# and INTEGRATION_GUIDE.md, the file an integrator actually follows, sat at 1.0.0: four
+# minor versions and a whole device-QA pass of fixes behind what the tag served.
+#
+# So it now rewrites the coordinate itself and checks each file individually — an
+# aggregate count let one file go quiet as long as the other still matched, which is
+# exactly how the guide fell behind while README looked fine. The rewrite also carries
+# any existing suffix along (e.g. releasing "1.9.0" over a doc that still said
+# "1.8.0-beta"), and the post-check is anchored on the coordinate's closing quote so a
+# match can't be satisfied by a version string that still has a leftover suffix on it.
+update-docs:
+	@echo "Updating documented version to $(VERSION)..."
+	@for f in README.md INTEGRATION_GUIDE.md; do \
+		before=$$(grep -c 'com\.github\.Releva-ai:sdk-kotlin:[0-9]' $$f || true); \
+		sed -i 's/com\.github\.Releva-ai:sdk-kotlin:[0-9][0-9A-Za-z.+-]*/com.github.Releva-ai:sdk-kotlin:$(VERSION)/g' $$f; \
+		after=$$(grep -cE "com\\.github\\.Releva-ai:sdk-kotlin:$(VERSION)['\"]" $$f || true); \
+		echo "  $$f: $${after:-0} of $${before:-0} coordinate(s) now at $(VERSION)"; \
+		if [ "$${after:-0}" -eq 0 ]; then \
+			echo "ERROR: $$f has no dependency coordinate matching the pattern this step"; \
+			echo "       looks for — integrators reading it would stay on the old version."; \
+			exit 1; \
+		fi; \
+	done
+	@echo "✓ docs updated"
+
+# Kept so `make update-readme` does not silently vanish for anyone with it in muscle memory.
+update-readme: update-docs
 
 # Create and push git tag
 tag-release:
@@ -70,13 +96,13 @@ release:
 	@$(MAKE) -s build
 	@echo ""
 
-	@echo "Step 4/5: Updating README.md..."
-	@$(MAKE) -s update-readme
+	@echo "Step 4/5: Updating documented version..."
+	@$(MAKE) -s update-docs
 	@echo ""
 
 	@echo "Step 5/5: Committing and tagging release..."
-	@git add README.md
-	@git commit -m "Release version $(VERSION)" || echo "No changes to commit"
+	@git add README.md INTEGRATION_GUIDE.md
+	@git diff --cached --quiet && echo "No changes to commit" || git commit -m "Release version $(VERSION)"
 	@git push origin master
 	@$(MAKE) -s tag-release
 	@echo ""
