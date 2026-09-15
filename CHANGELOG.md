@@ -35,6 +35,15 @@ iOS/Swift QA on Android. Each fix was reproduced on a device before and after.
 - **Overlapping inbox refreshes each fetched their own copy.** A cold open asks for a refresh
   from more than one place; with no in-flight guard that meant six requests where two would do.
   Callers now join a refresh already running.
+- **A silent push was drawn as "You have a new notification".** `RelevaFirebaseMessagingService`
+  displayed every message it received, inventing a title and body from `getDefaultNotificationTitle()`
+  and a hardcoded string when the payload carried neither — so an `inbox_sync` push, whose whole
+  point is to refresh the inbox in the background, also posted a visible IMPORTANCE_HIGH
+  notification with no content of its own. A message with no notification payload and no `title`,
+  `body` or `message` data key is now handled and not drawn. A message carrying either half still
+  displays, with the existing default filling the other half. The unused `silent_channel` — created
+  on every notification and never routed to, since `getNotificationChannelId()` returns the default
+  unconditionally — is gone with it.
 
 ### Added
 

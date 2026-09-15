@@ -25,7 +25,6 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         private const val TAG = "RelevaFCMService"
         private const val DEFAULT_CHANNEL_ID = "default_channel"
-        private const val SILENT_CHANNEL_ID = "silent_channel"
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -85,9 +84,15 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
         message.notification?.let { notification ->
             showNotification(notification.title, notification.body, message.data)
         } ?: run {
-            // If no notification payload, create one from data payload
-            val title = message.data["title"] ?: getDefaultNotificationTitle()
-            val body = message.data["body"] ?: message.data["message"] ?: "You have a new notification"
+            // If no notification payload, create one from data payload. A message that
+            // carries neither a title nor a body has nothing to display — a sync signal,
+            // say — so it must not be drawn; showNotification would otherwise invent both.
+            val title = message.data["title"]
+            val body = message.data["body"] ?: message.data["message"]
+            if (title == null && body == null) {
+                Log.d(TAG, "Data-only message with nothing to display, not posting a notification")
+                return
+            }
             showNotification(title, body, message.data)
         }
     }
@@ -99,7 +104,7 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
     open fun getDefaultNotificationTitle(): String = "App Notification"
 
     private fun showNotification(title: String?, body: String?, data: Map<String, String>) {
-        createNotificationChannels()
+        createNotificationChannel()
 
         // Generate unique notification ID
         val notificationId = System.currentTimeMillis().toInt()
@@ -239,11 +244,10 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
         }
     }
 
-    private fun createNotificationChannels() {
+    private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            // Create default notification channel
             val defaultChannel = NotificationChannel(
                 DEFAULT_CHANNEL_ID,
                 "Push Notifications",
@@ -254,19 +258,6 @@ abstract class RelevaFirebaseMessagingService : FirebaseMessagingService() {
                 enableLights(true)
             }
             notificationManager.createNotificationChannel(defaultChannel)
-
-            // Create silent notification channel
-            val silentChannel = NotificationChannel(
-                SILENT_CHANNEL_ID,
-                "Silent Notifications",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Silent notifications from the app"
-                setSound(null, null)
-                enableVibration(false)
-                enableLights(false)
-            }
-            notificationManager.createNotificationChannel(silentChannel)
         }
     }
 }

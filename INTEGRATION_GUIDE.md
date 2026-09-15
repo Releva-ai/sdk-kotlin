@@ -1106,7 +1106,7 @@ messageContainer.addView(view)
 
 #### Silent push sync
 
-A data push carrying `data["inbox_sync"] == "true"` triggers a silent inbox refresh — no coroutine or UI work on your side. To open the inbox directly to a message from a notification, look it up by its numeric id (`inboxMessageId`) once the inbox has loaded.
+A data push carrying `data["inbox_sync"] == "true"` triggers a silent inbox refresh — no coroutine or UI work on your side. It is drawn only if the same message also carries something to display (a notification payload, or a `title`, `body` or `message` data key); a sync-only push shows the user nothing. To open the inbox directly to a message from a notification, look it up by its numeric id (`inboxMessageId`) once the inbox has loaded.
 
 ### NPS Surveys
 
