@@ -59,7 +59,14 @@ class RelevaClientTransportLoggingTest {
 
     @Test
     fun `a request that never reaches the server is logged and rethrown`() = runTest {
-        val client = createClient(RelevaConfig.full())
+        // maxRetryAttempts = 0, so exactly one attempt is made. This test is about the SHAPE
+        // of the line a transport failure produces, and with the default budget the same
+        // failure is retried and logs one of these per attempt — which would make "exactly
+        // one line" assert the retry count rather than the logging. That a failure line is
+        // written per attempt, and on the body-read path too, is pinned by
+        // RelevaClientRetryTest's failureLogLines() — a different matcher from its
+        // retryLogLines(), which matches only `retryAfter`'s "retrying" line.
+        val client = createClient(RelevaConfig.full().copy(maxRetryAttempts = 0))
         client.setProfileId("profile-1")
 
         var failure: IOException? = null
@@ -86,7 +93,9 @@ class RelevaClientTransportLoggingTest {
 
     @Test
     fun `the failure is not logged when request logging is disabled, and still propagates`() = runTest {
-        val client = createClient(RelevaConfig.full().copy(enableRequestLogging = false))
+        val client = createClient(
+            RelevaConfig.full().copy(enableRequestLogging = false, maxRetryAttempts = 0)
+        )
         client.setProfileId("profile-1")
 
         var propagated = false

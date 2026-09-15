@@ -26,6 +26,34 @@ rather than in the section above.
   counts a second impression. An intent with no launch key, and a story with no slides, still
   close immediately.
 
+- **A momentary network failure or a transient 5xx dropped the event for good.**
+  `RelevaClient.execute` made exactly one call and handed whatever came back — or whatever it
+  threw — straight to the caller, so a pageview, cart sync, impression or push-token
+  registration that met a blip was lost, while the Swift SDK against the same API retried and
+  recovered. A failure that says nothing about the request itself — it never reached the server,
+  or the server answered 5xx — is now retried on the Swift SDK's schedule: 1s after a transport
+  failure, 2s after a 5xx, up to `RelevaConfig.maxRetryAttempts` retries on top of the first try
+  (default 3, so 4 requests before giving up; 0 means a single attempt, no retries). The counting
+  matches `NetworkService.executeRequest`'s `attemptsLeft` counter on the Swift side exactly, but
+  the request count at that shared default only matches Swift's for `sendPushRequest` and
+  `registerPushToken` — Swift hardcodes a smaller budget at every other retryable call site (NPS
+  and inbox at 1 retry, banner/push-event at 2, `inboxTrackAction` at none), so this SDK now
+  retries those endpoints more than Swift does; see the PR's Out of scope note for the
+  per-endpoint gap. A 4xx and any 2xx are still returned on the first attempt, each retry is
+  logged under the existing
+  `enableRequestLogging` gate, and once the retries are spent the last failure reaches the
+  caller exactly as it did before. Retrying carries the duplicate-POST risk the Swift SDK has
+  shipped with: a request the server processed but whose answer was lost in transit is sent
+  again — but only for a failure *before* a response arrives; a response that did arrive, whose
+  body read then failed partway (a read timeout mid-transfer, the connection dropping after the
+  headers), is handed to the caller after exactly one request, the same as before this change,
+  since the server has already committed to that status. `submitNpsResponse` loses its own
+  separate one-shot retry as part of this — it now gets exactly the same policy as every other
+  request instead of a second, stacked retry layer, so a 4xx on that endpoint is no longer
+  re-sent and a 5xx now gets this SDK's shared four-request budget instead of its old two — still
+  more than Swift's own NPS budget of two, per the note above.
+
+
 ## 1.4.0
 
 Everything here came out of a device pass against a real domain, replicating the
