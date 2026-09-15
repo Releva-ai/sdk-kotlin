@@ -561,7 +561,13 @@ class RelevaClient(
         val response = executeGet(url, "/api/v0/inbox/messages")
 
         if (response.code != 200) {
-            throw Exception("List messages API error: ${response.code} - ${response.body}")
+            // Mirrors execute()'s own policy one function away: the body is only useful (and
+            // only included) for a 5xx, capped at 500 chars. A 4xx here is exactly the class
+            // of failure this API answers by echoing the offending field back — a profile
+            // identifier or cart contents — and this exception message reaches both Log.e
+            // and the public InboxState.lastRefreshError, so it must not carry that.
+            val detail = if (response.code >= 500) " - ${response.body.take(500)}" else ""
+            throw Exception("List messages API error: ${response.code}$detail")
         }
 
         RelevaResponse.jsonObjectToMap(JSONObject(response.body))
@@ -576,7 +582,9 @@ class RelevaClient(
         val response = executeGet(url, "/api/v0/inbox/unread-count")
 
         if (response.code != 200) {
-            throw Exception("Unread count API error: ${response.code} - ${response.body}")
+            // See inboxFetchMessages above: body only for a 5xx, capped at 500 chars.
+            val detail = if (response.code >= 500) " - ${response.body.take(500)}" else ""
+            throw Exception("Unread count API error: ${response.code}$detail")
         }
 
         JSONObject(response.body).optInt("count", 0)
@@ -621,7 +629,9 @@ class RelevaClient(
             "DELETE", "/api/v0/inbox/messages/:id"
         )
         if (response.code != 204) {
-            throw Exception("Delete failed: ${response.code} - ${response.body}")
+            // See inboxFetchMessages above: body only for a 5xx, capped at 500 chars.
+            val detail = if (response.code >= 500) " - ${response.body.take(500)}" else ""
+            throw Exception("Delete failed: ${response.code}$detail")
         }
     }
 

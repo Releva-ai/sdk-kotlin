@@ -53,10 +53,21 @@ class StoryViewerActivity : AppCompatActivity() {
      * animator back (`currentPlayTime`, `isPaused`) is exactly the coupling this fix
      * removes, and `Animator.pause()` is a no-op once the animation has ended — which, at
      * animator duration scale 0 (animations disabled — the setting fix #4 is about), it
-     * always has been by the time [onPause] runs. [onResume] reposts from this stamp
-     * unconditionally, independently of whatever state the animator is in.
+     * always has been by the time [onPause] runs. Because this is an absolute deadline it
+     * keeps counting down while backgrounded, so [onPause] converts it into
+     * [advanceRemainingMs] before anything reads it again; [onResume] reposts from that
+     * remainder rather than from this stamp directly.
      */
     private var advanceDueAt: Long = 0L
+    /**
+     * Milliseconds still owed to the current slide as of the last [onPause], or 0L while
+     * the timer is running (or nothing is scheduled). [advanceDueAt] is an absolute
+     * deadline, so it keeps counting down while the app is backgrounded; reposting from it
+     * directly in [onResume] would subtract the whole background interval from the
+     * remainder, firing the advance immediately after almost any real pause. Capturing the
+     * remainder here and reposting *that* in [onResume] is what actually stops the clock.
+     */
+    private var advanceRemainingMs: Long = 0L
     /** This activity's own launch key, published via [aliveKeys] for [isAlive]. */
     private var launchKey: String? = null
 
@@ -387,8 +398,13 @@ class StoryViewerActivity : AppCompatActivity() {
     /**
      * Backgrounding the app used to leave the real-clock advance running, so the user came
      * back to a finished (or looped-past) story with storySlideView/storyComplete already
-     * tracked for content nobody saw. Cancelling the pending advance stops the clock;
-     * [onResume] reposts the remainder from [advanceDueAt].
+     * tracked for content nobody saw. Cancelling the pending advance stops further
+     * *advances*, but [advanceDueAt] is an absolute [SystemClock.uptimeMillis] deadline
+     * that keeps counting down regardless — reposting from it directly in [onResume] would
+     * subtract the whole background interval from the remainder, so a slide backgrounded
+     * with time left is gone the instant the app comes back. Converting it into
+     * [advanceRemainingMs] here, and reposting that fixed amount in [onResume] instead of
+     * recomputing from the stale deadline, is what actually stops the clock.
      *
      * The animator is paused too, but only because it paints — pausing it is not what
      * stops the timer, and [onResume] does not ask it anything before deciding whether to
@@ -400,13 +416,16 @@ class StoryViewerActivity : AppCompatActivity() {
         super.onPause()
         progressAnimator?.pause()
         advanceRunnable?.let { handler.removeCallbacks(it) }
+        advanceRemainingMs =
+            if (advanceDueAt > 0L) (advanceDueAt - SystemClock.uptimeMillis()).coerceAtLeast(0L) else 0L
     }
 
     override fun onResume() {
         super.onResume()
         progressAnimator?.takeIf { it.isPaused }?.resume()
-        if (advanceDueAt > 0L) {
-            scheduleAdvance((advanceDueAt - SystemClock.uptimeMillis()).coerceAtLeast(0L))
+        if (advanceRemainingMs > 0L) {
+            scheduleAdvance(advanceRemainingMs)
+            advanceRemainingMs = 0L
         }
     }
 

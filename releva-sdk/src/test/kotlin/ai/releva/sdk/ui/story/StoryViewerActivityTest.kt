@@ -114,6 +114,51 @@ class StoryViewerActivityTest {
     }
 
     /**
+     * Covers the `onPause`/`onResume` fix directly: [StoryViewerActivity.advanceDueAt] is
+     * an absolute [android.os.SystemClock.uptimeMillis] deadline, so without capturing the
+     * remainder in `onPause` the background interval gets subtracted from it wholesale and
+     * the advance fires the instant the activity resumes — regardless of how much of the
+     * slide's duration was actually left. Idling thirty simulated seconds while paused and
+     * asserting the slide has *not* advanced is what a stale-deadline repost gets wrong;
+     * idling the true remainder afterwards and asserting it advances exactly once is what a
+     * remainder that was silently dropped (or double counted) would also get wrong.
+     */
+    @Test
+    fun `slide timer does not skip ahead across a real background pause`() {
+        val story = StoryResponse(
+            token = "pause-story",
+            slides = listOf(
+                StorySlideResponse(id = 1, durationSeconds = 5),
+                StorySlideResponse(id = 2, durationSeconds = 5)
+            )
+        )
+        val host = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val key = StoryViewerActivity.launch(context = host, story = story, client = client)
+        val intent = Intent(host, StoryViewerActivity::class.java).apply {
+            putExtra("releva_story_key", key)
+        }
+        val controller = Robolectric.buildActivity(StoryViewerActivity::class.java, intent)
+            .create()
+            .start()
+            .resume()
+
+        // Two seconds into a five-second slide, then backgrounded for thirty — far longer
+        // than the slide itself, and exactly the case the old absolute-deadline repost got
+        // wrong.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        controller.pause()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30))
+        controller.resume()
+
+        assertEquals(0, controller.get().currentSlideIndexForTest())
+
+        // The three seconds actually owed to the slide, plus margin.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
+
+        assertEquals(1, controller.get().currentSlideIndexForTest())
+    }
+
+    /**
      * Covers the `isAlive` window fix directly, at the unit rather than the
      * queue-integration level: [StoryViewerActivity.launch] must publish the key to
      * [StoryViewerActivity.isAlive] before `startActivity` returns, since
