@@ -55,13 +55,14 @@ class StorageService private constructor(context: Context) {
      * merge outlives the process if the push that would carry them never succeeds.
      *
      * Writes use `commit()` rather than `apply()`, unlike most of this file: this is the one
-     * value whose entire purpose is to survive a force-stop, and the caller (`RelevaClient`)
-     * always writes [KEY_PROFILE_ID] first, so a blocking write here closes the window where
-     * the new profile id would reach disk before the merge queue that explains it does.
+     * value whose entire purpose is to survive a force-stop. The caller (`RelevaClient`) writes
+     * this queue *before* [KEY_PROFILE_ID], and a `false` return here is not currently surfaced
+     * — see the callers in `RelevaClient.setProfileId`/`push` for why the ordering is this way
+     * around and how a failed commit is logged.
      */
-    fun setMergeProfileIds(profileIds: List<String>) {
+    fun setMergeProfileIds(profileIds: List<String>): Boolean {
         val jsonArray = JSONArray(profileIds)
-        preferences.edit().putString(KEY_MERGE_PROFILE_IDS, jsonArray.toString()).commit()
+        return preferences.edit().putString(KEY_MERGE_PROFILE_IDS, jsonArray.toString()).commit()
     }
 
     /** @see setMergeProfileIds */
@@ -76,8 +77,8 @@ class StorageService private constructor(context: Context) {
     }
 
     /** @see setMergeProfileIds */
-    fun clearMergeProfileIds() {
-        preferences.edit().remove(KEY_MERGE_PROFILE_IDS).commit()
+    fun clearMergeProfileIds(): Boolean {
+        return preferences.edit().remove(KEY_MERGE_PROFILE_IDS).commit()
     }
 
     fun setDeviceId(deviceId: String) {

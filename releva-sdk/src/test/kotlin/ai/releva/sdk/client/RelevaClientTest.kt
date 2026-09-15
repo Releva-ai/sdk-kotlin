@@ -123,6 +123,47 @@ class RelevaClientTest {
     }
 
     @Test
+    fun `a failed push leaves the merge queue persisted for the next attempt`() = runTest {
+        storageService.setDeviceId("device-1")
+        val server = MockWebServer()
+        server.start()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) =
+                MockResponse().setResponseCode(500).setBody("boom")
+        }
+        mockWebServer = server
+
+        val client = createTestClient()
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B")
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+
+        // The push fails (non-200): the clear block at the end of push() is never reached,
+        // so the queue must still be there afterwards, both in this client and a fresh one.
+        try {
+            client.push(PushRequest())
+            fail("Expected push() to throw on a 500 response")
+        } catch (e: Exception) {
+            // expected
+        }
+
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+
+        server.takeRequest() // drain the failed attempt
+
+        val laterClient = createTestClient()
+        laterClient.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) =
+                MockResponse().setResponseCode(200).setBody("{}")
+        }
+        laterClient.push(PushRequest())
+
+        assertEquals(listOf("profile-A"), mergeProfileIdsOf(server.takeRequest().body.readUtf8()))
+    }
+
+    @Test
     fun `setProfileId with skipMerge clears the stored merge list`() = runTest {
         val client = createTestClient()
 
@@ -214,7 +255,16 @@ class RelevaClientTest {
 
         // push() calls OkHttp's blocking execute(), so it needs a real thread to hold onto
         // while this test drives a second setProfileId "concurrently" against the held request.
-        val pushThread = thread { runBlocking { client.push(PushRequest()) } }
+        // The uncaught-exception default handler would otherwise swallow a failure in here and
+        // let the test fail later on an unrelated assertion, so capture and rethrow explicitly.
+        var pushFailure: Throwable? = null
+        val pushThread = thread {
+            try {
+                runBlocking { client.push(PushRequest()) }
+            } catch (t: Throwable) {
+                pushFailure = t
+            }
+        }
         assertTrue(requestReceived.await(2, TimeUnit.SECONDS))
 
         // Appended after the request body was built but before the response (and the
@@ -224,6 +274,7 @@ class RelevaClientTest {
 
         releaseResponse.countDown()
         pushThread.join(2000)
+        pushFailure?.let { throw it }
 
         // "profile-A" was sent and is cleared; "profile-B" was queued mid-flight and survives,
         // in memory and in storage, for the next push to send.
