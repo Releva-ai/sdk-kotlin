@@ -12,14 +12,19 @@ on:
     branches: [master]
 
 concurrency:
-  # One run per ref. A new push supersedes an in-flight run for the same branch.
+  # One run per ref. A new push supersedes an in-flight PR run; master runs are
+  # left alone so every commit on the release branch keeps its own verdict —
+  # JitPack publishes from tags cut off master, and cancelling a master run
+  # makes it look like that commit was never verified.
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     name: build and unit tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -31,26 +36,37 @@ jobs:
           java-version: '17'
           distribution: temurin
 
+      # No explicit Android SDK setup: ubuntu-latest ships one with API 35 and the
+      # licences pre-accepted, which is what compileSdk = 35 needs. This is an
+      # undocumented dependency on the runner image — if a rollout ever drops or
+      # changes it, the failure here won't look like this comment.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Assemble the library
-        run: ./gradlew :releva-sdk:assembleRelease --console=plain --stacktrace
-
-      - name: Run the unit tests
-        run: ./gradlew :releva-sdk:testDebugUnitTest --console=plain --stacktrace
+      # A single :releva-sdk:build runs assemble + both unit test variants + Android
+      # Lint, matching the Makefile's and cloudbuild-ci.yaml's `:releva-sdk:test` and
+      # the ./gradlew test the PR template's release checklist promises. Two separate
+      # invocations (assembleRelease, then testDebugUnitTest) covered less than that.
+      - name: Build the library and run the checks
+        run: ./gradlew :releva-sdk:build --console=plain --stacktrace
 
       - name: Upload the test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-report
-          path: releva-sdk/build/reports/tests/testDebugUnitTest
+          # Reports land per-variant now, and the JUnit XML (not just the rendered
+          # HTML) is included so a reporter action could annotate failures inline.
+          path: |
+            releva-sdk/build/reports/tests
+            releva-sdk/build/test-results
           if-no-files-found: ignore
 
   version:
     name: version consistency
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -61,9 +77,16 @@ jobs:
       # The PR template asks for both to be bumped together; this is what checks it.
       - name: VERSION must match the published version
         run: |
-          published=$(grep -oP '(?<=^            version = ")[^"]+' releva-sdk/build.gradle.kts)
+          # `|| true` on both substitutions: under bash -e (the default for a `run:`
+          # block with no shell: key), a failed command substitution aborts the script
+          # right here, before the -z check below ever runs — which is exactly the
+          # scenario ("has either declaration moved?") the check exists to diagnose.
+          # `| head -1` pins each to its first match, so a second "version = " at the
+          # same indentation (a commented-out line, a second publication) can't turn
+          # $published into two lines and fail the comparison with a confusing message.
+          published=$(grep -oP '(?<=^\s*version = ")[^"]+' releva-sdk/build.gradle.kts | head -1 || true)
           constant=$(grep -oP '(?<=private const val VERSION = ")[^"]+' \
-            releva-sdk/src/main/kotlin/ai/releva/sdk/client/RelevaClient.kt)
+            releva-sdk/src/main/kotlin/ai/releva/sdk/client/RelevaClient.kt | head -1 || true)
           echo "build.gradle.kts : $published"
           echo "RelevaClient.kt  : $constant"
           if [ -z "$published" ] || [ -z "$constant" ]; then
