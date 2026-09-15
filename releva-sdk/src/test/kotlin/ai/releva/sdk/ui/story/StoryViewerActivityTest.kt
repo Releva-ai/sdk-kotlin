@@ -5,6 +5,11 @@ import ai.releva.sdk.types.response.StoryResponse
 import ai.releva.sdk.types.response.StorySlideResponse
 import android.content.Intent
 import android.os.Looper
+import android.os.SystemClock
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
 import androidx.fragment.app.FragmentActivity
 import java.time.Duration
 import org.junit.After
@@ -21,6 +26,8 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /**
+ * Slide timer, lifecycle and tap-routing coverage for [StoryViewerActivity].
+ *
  * Covers the fix in `startSlideTimer`: the slide advance is a posted [android.os.Handler]
  * callback on the real clock now, not a [android.animation.ValueAnimator] end listener. The
  * old form is exactly what an instrumented test — where animator durations collapse to zero
@@ -213,5 +220,177 @@ class StoryViewerActivityTest {
         shadowOf(Looper.getMainLooper()).runToEndOfTasks()
 
         assertFalse(StoryViewerActivity.isAlive(key))
+    }
+
+    /**
+     * Device QA found the slide's call to action dead: a tap well inside the button's
+     * reported bounds never reached its click listener, and the navigation overlay advanced
+     * a slide instead. Everything the overlay covers is only reachable through the overlay's
+     * own hit test — `findClickableViewAt`, fed from [MotionEvent.getRawX]/[MotionEvent.getRawY]
+     * and compared against [View.getLocationOnScreen] — and on that device the test missed
+     * the button. Why it missed was not established; it does not miss under Robolectric,
+     * where the window sits at the display origin and window coordinates and screen
+     * coordinates coincide, which is why [tap] is given a non-zero `rawOffset` here to force
+     * the miss.
+     *
+     * So what this pins is not the offset but the invariant the fix rests on: the action
+     * button is a sibling above the overlay now, reached by ordinary touch dispatch, so a
+     * tap on it runs the slide action whether or not the overlay's hit test can see it.
+     * Without the fix the button sits under the overlay and this test advances a slide with
+     * no action fired — verified by running it against the unfixed code.
+     */
+    @Test
+    fun `tapping the action button runs the slide action even when the overlay hit test misses`() {
+        val taps = mutableListOf<String>()
+        val activity = launchVisibleViewer(
+            story = StoryResponse(
+                token = "action-story",
+                slides = listOf(
+                    StorySlideResponse(
+                        id = 1,
+                        durationSeconds = 30,
+                        actionType = "link",
+                        actionUrl = "https://example.com/offer",
+                        actionLabel = "Open"
+                    ),
+                    StorySlideResponse(id = 2, durationSeconds = 30)
+                )
+            ),
+            onLinkTap = { taps.add(it) }
+        )
+        val button = requireViewWithText(activity, "Open")
+
+        tap(activity, centreOf(button), rawOffset = 37f)
+
+        assertEquals(listOf("https://example.com/offer"), taps)
+        assertEquals(0, activity.currentSlideIndexForTest())
+    }
+
+    /**
+     * The other half of the fix: the container the action button moved into spans the whole
+     * slide, so a tap that misses the button must fall through it to the overlay underneath
+     * and navigate as before. Right of centre advances a slide. No `rawOffset` here — this
+     * is the ordinary case, and it passes before the fix as well as after; it is a guard
+     * against the new container swallowing navigation, not a demonstration of the bug.
+     */
+    @Test
+    fun `tapping away from the action button still navigates`() {
+        val taps = mutableListOf<String>()
+        val activity = launchVisibleViewer(
+            story = StoryResponse(
+                token = "navigation-story",
+                slides = listOf(
+                    StorySlideResponse(
+                        id = 1,
+                        durationSeconds = 30,
+                        actionType = "link",
+                        actionUrl = "https://example.com/offer",
+                        actionLabel = "Open"
+                    ),
+                    StorySlideResponse(id = 2, durationSeconds = 30)
+                )
+            ),
+            onLinkTap = { taps.add(it) }
+        )
+        val buttonLocation = IntArray(2)
+        requireViewWithText(activity, "Open").getLocationOnScreen(buttonLocation)
+
+        // Right of centre, and halfway between the top of the screen and the button's top
+        // edge — inside the container the button now lives in, but not on the button.
+        tap(activity, (activity.window.decorView.width * 3 / 4f) to (buttonLocation[1] / 2f))
+
+        assertEquals(emptyList<String>(), taps)
+        assertEquals(1, activity.currentSlideIndexForTest())
+    }
+
+    /** The close button sits above the new container too, and must still close the viewer. */
+    @Test
+    fun `tapping the close button still closes the viewer`() {
+        val activity = launchVisibleViewer(
+            story = StoryResponse(
+                token = "close-story",
+                slides = listOf(
+                    StorySlideResponse(
+                        id = 1,
+                        durationSeconds = 30,
+                        actionType = "link",
+                        actionUrl = "https://example.com/offer",
+                        actionLabel = "Open"
+                    )
+                )
+            )
+        )
+
+        tap(activity, centreOf(requireViewWithText(activity, "\u2715")))
+
+        assertTrue(activity.isFinishing)
+    }
+
+    /**
+     * As [launchViewer], but also drives the controller to `visible()` so the view hierarchy
+     * is attached, measured and laid out — without that the views have no bounds and no touch
+     * dispatch, by any path, can land on them.
+     */
+    private fun launchVisibleViewer(
+        story: StoryResponse,
+        onLinkTap: ((String) -> Unit)? = null
+    ): StoryViewerActivity {
+        val host = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val key = StoryViewerActivity.launch(
+            context = host, story = story, client = client, onLinkTap = onLinkTap
+        )
+        val intent = Intent(host, StoryViewerActivity::class.java).apply {
+            putExtra("releva_story_key", key)
+        }
+        return Robolectric.buildActivity(StoryViewerActivity::class.java, intent)
+            .create()
+            .start()
+            .resume()
+            .visible()
+            .get()
+    }
+
+    private fun requireViewWithText(activity: StoryViewerActivity, text: String): TextView {
+        fun find(view: View): TextView? {
+            if (view is TextView && view.text?.toString() == text) return view
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) {
+                    find(view.getChildAt(i))?.let { return it }
+                }
+            }
+            return null
+        }
+        return requireNotNull(find(activity.window.decorView)) { "no view with text \"$text\"" }
+    }
+
+    private fun centreOf(view: View): Pair<Float, Float> {
+        val location = IntArray(2)
+        view.getLocationOnScreen(location)
+        return (location[0] + view.width / 2f) to (location[1] + view.height / 2f)
+    }
+
+    /**
+     * Presses and releases at [point] through the activity's own touch dispatch.
+     *
+     * [rawOffset], when non-zero, leaves the event's raw (screen) coordinates that many
+     * pixels away from its window coordinates — [MotionEvent.offsetLocation] moves the
+     * window coordinates only, exactly as a parent does while dispatching. The window
+     * coordinates still land on [point], so ordinary dispatch is unaffected; only a hit test
+     * that reads the raw coordinates instead sees a different place.
+     */
+    private fun tap(
+        activity: StoryViewerActivity,
+        point: Pair<Float, Float>,
+        rawOffset: Float = 0f
+    ) {
+        val (x, y) = point
+        val downAt = SystemClock.uptimeMillis()
+        for ((action, at) in listOf(MotionEvent.ACTION_DOWN to downAt, MotionEvent.ACTION_UP to downAt + 10)) {
+            val event = MotionEvent.obtain(downAt, at, action, x + rawOffset, y + rawOffset, 0)
+            event.offsetLocation(-rawOffset, -rawOffset)
+            activity.dispatchTouchEvent(event)
+            event.recycle()
+        }
+        shadowOf(Looper.getMainLooper()).idle()
     }
 }

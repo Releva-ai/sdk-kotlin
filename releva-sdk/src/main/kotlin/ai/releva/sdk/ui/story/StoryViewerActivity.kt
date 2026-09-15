@@ -72,6 +72,11 @@ class StoryViewerActivity : AppCompatActivity() {
     private var launchKey: String? = null
 
     private lateinit var contentContainer: FrameLayout
+    /**
+     * Holds the current slide's action button, as a sibling *above* the navigation overlay
+     * instead of a child of [contentContainer] underneath it. See [setupUI].
+     */
+    private lateinit var actionContainer: FrameLayout
     private lateinit var progressContainer: LinearLayout
     private val progressBars = mutableListOf<View>()
     private val progressFills = mutableListOf<View>()
@@ -259,6 +264,24 @@ class StoryViewerActivity : AppCompatActivity() {
             ).apply { topMargin = dp(40) }
         }
         root.addView(touchOverlay)
+
+        // The slide's action button lives here, above the overlay, rather than in
+        // contentContainer below it. Everything below the overlay is only reachable through
+        // the overlay's own hit test (findClickableViewAt, screen coordinates); on a device
+        // that test missed the button — a tap well inside its bounds was handled as slide
+        // navigation and the call to action was dead. Above the overlay the button is
+        // reached by ordinary touch dispatch, the same way the close button in topRow is,
+        // and that one works on a device. This container is not clickable and holds nothing
+        // else, so a tap that misses the button is not consumed here and still reaches the
+        // overlay as navigation. Its geometry matches contentContainer, so the button lands
+        // exactly where it did before.
+        actionContainer = FrameLayout(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ).apply { topMargin = dp(40) }
+        }
+        root.addView(actionContainer)
 
         // Progress bar row + close button
         val topRow = LinearLayout(this).apply {
@@ -515,6 +538,7 @@ class StoryViewerActivity : AppCompatActivity() {
 
     private fun renderSlideContent(slide: StorySlideResponse) {
         contentContainer.removeAllViews()
+        actionContainer.removeAllViews()
 
         // Update background color
         (contentContainer.parent as? View)?.setBackgroundColor(getSlideBackgroundColor(slide))
@@ -566,7 +590,7 @@ class StoryViewerActivity : AppCompatActivity() {
                 }
                 setOnClickListener { handleSlideAction(slide) }
             }
-            contentContainer.addView(actionBtn)
+            actionContainer.addView(actionBtn)
         }
     }
 
