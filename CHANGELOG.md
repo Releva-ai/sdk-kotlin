@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.4.0
+
+Everything here came out of a device pass against a real domain, replicating the
+iOS/Swift QA on Android. Each fix was reproduced on a device before and after.
+
+### Fixed
+
+- **Banners and stories were dropped silently past ten in flight.** `BannerDisplayController`
+  used a `MutableSharedFlow` with `extraBufferCapacity = 10` and discarded `tryEmit`'s result,
+  while the producer emits every `immediately` banner in one synchronous pass and the consumer
+  renders one at a time. Measured: 19 emitted, 12 rendered, 7 gone with no log and no error.
+  `StoryDisplayController` had the same shape. Both now use a larger buffer with
+  `DROP_OLDEST`, and a dropped item is logged.
+- **Stories stacked instead of queueing.** Every story emitted called `startActivity`, so a page
+  with several opened several viewers at once (six live `StoryViewerActivity` instances were
+  observed). They now queue and show one at a time.
+- **Every story after the first was silently dropped.** The viewer covers its host, and the
+  collector ran at `STARTED`, so it was cancelled the moment the first story opened; `storyFlow`
+  has no replay, so the rest of the same pass was gone before the queue could hold it.
+- **A disabled animation decided how long a story slide lasted.** The progress bar's
+  `ValueAnimator` was also the slide timer, and its end listener advanced the slide — so with
+  animations off (accessibility, battery saving, developer options) the system scaled the
+  duration to zero and the whole story played in one frame. The advance is now a posted callback
+  on a real clock; the animator only paints.
+- **Banner popup content rendered behind the status bar.** The content is now inset by the real
+  window insets, including the display cutout, while the background still runs edge to edge.
+- **Design padding was applied in raw pixels rather than dp.** `parseEdgeInsets` left the density
+  multiply to each caller and three of four callers omitted it, so every design rendered at a
+  third of its intended padding on a 3x screen. The multiply now happens once, in the parser.
+- **Overlapping inbox refreshes each fetched their own copy.** A cold open asks for a refresh
+  from more than one place; with no in-flight guard that meant six requests where two would do.
+  Callers now join a refresh already running.
+
+### Added
+
+- **`Cart` totals helpers**, matching the Swift SDK: `itemCount`, `totalQuantity`, `totalPrice`,
+  `isEmpty`, `contains(productId)`, `product(productId)`, and `CartProduct.totalPrice` /
+  `hasPrice`. A missing price contributes 0 and a missing quantity counts as one, as on iOS.
+- **Request logging for every call.** Logging had been a rule each verb followed, and the inbox —
+  added later, calling the HTTP client directly — did not follow it: its two GETs and its DELETE
+  were the only requests the SDK made that logged nothing. Every request now goes through one
+  place that logs verb, endpoint, status and timing. Request bodies are still never logged.
+  Success is any 2xx, which also stops token registration (202) and delete (204) being logged as
+  warnings for succeeding.
+- **NPS diagnostics.** `NpsManagerService` logged only its successes, so every way a survey can
+  fail to appear was the same silence. It now names the config it received and the triggers it is
+  waiting on, and logs an event that matched no trigger alongside the names it was compared
+  against.
+
+
 ## 1.3.0
 
 ### Added

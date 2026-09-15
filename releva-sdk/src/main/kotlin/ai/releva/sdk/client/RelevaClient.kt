@@ -72,7 +72,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "1.3.0-kotlin"
+        private const val VERSION = "1.4.0-kotlin"
     }
 
     /**
