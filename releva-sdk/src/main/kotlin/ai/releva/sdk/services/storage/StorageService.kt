@@ -56,22 +56,16 @@ class StorageService private constructor(context: Context) {
     fun getProfileId(): String? = preferences.getString(KEY_PROFILE_ID, null)
 
     /**
-     * Profile ids queued to be merged into the current profile. This is the only copy: it is
-     * read straight from here at every use rather than mirrored into a field, so the intent to
-     * merge outlives the process when the push that would carry it never succeeds.
+     * Profile ids queued to be merged into the current profile. This is the only copy — it is
+     * read from here at every use rather than mirrored into a field — so the intent to merge
+     * outlives the process when the push that would carry it never succeeds.
      *
-     * Every accessor here is a read-modify-write, and `RelevaClient` appends from `setProfileId`
-     * while removing from `push` on an independent `Dispatchers.IO` coroutine, so they are
-     * serialised on [mergeQueueLock]. A private lock rather than this instance's own monitor
-     * (what `@Synchronized` would take): the writes below block on `commit()`, and the instance
-     * monitor is held by main-thread callers — `SessionService` observes `ProcessLifecycleOwner`
-     * and calls [incrementDeviceSessionCount] from `onStart`. The private lock keeps the main
-     * thread out of this fsync while still serialising across `RelevaClient` instances, since
-     * this class is a process-wide singleton.
-     *
-     * Writes use `commit()` rather than `apply()`, unlike the rest of this file: this is the one
-     * value whose whole purpose is to survive a force-stop, and every caller is already on
-     * `Dispatchers.IO`.
+     * The accessors below are read-modify-writes run from independent `Dispatchers.IO`
+     * coroutines, so they are serialised on [mergeQueueLock]. A private lock rather than
+     * `@Synchronized`: these writes block on `commit()`, and this instance's own monitor is
+     * taken on the main thread (`SessionService.onStart` → [incrementDeviceSessionCount]).
+     * `commit()` rather than the `apply()` used elsewhere in this file because this is the one
+     * value whose purpose is to survive a force-stop.
      */
     fun getMergeProfileIds(): List<String> = synchronized(mergeQueueLock) {
         val jsonString = preferences.getString(KEY_MERGE_PROFILE_IDS, null)
@@ -80,7 +74,9 @@ class StorageService private constructor(context: Context) {
             val jsonArray = JSONArray(jsonString)
             List(jsonArray.length()) { jsonArray.getString(it) }
         } catch (e: Exception) {
-            Log.w(TAG, "Merge profile ids are unreadable; a queued profile merge is lost", e)
+            // Exception logged by type only: org.json puts the unparseable input in the
+            // message, and that input is a list of profile identifiers.
+            Log.w(TAG, "Merge profile ids are unreadable (${e.javaClass.simpleName}); a queued profile merge is lost")
             emptyList()
         }
     }
@@ -101,7 +97,11 @@ class StorageService private constructor(context: Context) {
      * @see getMergeProfileIds
      */
     fun removeMergeProfileIds(profileIds: List<String>) = synchronized(mergeQueueLock) {
-        writeMergeProfileIds(getMergeProfileIds() - profileIds.toSet())
+        val queued = getMergeProfileIds()
+        val remaining = queued - profileIds.toSet()
+        if (remaining != queued) {
+            writeMergeProfileIds(remaining)
+        }
     }
 
     /** @see getMergeProfileIds */

@@ -28,9 +28,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.json.JSONObject
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import kotlin.concurrent.thread
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -123,7 +121,10 @@ class RelevaClientTest {
         laterClient.setEndpointOverride(server.url("/").toString().trimEnd('/'))
         laterClient.push(PushRequest())
 
-        assertEquals(emptyList<String>(), mergeProfileIdsOf(server.takeRequest().body.readUtf8()))
+        val laterBody = server.takeRequest().body.readUtf8()
+        assertEquals(emptyList<String>(), mergeProfileIdsOf(laterBody))
+        // An empty queue must not fabricate a profile change either.
+        assertFalse(JSONObject(laterBody).getJSONObject("context").getBoolean("profileChanged"))
     }
 
     @Test
@@ -154,7 +155,14 @@ class RelevaClientTest {
 
         assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
 
-        server.takeRequest() // drain the failed attempt
+        // Drain every request the failed push produced, however many that is, so the
+        // takeRequest() at the end of this test is unambiguously the later client's and
+        // cannot silently become a retry of the push above.
+        var drained = 0
+        while (server.takeRequest(100, TimeUnit.MILLISECONDS) != null) {
+            drained++
+        }
+        assertTrue("expected the failed push to have reached the server", drained > 0)
 
         val laterClient = createTestClient()
         laterClient.setEndpointOverride(server.url("/").toString().trimEnd('/'))
@@ -234,58 +242,33 @@ class RelevaClientTest {
     @Test
     fun `a successful push clears only the ids it sent, not ones queued while it was in flight`() = runTest {
         storageService.setDeviceId("device-1")
-        val requestReceived = CountDownLatch(1)
-        val releaseResponse = CountDownLatch(1)
+        val client = createTestClient()
+
+        // Recorded rather than asserted inside dispatch(): MockWebServer swallows a throw from
+        // its dispatcher thread, which would surface as an unrelated transport failure.
+        var queueMidFlight: List<String>? = null
         val server = MockWebServer()
         server.start()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                // The client has already built and sent the body (with the pre-request
-                // snapshot of mergeProfileIds) by the time this runs; withholding the
-                // response lets the test append to the live queue while the push is
-                // still "in flight" from the client's perspective.
-                requestReceived.countDown()
-                // Generous: these are failure bounds, not waits. A tight one that expires on a
-                // loaded machine would release the response early and turn this into a
-                // different scenario, failing on the mid-flight assertion below.
-                releaseResponse.await(30, TimeUnit.SECONDS)
+                // Runs on the server's thread, after push() built and sent the body but before
+                // it sees a response — so this id is queued while the request is in flight and
+                // was never on the wire.
+                runBlocking { client.setProfileId("profile-C") } // queues "profile-B"
+                queueMidFlight = storageService.getMergeProfileIds()
                 return MockResponse().setResponseCode(200).setBody("{}")
             }
         }
         mockWebServer = server
 
-        val client = createTestClient()
         client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
         client.setProfileId("profile-A")
         client.setProfileId("profile-B") // queues "profile-A"
         assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
 
-        // push() calls OkHttp's blocking execute(), so it needs a real thread to hold onto
-        // while this test drives a second setProfileId "concurrently" against the held request.
-        // The uncaught-exception default handler would otherwise swallow a failure in here and
-        // let the test fail later on an unrelated assertion, so capture and rethrow explicitly.
-        var pushFailure: Throwable? = null
-        val pushThread = thread {
-            try {
-                runBlocking { client.push(PushRequest()) }
-            } catch (t: Throwable) {
-                pushFailure = t
-            }
-        }
-        assertTrue(requestReceived.await(30, TimeUnit.SECONDS))
+        client.push(PushRequest())
 
-        // Appended after the request body was built but before the response (and the
-        // resulting clear) arrives — this id was never on the wire.
-        runBlocking { client.setProfileId("profile-C") } // queues "profile-B" behind it
-        assertEquals(listOf("profile-A", "profile-B"), storageService.getMergeProfileIds())
-
-        releaseResponse.countDown()
-        pushThread.join(30_000)
-        pushFailure?.let { throw it }
-        // Without this, a hung push thread would fall through to the assertion below and read
-        // as a logic regression rather than as the hang it is.
-        assertFalse("push() did not complete within 30s", pushThread.isAlive)
-
+        assertEquals(listOf("profile-A", "profile-B"), queueMidFlight)
         // "profile-A" was sent and is removed; "profile-B" was queued mid-flight and survives
         // for the next push to send.
         assertEquals(listOf("profile-B"), storageService.getMergeProfileIds())

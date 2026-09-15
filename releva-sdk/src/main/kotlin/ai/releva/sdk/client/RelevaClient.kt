@@ -90,9 +90,8 @@ class RelevaClient(
      * Set profile ID
      */
     suspend fun setProfileId(profileId: String, skipMergeWithPreviousProfileId: Boolean = false) = withContext(Dispatchers.IO) {
-        // Checked before the changed-id guard below: a caller that re-asserts the current
-        // profile id with this flag set (e.g. a host that calls setProfileId on every launch)
-        // still means "cancel any pending merge", even though the id itself did not change.
+        // Outside the changed-id guard below: re-asserting the current id with this flag set
+        // still means "cancel any pending merge".
         if (skipMergeWithPreviousProfileId) {
             storage.clearMergeProfileIds()
         }
@@ -101,12 +100,10 @@ class RelevaClient(
 
         if (previousProfileId == null || previousProfileId != profileId) {
             profileChanged = true
-            // Queue the merge before writing the new profile id. SharedPreferences offers no
-            // atomicity across two separate edits, so if the process dies between them one of
-            // the two orders has to lose something; this order leaves a queued id alongside a
-            // profile id that has not moved yet — at worst a redundant self-merge on the next
-            // push — rather than the new profile id with no record of where it came from, which
-            // is the loss this fix exists to prevent.
+            // Queue before writing the new id. The two writes are not atomic, so dying between
+            // them has to lose one; this order leaves a queued id against an unchanged profile
+            // (a redundant self-merge at worst) rather than the new id with no record of where
+            // it came from, which is the loss this fix exists to prevent.
             if (!skipMergeWithPreviousProfileId && previousProfileId != null) {
                 storage.addMergeProfileId(previousProfileId)
             }
@@ -355,11 +352,9 @@ class RelevaClient(
         val deviceId = storage.getDeviceId()
             ?: throw Exception("Please provide deviceId using client.setDeviceId() before using the client!")
 
-        // Read once, before the request goes out, and removed by value on success rather than
-        // re-read afterwards: a concurrent setProfileId() on another Dispatchers.IO coroutine
-        // (setCart/setWishlist auto-push through trackScreenView, or the host's own login
-        // coroutine) can queue an id while this request is in flight, and that id was never on
-        // the wire, so it has to survive this push's cleanup.
+        // Read once here and removed by value on success, rather than re-read afterwards: a
+        // concurrent setProfileId() can queue an id while this request is in flight, and that
+        // id was never on the wire, so it has to survive this push's cleanup.
         val sentMergeIds = storage.getMergeProfileIds()
 
         val payload = JSONObject().apply {
@@ -373,10 +368,9 @@ class RelevaClient(
             request.viewedProduct?.let { put("product", JSONObject(it.toMap())) }
 
             // Carrying merge ids implies the profile changed, so keep the two in step even when
-            // the change happened in an earlier process (or before a registerPushToken reset the
-            // flag). Before the queue was durable that was automatic; the backend has never seen
-            // a non-empty mergeProfileIds alongside profileChanged = false, and this keeps it
-            // that way.
+            // the change happened in an earlier process. Before the queue was durable an id
+            // could not outlive the flag, so the backend has never seen a non-empty
+            // mergeProfileIds alongside profileChanged = false; this keeps it that way.
             put("profileChanged", profileChanged || sentMergeIds.isNotEmpty())
 
             // Add page object with url, optional token, and product/category lists
