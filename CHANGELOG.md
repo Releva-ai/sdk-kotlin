@@ -11,10 +11,11 @@ iOS/Swift QA on Android. Each fix was reproduced on a device before and after.
   used a `MutableSharedFlow` with `extraBufferCapacity = 10` and discarded `tryEmit`'s result,
   while the producer emits every `immediately` banner in one synchronous pass and the consumer
   renders one at a time. Measured: 19 emitted, 12 rendered, 7 gone with no log and no error.
-  `StoryDisplayController` had the same shape. Both now use a larger buffer with
-  `DROP_LATEST` — both producers emit in priority/server order, so dropping the oldest
-  would discard the highest-priority item first — and a dropped item is logged, as is an
-  emission with no attached collector, which no buffer size can fix.
+  `StoryDisplayController` had the same shape. Both now use a much larger buffer (128 for
+  banners, 64 for stories) with `DROP_LATEST` — both producers emit in priority/server
+  order, so dropping the oldest would discard the highest-priority item first — and a
+  dropped item is logged, as is an emission with no attached collector, which no buffer
+  size can fix.
 - **Stories stacked instead of queueing.** Every story emitted called `startActivity`, so a page
   with several opened several viewers at once (six live `StoryViewerActivity` instances were
   observed). They now queue and show one at a time.

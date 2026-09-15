@@ -112,4 +112,61 @@ class StoryViewerActivityTest {
 
         assertEquals(1, activity.currentSlideIndexForTest())
     }
+
+    /**
+     * Covers the `isAlive` window fix directly, at the unit rather than the
+     * queue-integration level: [StoryViewerActivity.launch] must publish the key to
+     * [StoryViewerActivity.isAlive] before `startActivity` returns, since
+     * `StoryDisplayManager`'s host-resume observer can run and read it before this
+     * activity's own `onCreate` ever executes (see the KDoc on `aliveKeys`).
+     */
+    @Test
+    fun `isAlive is true immediately after launch, before onCreate runs`() {
+        val story = StoryResponse(
+            token = "isalive-story",
+            slides = listOf(StorySlideResponse(id = 1, durationSeconds = 5))
+        )
+        val host = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+
+        val key = StoryViewerActivity.launch(context = host, story = story, client = client)
+
+        assertTrue(StoryViewerActivity.isAlive(key))
+    }
+
+    /**
+     * Covers the other half of the same fix: a back press must retire the key in
+     * `finish()`, before `onDestroy` runs, not after. `onBackPressed()` — rather than
+     * calling `close()` or the close button directly — is what actually broke this: it
+     * drives `finish()` through [androidx.activity.OnBackPressedDispatcher]'s fallback
+     * (`finishAfterTransition`), the same path a real back press takes, whereas the
+     * host's `onResume` (which reads `isAlive`) fires before `onDestroy` completes. Under
+     * Robolectric, `finishAfterTransition` reaches the actual `finish()` call (and so this
+     * override) via a posted Runnable rather than synchronously, and that Runnable is not
+     * yet due the instant `onBackPressed()` returns — a plain, no-argument
+     * [org.robolectric.shadows.ShadowLooper.idle], which by contract only drains
+     * already-due messages, leaves it queued and the key still alive.
+     * [org.robolectric.shadows.ShadowLooper.runToEndOfTasks] drains it regardless of due
+     * time, which is what actually observes `finish()` having run.
+     */
+    @Test
+    fun `finishing retires the launch key immediately, before onDestroy runs`() {
+        val story = StoryResponse(
+            token = "finish-story",
+            slides = listOf(StorySlideResponse(id = 1, durationSeconds = 5))
+        )
+        val host = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val key = StoryViewerActivity.launch(context = host, story = story, client = client)
+        val intent = Intent(host, StoryViewerActivity::class.java).apply {
+            putExtra("releva_story_key", key)
+        }
+        val controller = Robolectric.buildActivity(StoryViewerActivity::class.java, intent)
+            .create()
+            .start()
+            .resume()
+
+        controller.get().onBackPressed()
+        shadowOf(Looper.getMainLooper()).runToEndOfTasks()
+
+        assertFalse(StoryViewerActivity.isAlive(key))
+    }
 }

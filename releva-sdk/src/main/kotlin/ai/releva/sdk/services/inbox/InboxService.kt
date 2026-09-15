@@ -96,6 +96,11 @@ class InboxService private constructor() : DefaultLifecycleObserver {
 
     /**
      * Fetch first page of messages + unread count in parallel.
+     *
+     * Never throws: a failure is caught, logged, and surfaced through
+     * [InboxState.lastRefreshError] instead, so callers that just want "state is fresh
+     * when this returns" don't also need a try/catch — check `lastRefreshError` if you
+     * need to know whether it actually succeeded.
      */
     suspend fun refresh() {
         if (!initialized) return

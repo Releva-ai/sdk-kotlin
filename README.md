@@ -290,6 +290,22 @@ StoryDisplayManager.attach(activity)
 
 `setOnLinkTap` must be called before `attach()`.
 
+### 4. Story Trigger Evaluation
+
+`StoryDisplayManager` only shows a story once something asks it to (via `StoryDisplayController.showStory`); it does not itself decide *when* a story with a given `trigger` (`immediately`, `delaySeconds`, `scrollPercentage`, `cartChanged`, `wishlistChanged`) should fire. `StoryManagerService` evaluates that, but the SDK does not construct or drive one for you — wire it up yourself against `RelevaResponse.stories` from a push response:
+
+```kotlin
+val storyManager = StoryManagerService()
+storyManager.initialize(relevaResponse.stories)
+
+// Call these from wherever your app already tracks the corresponding state change:
+storyManager.onCartChanged()
+storyManager.onWishlistChanged()
+storyManager.onScrollPercentageReached(percentage)
+```
+
+`immediately` and `delaySeconds` triggers fire on their own once `initialize()` is called; the other three need the matching method called from your own cart/wishlist/scroll code. `leaveIntent` is not supported on mobile. Call `storyManager.dispose()` when you are done with it to cancel any pending `delaySeconds` timers.
+
 ## Example Projects
 
 See the `shopping-android-app` directory for a complete integration example.
