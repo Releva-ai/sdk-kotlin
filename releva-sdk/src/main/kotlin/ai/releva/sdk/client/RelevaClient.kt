@@ -875,9 +875,13 @@ class RelevaClient(
      *
      * A failure that says nothing about the request — it never reached the server — is
      * retried, and so is a 5xx response, up to [RelevaConfig.maxRetryAttempts] retries on
-     * top of the first try (so the default of 3 makes 4 requests total), matching the Swift
-     * SDK's `NetworkService.executeRequest(_:retryAttempts:)`, which decrements an
-     * `attemptsLeft` starting at `retryAttempts` the same way. A 4xx and any 2xx are returned
+     * top of the first try (so the default of 3 makes 4 requests total). The counting matches
+     * the Swift SDK's `NetworkService.executeRequest(_:retryAttempts:)`, which decrements an
+     * `attemptsLeft` starting at `retryAttempts` the same way — but only two of Swift's call
+     * sites (`sendPushRequest`, `registerPushToken`) actually read `maxRetryAttempts`; every
+     * other retryable endpoint there hardcodes a smaller budget at the call site, so the
+     * request *count* at the shared default matches Swift for those two endpoints only, not
+     * for every request this method serves. A 4xx and any 2xx are returned
      * to the caller on the spot: a 4xx is the server's verdict on this request, and repeating
      * it would only produce the same verdict. Once the retries are spent the last failure
      * reaches the caller exactly as it did before, response or exception.

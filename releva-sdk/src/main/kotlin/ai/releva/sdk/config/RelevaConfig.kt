@@ -19,8 +19,13 @@ data class RelevaConfig(
     // requests before the caller sees a failure), and 0 is a single call with no retry. Named,
     // defaulted and counted to match the Swift SDK's RelevaConfig.maxRetryAttempts, which
     // NetworkService.executeRequest(_:retryAttempts:) decrements from an `attemptsLeft` that
-    // starts at this value, so the two SDKs make the same number of requests at the same
-    // default before giving up.
+    // starts at this value the same way. That counting parity does not extend to every
+    // endpoint's request count: on the Swift side only sendPushRequest and registerPushToken
+    // read this config value, while every other retryable call there hardcodes a smaller
+    // budget at the call site (NPS and inbox reads/writes at 1, banner impression/push event
+    // at 2, inboxTrackAction at 0, never retried). So this default matches Swift's request
+    // count only for push send and token registration; every other endpoint gets more attempts
+    // here than its Swift counterpart.
     val maxRetryAttempts: Int = 3
 ) {
     companion object {
