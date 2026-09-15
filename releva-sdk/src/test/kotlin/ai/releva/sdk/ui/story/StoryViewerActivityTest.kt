@@ -15,6 +15,7 @@ import java.time.Duration
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -231,7 +232,8 @@ class StoryViewerActivityTest {
      * the button. Why it missed was not established; it does not miss under Robolectric,
      * where the window sits at the display origin and window coordinates and screen
      * coordinates coincide, which is why [tap] is given a non-zero `rawOffset` here to force
-     * the miss.
+     * the miss — one pixel past the button's own height, so the raw point falls outside its
+     * bounds structurally rather than by a constant tuned to the current padding and text size.
      *
      * So what this pins is not the offset but the invariant the fix rests on: the action
      * button is a sibling above the overlay now, reached by ordinary touch dispatch, so a
@@ -260,7 +262,11 @@ class StoryViewerActivityTest {
         )
         val button = requireViewWithText(activity, "Open")
 
-        tap(activity, centreOf(button), rawOffset = 37f)
+        // One pixel past the button's own height is guaranteed to clear half that height,
+        // which is all offsetting both axes by the same amount needs to push the raw point
+        // outside the button's bounds — structural, unlike a bare constant tied to today's
+        // padding and text size.
+        tap(activity, centreOf(button), rawOffset = button.height + 1f)
 
         assertEquals(listOf("https://example.com/offer"), taps)
         assertEquals(0, activity.currentSlideIndexForTest())
@@ -272,6 +278,12 @@ class StoryViewerActivityTest {
      * and navigate as before. Right of centre advances a slide. No `rawOffset` here — this
      * is the ordinary case, and it passes before the fix as well as after; it is a guard
      * against the new container swallowing navigation, not a demonstration of the bug.
+     *
+     * The slide advance also lands on `actionContainer`'s obligation to clear itself: the
+     * second slide has no `actionLabel`, so once the tap above lands there, no view with text
+     * "Open" may remain in the tree — a leftover would sit above the overlay, permanently
+     * covering that strip of every later slide and firing this slide's action for whichever
+     * slide is current when it is eventually tapped.
      */
     @Test
     fun `tapping away from the action button still navigates`() {
@@ -301,6 +313,7 @@ class StoryViewerActivityTest {
 
         assertEquals(emptyList<String>(), taps)
         assertEquals(1, activity.currentSlideIndexForTest())
+        assertNull(findViewWithText(activity, "Open"))
     }
 
     /** The close button sits above the new container too, and must still close the viewer. */
@@ -350,7 +363,7 @@ class StoryViewerActivityTest {
             .get()
     }
 
-    private fun requireViewWithText(activity: StoryViewerActivity, text: String): TextView {
+    private fun findViewWithText(activity: StoryViewerActivity, text: String): TextView? {
         fun find(view: View): TextView? {
             if (view is TextView && view.text?.toString() == text) return view
             if (view is ViewGroup) {
@@ -360,8 +373,11 @@ class StoryViewerActivityTest {
             }
             return null
         }
-        return requireNotNull(find(activity.window.decorView)) { "no view with text \"$text\"" }
+        return find(activity.window.decorView)
     }
+
+    private fun requireViewWithText(activity: StoryViewerActivity, text: String): TextView =
+        requireNotNull(findViewWithText(activity, text)) { "no view with text \"$text\"" }
 
     private fun centreOf(view: View): Pair<Float, Float> {
         val location = IntArray(2)

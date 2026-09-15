@@ -3,7 +3,8 @@
 ## 1.4.0
 
 Everything here came out of a device pass against a real domain, replicating the
-iOS/Swift QA on Android. Each fix was reproduced on a device before and after.
+iOS/Swift QA on Android. Each fix was reproduced on a device before and after,
+except where an entry below says otherwise.
 
 ### Fixed
 
@@ -33,7 +34,8 @@ iOS/Swift QA on Android. Each fix was reproduced on a device before and after.
   bounds was handled as slide navigation and the button did nothing. Why it missed was not
   established, so rather than repairing the hit test the button now sits above the overlay and is
   reached by ordinary touch dispatch, the same way the close button already was. Taps that miss the
-  button still fall through to navigation.
+  button still fall through to navigation. Device retest pending: the "before" here is the QA
+  observation above, the "after" still needs a device pass on the retap.
 - **Banner popup content rendered behind the status bar.** The content is now inset by the real
   window insets, including the display cutout, while the background still runs edge to edge.
 - **Design padding was applied in raw pixels rather than dp.** `parseEdgeInsets` left the density

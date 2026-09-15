@@ -214,7 +214,8 @@ class StoryViewerActivity : AppCompatActivity() {
             )
         }
 
-        // Content area below progress bars
+        // Content area below progress bars. actionContainer, added further down, must keep
+        // identical layout params to this — see the comment there.
         contentContainer = FrameLayout(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
