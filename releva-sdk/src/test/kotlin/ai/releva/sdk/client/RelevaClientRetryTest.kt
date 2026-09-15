@@ -166,6 +166,18 @@ class RelevaClientRetryTest {
         assertTrue("expected an IOException from the failed body read: $failure", failure is IOException)
         assertEquals(1, server.requestCount)
         assertEquals(emptyList<Long>(), waits)
+
+        // Not retried, but not silent either. The body read sits outside the retry `try`, and
+        // when the merge with the transport-logging fix put it there it also put it outside
+        // any catch — so this failure reached the caller with nothing in the log, which is the
+        // one outcome that log exists to prevent. Since OkHttp returns at the response
+        // headers, this is where an ordinary mid-transfer disconnect lands.
+        assertEquals("expected one failure line, got ${failureLogLines()}", 1, failureLogLines().size)
+        assertTrue(
+            "unexpected shape: ${failureLogLines().single()}",
+            Regex("""^GET /api/v0/inbox/unread-count -> failed in \d+ms: """)
+                .containsMatchIn(failureLogLines().single())
+        )
     }
 
     // submitNpsResponse used to wrap its own call in a one-shot retry on top of whatever
@@ -206,6 +218,14 @@ class RelevaClientRetryTest {
 
     private fun retryLogLines(): List<String> =
         ShadowLog.getLogsForTag("RelevaClient").map { it.msg }.filter { it.contains("retrying") }
+
+    /**
+     * The per-attempt failure lines, which are a different line from [retryLogLines]: that one
+     * matches `retryAfter`'s "attempt N of M failed, retrying" and names the attempt but not
+     * the cause, and it is not written at all for the attempt that finally throws.
+     */
+    private fun failureLogLines(): List<String> =
+        ShadowLog.getLogsForTag("RelevaClient").map { it.msg }.filter { it.contains("-> failed in ") }
 
     /**
      * A localhost URL nothing is listening on — a server started and immediately shut down

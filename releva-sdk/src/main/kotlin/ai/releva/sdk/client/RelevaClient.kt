@@ -925,10 +925,23 @@ class RelevaClient(
                 attempt++
                 continue
             }
-            // Outside the try/catch on purpose — see the function doc above. A response object
-            // here means the request already reached the server; a body-read failure from here
-            // on is not retried.
-            val responseBody = response.use { it.body?.string() ?: "" }
+            // Outside the RETRY try on purpose — see the function doc above. A response object
+            // here means the request already reached the server, so a body-read failure from
+            // here on is not retried. It still has to be logged, though: it is an IOException
+            // reaching the caller, which is the one outcome the request log exists to stop
+            // being silent about, and because OkHttp returns at the response headers a read
+            // timeout or a mid-transfer disconnect — the ordinary mobile failure — lands here
+            // rather than on the pre-response path. Its own catch, so it is logged and
+            // rethrown without being retried.
+            val responseBody = try {
+                response.use { it.body?.string() ?: "" }
+            } catch (e: IOException) {
+                if (config.enableRequestLogging) {
+                    val failedAfterMs = SystemClock.elapsedRealtime() - started
+                    Log.w(TAG, "$verb $label -> failed in ${failedAfterMs}ms: ${e.javaClass.simpleName}: ${e.message}")
+                }
+                throw e
+            }
             val tookMs = SystemClock.elapsedRealtime() - started
             // One flag for both the log classification and the retry decision below, so the
             // two can no longer read differently for the same response.
