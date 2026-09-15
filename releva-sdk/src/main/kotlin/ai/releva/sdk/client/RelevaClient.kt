@@ -873,12 +873,22 @@ class RelevaClient(
      * a 4xx is exactly the class of failure a bad or replayed request produces. [RelevaConfig.enableRequestLogging]
      * gates all of this so an integrator can silence it in their own release builds.
      *
-     * A failure that says nothing about the request — it never reached the server, or the
-     * server answered 5xx — is retried up to [RelevaConfig.maxRetryAttempts] attempts in
-     * total, matching the Swift SDK's policy and its waits. A 4xx and any 2xx are returned
+     * A failure that says nothing about the request — it never reached the server — is
+     * retried, and so is a 5xx response, up to [RelevaConfig.maxRetryAttempts] retries on
+     * top of the first try (so the default of 3 makes 4 requests total), matching the Swift
+     * SDK's `NetworkService.executeRequest(_:retryAttempts:)`, which decrements an
+     * `attemptsLeft` starting at `retryAttempts` the same way. A 4xx and any 2xx are returned
      * to the caller on the spot: a 4xx is the server's verdict on this request, and repeating
-     * it would only produce the same verdict. Once the attempts are spent the last failure
+     * it would only produce the same verdict. Once the retries are spent the last failure
      * reaches the caller exactly as it did before, response or exception.
+     *
+     * Only the call itself is retried, not the body read: `httpClient.newCall(request).execute()`
+     * returning means the server has already answered with a status code it chose, so an
+     * `IOException` reading the body afterwards (a read timeout mid-transfer, the connection
+     * dropping after the headers) is a different failure from "never reached the server" and
+     * is handed straight to the caller, exactly as it was before this loop existed — retrying
+     * it would re-send a request the server may already have committed for that status.
+     * `.use { }` still closes the response on that path so it does not leak the connection.
      *
      * The wait happens on the calling thread. Every caller of this method is already inside
      * `withContext(Dispatchers.IO)` and blocked on the call itself, so there is no main
@@ -886,39 +896,41 @@ class RelevaClient(
      * rather than turning this and `executeGet`/`executeRequest` into suspending functions.
      */
     private fun execute(request: Request, verb: String, label: String): HttpResponse {
-        val maxAttempts = config.maxRetryAttempts.coerceAtLeast(1)
+        val totalAttempts = config.maxRetryAttempts.coerceAtLeast(0) + 1
         var attempt = 1
         while (true) {
             val started = SystemClock.elapsedRealtime()
             val response: Response
-            val responseBody: String
             try {
                 response = httpClient.newCall(request).execute()
-                // .use{} so a body read that fails partway (a read timeout mid-transfer)
-                // still closes the response instead of leaking the connection — a leak this
-                // loop could now repeat up to maxAttempts times for one logical request.
-                responseBody = response.use { it.body?.string() ?: "" }
             } catch (e: IOException) {
-                if (attempt >= maxAttempts) throw e
-                retryAfter(TRANSPORT_RETRY_DELAY_MS, verb, label, attempt, maxAttempts)
+                if (attempt >= totalAttempts) throw e
+                retryAfter(TRANSPORT_RETRY_DELAY_MS, verb, label, attempt, totalAttempts)
                 attempt++
                 continue
             }
+            // Outside the try/catch on purpose — see the function doc above. A response object
+            // here means the request already reached the server; a body-read failure from here
+            // on is not retried.
+            val responseBody = response.use { it.body?.string() ?: "" }
             val tookMs = SystemClock.elapsedRealtime() - started
+            // One flag for both the log classification and the retry decision below, so the
+            // two can no longer read differently for the same response.
+            val isServerError = response.code in 500..599
 
             if (config.enableRequestLogging) {
                 when {
                     response.isSuccessful ->
                         Log.d(TAG, "$verb $label -> ${response.code} in ${tookMs}ms (${responseBody.length} bytes)")
-                    response.code >= 500 ->
+                    isServerError ->
                         Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms: ${responseBody.take(500)}")
                     else ->
                         Log.w(TAG, "$verb $label -> ${response.code} in ${tookMs}ms")
                 }
             }
 
-            if (response.code in 500..599 && attempt < maxAttempts) {
-                retryAfter(SERVER_ERROR_RETRY_DELAY_MS, verb, label, attempt, maxAttempts)
+            if (isServerError && attempt < totalAttempts) {
+                retryAfter(SERVER_ERROR_RETRY_DELAY_MS, verb, label, attempt, totalAttempts)
                 attempt++
                 continue
             }
@@ -931,9 +943,9 @@ class RelevaClient(
      * Logs the attempt that just failed and takes the wait before the next one. One function
      * for both retry paths so the line keeps the shape the rest of the request log has.
      */
-    private fun retryAfter(delayMs: Long, verb: String, label: String, attempt: Int, maxAttempts: Int) {
+    private fun retryAfter(delayMs: Long, verb: String, label: String, attempt: Int, totalAttempts: Int) {
         if (config.enableRequestLogging) {
-            Log.w(TAG, "$verb $label -> attempt $attempt of $maxAttempts failed, retrying in ${delayMs}ms")
+            Log.w(TAG, "$verb $label -> attempt $attempt of $totalAttempts failed, retrying in ${delayMs}ms")
         }
         retryWait(delayMs)
     }

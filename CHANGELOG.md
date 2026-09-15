@@ -14,15 +14,20 @@ one.
   registration that met a blip was lost, while the Swift SDK against the same API retried and
   recovered. A failure that says nothing about the request itself — it never reached the server,
   or the server answered 5xx — is now retried on the Swift SDK's schedule: 1s after a transport
-  failure, 2s after a 5xx, three attempts in total, configurable through the new
-  `RelevaConfig.maxRetryAttempts` (0 or 1 means a single attempt, no retries). A 4xx and any 2xx
-  are still returned on the first attempt, each retry is logged under the existing
-  `enableRequestLogging` gate, and once the attempts are spent the last failure reaches the
+  failure, 2s after a 5xx, up to `RelevaConfig.maxRetryAttempts` retries on top of the first try
+  (default 3, so 4 requests before giving up — matching `NetworkService.executeRequest`'s
+  `attemptsLeft` counter on the Swift side exactly; 0 means a single attempt, no retries). A 4xx
+  and any 2xx are still returned on the first attempt, each retry is logged under the existing
+  `enableRequestLogging` gate, and once the retries are spent the last failure reaches the
   caller exactly as it did before. Retrying carries the duplicate-POST risk the Swift SDK has
   shipped with: a request the server processed but whose answer was lost in transit is sent
-  again. `submitNpsResponse` loses its own separate one-shot retry as part of this — it now gets
-  exactly the same policy as every other request instead of a second, stacked retry layer, so a
-  4xx on that endpoint is no longer re-sent and a 5xx gets three attempts (not the old two).
+  again — but only for a failure *before* a response arrives; a response that did arrive, whose
+  body read then failed partway (a read timeout mid-transfer, the connection dropping after the
+  headers), is handed to the caller after exactly one request, the same as before this change,
+  since the server has already committed to that status. `submitNpsResponse` loses its own
+  separate one-shot retry as part of this — it now gets exactly the same policy as every other
+  request instead of a second, stacked retry layer, so a 4xx on that endpoint is no longer
+  re-sent and a 5xx gets the same four-request budget as everything else (not the old two).
 
 ## 1.4.0
 
