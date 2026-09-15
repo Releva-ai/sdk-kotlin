@@ -45,6 +45,13 @@ class StoryViewerActivity : AppCompatActivity() {
     private var advanceRunnable: Runnable? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    /** This slide's total duration, so [onPause] can compute how much is left. */
+    private var slideDurationMs: Long = 0L
+    /** Elapsed time on the current slide as of the last [onPause]; 0 while running. */
+    private var pausedElapsedMs: Long = 0L
+    /** This activity's own launch key, published via [aliveKeys] for [isAlive]. */
+    private var launchKey: String? = null
+
     private lateinit var contentContainer: FrameLayout
     private lateinit var progressContainer: LinearLayout
     private val progressBars = mutableListOf<View>()
@@ -58,6 +65,18 @@ class StoryViewerActivity : AppCompatActivity() {
 
         private val pendingLaunches = java.util.concurrent.ConcurrentHashMap<String, PendingLaunchData>()
 
+        // Keys for viewers currently alive (onCreate has run, onDestroy has not), so a
+        // caller holding a launch key can ask "is this viewer still on screen?" without
+        // relying on a boolean some other call site is responsible for clearing. Backed by
+        // a thread-safe set since StoryDisplayManager.pump() and lifecycle callbacks can
+        // both touch it.
+        private val aliveKeys = java.util.Collections.newSetFromMap(
+            java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+        )
+
+        /** True if the viewer launched with this key has been created and not yet destroyed. */
+        fun isAlive(key: String): Boolean = aliveKeys.contains(key)
+
         private data class PendingLaunchData(
             val story: StoryResponse,
             val client: RelevaClient,
@@ -65,19 +84,21 @@ class StoryViewerActivity : AppCompatActivity() {
             val onClose: (() -> Unit)?
         )
 
+        /** Launches the viewer and returns its launch key, for use with [isAlive]. */
         fun launch(
             context: Context,
             story: StoryResponse,
             client: RelevaClient,
             onLinkTap: ((String) -> Unit)? = null,
             onClose: (() -> Unit)? = null
-        ) {
+        ): String {
             val key = java.util.UUID.randomUUID().toString()
             pendingLaunches[key] = PendingLaunchData(story, client, onLinkTap, onClose)
             val intent = Intent(context, StoryViewerActivity::class.java).apply {
                 putExtra(EXTRA_LAUNCH_KEY, key)
             }
             context.startActivity(intent)
+            return key
         }
     }
 
@@ -91,6 +112,8 @@ class StoryViewerActivity : AppCompatActivity() {
 
         val key = intent.getStringExtra(EXTRA_LAUNCH_KEY) ?: run { finish(); return }
         val data = pendingLaunches.remove(key) ?: run { finish(); return }
+        launchKey = key
+        aliveKeys.add(key)
 
         story = data.story
         client = data.client
@@ -272,9 +295,14 @@ class StoryViewerActivity : AppCompatActivity() {
     private fun startSlideTimer() {
         progressAnimator?.cancel()
         advanceRunnable?.let { handler.removeCallbacks(it) }
+        pausedElapsedMs = 0L
 
         val slide = story.slides[currentSlideIndex]
-        val duration = slide.durationSeconds * 1000L
+        // durationSeconds comes off the wire. 0 combined with endBehavior "loop" is an
+        // unbounded main-thread re-render loop, and a negative value throws out of
+        // ValueAnimator.setDuration; clamp to a sane range instead of trusting either.
+        val duration = slide.durationSeconds.coerceIn(1, 60) * 1000L
+        slideDurationMs = duration
 
         // Update progress fills for completed/current slides
         updateProgressBars()
@@ -294,9 +322,38 @@ class StoryViewerActivity : AppCompatActivity() {
             start()
         }
 
+        scheduleAdvance(duration)
+    }
+
+    private fun scheduleAdvance(delayMs: Long) {
+        advanceRunnable?.let { handler.removeCallbacks(it) }
         val advance = Runnable { goToNextSlide() }
         advanceRunnable = advance
-        handler.postDelayed(advance, duration)
+        handler.postDelayed(advance, delayMs)
+    }
+
+    /**
+     * Backgrounding the app used to leave the real-clock advance running, so the user came
+     * back to a finished (or looped-past) story with storySlideView/storyComplete already
+     * tracked for content nobody saw. Pausing the animator and cancelling the pending
+     * advance stops the clock; [onResume] reposts the remainder.
+     */
+    override fun onPause() {
+        super.onPause()
+        progressAnimator?.let { animator ->
+            pausedElapsedMs = animator.currentPlayTime
+            animator.pause()
+        }
+        advanceRunnable?.let { handler.removeCallbacks(it) }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val animator = progressAnimator ?: return
+        if (!animator.isPaused) return
+        animator.resume()
+        val remaining = (slideDurationMs - pausedElapsedMs).coerceAtLeast(0L)
+        scheduleAdvance(remaining)
     }
 
     private fun updateProgressBars() {
@@ -519,6 +576,11 @@ class StoryViewerActivity : AppCompatActivity() {
         progressAnimator?.cancel()
         advanceRunnable?.let { handler.removeCallbacks(it) }
         scope.cancel()
+        // Must happen before super.onDestroy(): StoryDisplayManager's onResume observer can
+        // run synchronously off the host activity's own onResume, and it needs isAlive(key)
+        // to already be false by then, or it will treat this viewer as still on screen and
+        // skip pumping the next queued story.
+        launchKey?.let { aliveKeys.remove(it) }
         super.onDestroy()
     }
 }

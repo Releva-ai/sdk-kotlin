@@ -2,6 +2,7 @@ package ai.releva.sdk.services.story
 
 import ai.releva.sdk.types.response.StoryResponse
 import ai.releva.sdk.types.response.StorySlideResponse
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
