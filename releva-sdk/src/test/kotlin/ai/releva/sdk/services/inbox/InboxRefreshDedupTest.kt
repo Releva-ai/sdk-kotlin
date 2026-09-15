@@ -45,12 +45,18 @@ class InboxRefreshDedupTest {
         context = RuntimeEnvironment.getApplication()
         storage = StorageService.getInstance(context)
         storage.clear()
+        // InboxService.instance is a process-lifetime singleton. Without resetting it, a
+        // previous test's client/state leaks in here (initialize() is a no-op for an already
+        // initialized instance beyond swapping the client), and this test's own client/state
+        // leaks into whichever test runs next — order-dependent flakiness either way.
+        InboxService.instance.resetForTest()
         client = GatedInboxApiClient()
         InboxService.instance.initialize(client, storage)
     }
 
     @After
     fun tearDown() {
+        InboxService.instance.resetForTest()
         storage.clear()
     }
 

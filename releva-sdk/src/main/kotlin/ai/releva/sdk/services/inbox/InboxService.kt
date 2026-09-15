@@ -4,6 +4,7 @@ import ai.releva.sdk.services.storage.StorageService
 import ai.releva.sdk.types.inbox.InboxMessage
 import ai.releva.sdk.types.inbox.InboxState
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -16,6 +17,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -118,33 +120,45 @@ class InboxService private constructor() : DefaultLifecycleObserver {
     private suspend fun performRefresh() {
         val c = client ?: return
 
-        _state.value = _state.value.copy(isLoading = true)
+        // Every other mutator (loadMore, markAsRead, markAllAsRead, deleteMessage) takes
+        // stateMutex for its whole read-modify-write. This one didn't, so a refresh landing
+        // between another mutator's read and its write clobbered that mutator's update —
+        // e.g. an optimistic markAsRead() could be overwritten by a refresh's copy() built
+        // from the pre-read state, silently reviving a message the user had just read.
+        // _state.update{} inside the same lock makes each write atomic with respect to the
+        // *current* value at the moment it applies, not just the one read at the top.
+        stateMutex.withLock {
+            _state.update { it.copy(isLoading = true) }
 
-        try {
-            val (messagesResult, unreadCount) = coroutineScope {
-                val messagesDeferred = async(Dispatchers.IO) { c.inboxFetchMessages(limit = 20) }
-                val countDeferred = async(Dispatchers.IO) { c.inboxFetchUnreadCount() }
-                messagesDeferred.await() to countDeferred.await()
+            try {
+                val (messagesResult, unreadCount) = coroutineScope {
+                    val messagesDeferred = async(Dispatchers.IO) { c.inboxFetchMessages(limit = 20) }
+                    val countDeferred = async(Dispatchers.IO) { c.inboxFetchUnreadCount() }
+                    messagesDeferred.await() to countDeferred.await()
+                }
+
+                @Suppress("UNCHECKED_CAST")
+                val messagesList = (messagesResult["messages"] as? List<Map<String, Any?>>)
+                    ?.map { InboxMessage.fromMap(it) } ?: emptyList()
+                val nextCursor = messagesResult["nextCursor"] as? String
+
+                _state.update {
+                    it.copy(
+                        messages = messagesList,
+                        unreadCount = unreadCount,
+                        nextCursor = nextCursor,
+                        isLoading = false,
+                        hasMore = nextCursor != null,
+                        lastFetchTime = System.currentTimeMillis(),
+                        lastRefreshError = null
+                    )
+                }
+
+                persistState()
+            } catch (e: Exception) {
+                _state.update { it.copy(isLoading = false, lastRefreshError = e.message ?: e.toString()) }
+                Log.e(TAG, "Error refreshing inbox: ${e.message}")
             }
-
-            @Suppress("UNCHECKED_CAST")
-            val messagesList = (messagesResult["messages"] as? List<Map<String, Any?>>)
-                ?.map { InboxMessage.fromMap(it) } ?: emptyList()
-            val nextCursor = messagesResult["nextCursor"] as? String
-
-            _state.value = _state.value.copy(
-                messages = messagesList,
-                unreadCount = unreadCount,
-                nextCursor = nextCursor,
-                isLoading = false,
-                hasMore = nextCursor != null,
-                lastFetchTime = System.currentTimeMillis()
-            )
-
-            persistState()
-        } catch (e: Exception) {
-            _state.value = _state.value.copy(isLoading = false)
-            Log.e(TAG, "Error refreshing inbox: ${e.message}")
         }
     }
 
@@ -334,6 +348,21 @@ class InboxService private constructor() : DefaultLifecycleObserver {
         if (_state.value.isStale) {
             refresh()
         }
+    }
+
+    /**
+     * Restores this singleton to its pre-[initialize] state. [instance] lives for the process,
+     * so without this, tests that call [initialize] leak client/storage/state into whichever
+     * test runs next in the same process — flaky failures that depend on run order and vanish
+     * when the leaking test is run alone.
+     */
+    @VisibleForTesting
+    fun resetForTest() {
+        client = null
+        storage = null
+        initialized = false
+        inFlightRefresh = null
+        _state.value = InboxState()
     }
 
     // -- Private helpers --

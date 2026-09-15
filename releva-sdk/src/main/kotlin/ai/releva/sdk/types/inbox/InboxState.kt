@@ -9,7 +9,11 @@ data class InboxState(
     val nextCursor: String? = null,
     val isLoading: Boolean = false,
     val hasMore: Boolean = true,
-    val lastFetchTime: Long? = null  // epoch millis
+    val lastFetchTime: Long? = null,  // epoch millis
+    // Set when the most recent refresh threw, cleared on the next successful one. A caller
+    // awaiting refresh() has no other way to tell a failed attempt from a successful one —
+    // both leave isLoading false and the previous message list in place.
+    val lastRefreshError: String? = null
 ) {
     val isStale: Boolean
         get() {
