@@ -197,8 +197,9 @@ class StorageServiceTest {
     // Merge Profile ID Tests
 
     @Test
-    fun `set and get merge profile ids`() {
-        storageService.setMergeProfileIds(listOf("profile-1", "profile-2"))
+    fun `add and get merge profile ids preserves queue order`() {
+        storageService.addMergeProfileId("profile-1")
+        storageService.addMergeProfileId("profile-2")
 
         assertEquals(listOf("profile-1", "profile-2"), storageService.getMergeProfileIds())
     }
@@ -209,8 +210,36 @@ class StorageServiceTest {
     }
 
     @Test
+    fun `add merge profile id does not queue the same id twice`() {
+        storageService.addMergeProfileId("profile-1")
+        storageService.addMergeProfileId("profile-2")
+        storageService.addMergeProfileId("profile-1")
+
+        assertEquals(listOf("profile-1", "profile-2"), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `remove merge profile ids removes only the given ids`() {
+        storageService.addMergeProfileId("profile-1")
+        storageService.addMergeProfileId("profile-2")
+
+        storageService.removeMergeProfileIds(listOf("profile-1"))
+
+        assertEquals(listOf("profile-2"), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `remove merge profile ids ignores ids that are not queued`() {
+        storageService.addMergeProfileId("profile-1")
+
+        storageService.removeMergeProfileIds(listOf("profile-9"))
+
+        assertEquals(listOf("profile-1"), storageService.getMergeProfileIds())
+    }
+
+    @Test
     fun `clear merge profile ids removes them`() {
-        storageService.setMergeProfileIds(listOf("profile-1"))
+        storageService.addMergeProfileId("profile-1")
 
         storageService.clearMergeProfileIds()
 

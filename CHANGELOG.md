@@ -10,18 +10,23 @@
   the previous id was no longer recoverable — `storage.getProfileId()` already returned the new
   one — so the two identities were never linked, silently and permanently. Device-verified with a
   control: online, the push body carried `mergeProfileIds = ["ctl-A-000036"]`; with the radios off
-  and a force-stop before any successful push, the next launch sent `mergeProfileIds = []`. The
-  queue is now persisted through `StorageService` and restored from it on first use, and a
-  successful push clears from storage only the ids that push actually sent — not the whole queue —
-  so an id queued by a concurrent `setProfileId` call while a push is in flight is not lost along
-  with it. `skipMergeWithPreviousProfileId` (the logout path) now clears the queue too — previously
-  it only suppressed adding to it, so a stale entry from an earlier merge could survive a logout;
-  that gap is closed regardless of whether the profile id passed alongside the flag has actually
-  changed. `registerPushToken` no longer clears the queue on success: its request never carried
-  `mergeProfileIds`, so doing so only ever discarded a merge that a later push still needed to send
-  — harmless while the queue was in-memory only, but not once it is durable. Matching the Swift
-  SDK, a previous id already in the queue is no longer appended twice, so A → B → A → B queues
-  `["A", "B"]` rather than `["A", "B", "A"]`. The wire format is unchanged.
+  and a force-stop before any successful push, the next launch sent `mergeProfileIds = []`.
+
+  The queue now lives in `StorageService` and nowhere else, so it survives the process by
+  construction. Alongside that:
+
+  - A successful push removes only the ids that push actually sent, so an id queued by a
+    concurrent `setProfileId` while a push was in flight is no longer dropped with them.
+  - `skipMergeWithPreviousProfileId` (the logout path) now clears the queue, whether or not the
+    profile id passed alongside the flag has changed. Previously it only suppressed adding to the
+    queue, so a stale entry from an earlier merge could survive a logout.
+  - `registerPushToken` no longer clears the queue on success. Its request never carried
+    `mergeProfileIds`, so clearing there only ever discarded a merge a later push still had to
+    send — harmless while the queue was in memory only, but not once it is durable.
+  - Matching the Swift SDK, an id already queued is not queued again, so A → B → A → B queues
+    `["A", "B"]` rather than `["A", "B", "A"]`.
+
+  The wire format is unchanged.
 
 ## 1.4.0
 

@@ -2,6 +2,7 @@ package ai.releva.sdk.services.storage
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import org.json.JSONArray
 
 /**
@@ -15,6 +16,7 @@ class StorageService private constructor(context: Context) {
     )
 
     companion object {
+        private const val TAG = "StorageService"
         private const val PREFS_NAME = "releva_sdk_prefs"
 
         // Storage keys
@@ -51,21 +53,21 @@ class StorageService private constructor(context: Context) {
     fun getProfileId(): String? = preferences.getString(KEY_PROFILE_ID, null)
 
     /**
-     * Profile ids waiting to be merged into the current one. Persisted so the intent to
-     * merge outlives the process if the push that would carry them never succeeds.
+     * Profile ids queued to be merged into the current profile. This is the only copy: it is
+     * read straight from here at every use rather than mirrored into a field, so the intent to
+     * merge outlives the process when the push that would carry it never succeeds.
      *
-     * Writes use `commit()` rather than `apply()`, unlike most of this file: this is the one
-     * value whose entire purpose is to survive a force-stop. The caller (`RelevaClient`) writes
-     * this queue *before* [KEY_PROFILE_ID], and a `false` return here is not currently surfaced
-     * — see the callers in `RelevaClient.setProfileId`/`push` for why the ordering is this way
-     * around and how a failed commit is logged.
+     * The mutators are `@Synchronized`, like [incrementDeviceViewsCount] and for the same
+     * reason: each is a read-modify-write, and `RelevaClient` appends from `setProfileId` while
+     * removing from `push` on an independent `Dispatchers.IO` coroutine. Holding the lock here
+     * rather than in the caller also serialises across `RelevaClient` instances, since this
+     * class is a process-wide singleton.
+     *
+     * Writes use `commit()` rather than `apply()`, unlike the rest of this file: this is the one
+     * value whose whole purpose is to survive a force-stop, and every caller is already on
+     * `Dispatchers.IO`.
      */
-    fun setMergeProfileIds(profileIds: List<String>): Boolean {
-        val jsonArray = JSONArray(profileIds)
-        return preferences.edit().putString(KEY_MERGE_PROFILE_IDS, jsonArray.toString()).commit()
-    }
-
-    /** @see setMergeProfileIds */
+    @Synchronized
     fun getMergeProfileIds(): List<String> {
         val jsonString = preferences.getString(KEY_MERGE_PROFILE_IDS, null) ?: return emptyList()
         return try {
@@ -76,9 +78,43 @@ class StorageService private constructor(context: Context) {
         }
     }
 
-    /** @see setMergeProfileIds */
-    fun clearMergeProfileIds(): Boolean {
-        return preferences.edit().remove(KEY_MERGE_PROFILE_IDS).commit()
+    /**
+     * Queues [profileId] for merging unless it is already queued.
+     * @see getMergeProfileIds
+     */
+    @Synchronized
+    fun addMergeProfileId(profileId: String) {
+        val queued = getMergeProfileIds()
+        if (!queued.contains(profileId)) {
+            writeMergeProfileIds(queued + profileId)
+        }
+    }
+
+    /**
+     * Removes exactly [profileIds], leaving anything queued since they were read.
+     * @see getMergeProfileIds
+     */
+    @Synchronized
+    fun removeMergeProfileIds(profileIds: List<String>) {
+        writeMergeProfileIds(getMergeProfileIds() - profileIds.toSet())
+    }
+
+    /** @see getMergeProfileIds */
+    @Synchronized
+    fun clearMergeProfileIds() {
+        writeMergeProfileIds(emptyList())
+    }
+
+    private fun writeMergeProfileIds(profileIds: List<String>) {
+        val editor = preferences.edit()
+        if (profileIds.isEmpty()) {
+            editor.remove(KEY_MERGE_PROFILE_IDS)
+        } else {
+            editor.putString(KEY_MERGE_PROFILE_IDS, JSONArray(profileIds).toString())
+        }
+        if (!editor.commit()) {
+            Log.w(TAG, "Failed to persist merge profile ids; a queued profile merge may be lost")
+        }
     }
 
     fun setDeviceId(deviceId: String) {

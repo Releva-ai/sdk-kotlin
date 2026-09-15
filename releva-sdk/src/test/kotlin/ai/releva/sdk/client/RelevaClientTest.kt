@@ -275,9 +275,12 @@ class RelevaClientTest {
         releaseResponse.countDown()
         pushThread.join(2000)
         pushFailure?.let { throw it }
+        // Without this, a hung push thread would fall through to the assertion below and read
+        // as a logic regression rather than as the hang it is.
+        assertFalse("push() did not complete within 2s", pushThread.isAlive)
 
-        // "profile-A" was sent and is cleared; "profile-B" was queued mid-flight and survives,
-        // in memory and in storage, for the next push to send.
+        // "profile-A" was sent and is removed; "profile-B" was queued mid-flight and survives
+        // for the next push to send.
         assertEquals(listOf("profile-B"), storageService.getMergeProfileIds())
     }
 

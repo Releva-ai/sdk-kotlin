@@ -53,26 +53,6 @@ class RelevaClient(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // Restored from storage so a merge queued before a failed push is not lost with the process.
-    // Deferred to first use rather than read here in the field initialiser: the documented
-    // integration constructs RelevaClient in Application.onCreate() — the main thread — and the
-    // first SharedPreferences read after construction blocks on SharedPreferencesImpl's load of
-    // the whole prefs file (which also holds cart_data/wishlist_data), which is exactly what
-    // StrictMode's detectDiskReads() flags. Every consumer below already runs on
-    // Dispatchers.IO, so deferring costs nothing. `by lazy`'s default SYNCHRONIZED mode only
-    // makes that *first* access race-free; every access after that is protected explicitly by
-    // mergeLock below, not by this property delegate.
-    private val mergeProfileIds: MutableList<String> by lazy { storage.getMergeProfileIds().toMutableList() }
-
-    // Guards every read and mutation of mergeProfileIds past construction. setProfileId can run
-    // on one Dispatchers.IO coroutine while push() runs on another — setCart/setWishlist's
-    // auto-push via trackScreenView, or the host's own login coroutine, overlapping with an
-    // in-flight push (see the sentMergeIds comment in push() below) — and mergeProfileIds is a
-    // plain ArrayList. Without this lock, one coroutine's add() racing another's removeAll() (or
-    // the JSONArray(Collection) walk inside StorageService.setMergeProfileIds) throws
-    // ConcurrentModificationException, and the same race can silently drop the id add() just
-    // appended instead of throwing.
-    private val mergeLock = Any()
     private var cartChanged = false
     private var wishlistChanged = false
     private var deviceIdChanged = false
@@ -114,40 +94,23 @@ class RelevaClient(
         // profile id with this flag set (e.g. a host that calls setProfileId on every launch)
         // still means "cancel any pending merge", even though the id itself did not change.
         if (skipMergeWithPreviousProfileId) {
-            clearMergeProfileIds()
+            storage.clearMergeProfileIds()
         }
 
         val previousProfileId = storage.getProfileId()
 
         if (previousProfileId == null || previousProfileId != profileId) {
             profileChanged = true
-            // Queue the merge before writing the new profile id (not after): storage.setProfileId
-            // uses apply(), an async disk write, while the merge queue below is committed
-            // synchronously, so writing the queue first means a process death between the two
-            // can never leave the new profile id on disk without the merge that explains it.
+            // Queue the merge before writing the new profile id. SharedPreferences offers no
+            // atomicity across two separate edits, so if the process dies between them one of
+            // the two orders has to lose something; this order leaves a queued id alongside a
+            // profile id that has not moved yet — at worst a redundant self-merge on the next
+            // push — rather than the new profile id with no record of where it came from, which
+            // is the loss this fix exists to prevent.
             if (!skipMergeWithPreviousProfileId && previousProfileId != null) {
-                synchronized(mergeLock) {
-                    if (!mergeProfileIds.contains(previousProfileId)) {
-                        mergeProfileIds.add(previousProfileId)
-                        if (!storage.setMergeProfileIds(mergeProfileIds.toList())) {
-                            Log.w(TAG, "Failed to persist merge profile ids (commit() returned false)")
-                        }
-                    }
-                }
+                storage.addMergeProfileId(previousProfileId)
             }
             storage.setProfileId(profileId)
-        }
-    }
-
-    /**
-     * Drop the profile ids queued for merging, in memory and in storage.
-     */
-    private fun clearMergeProfileIds() {
-        synchronized(mergeLock) {
-            mergeProfileIds.clear()
-        }
-        if (!storage.clearMergeProfileIds()) {
-            Log.w(TAG, "Failed to clear persisted merge profile ids (commit() returned false)")
         }
     }
 
@@ -290,9 +253,9 @@ class RelevaClient(
         wishlistChanged = false
         profileChanged = false
         deviceIdChanged = false
-        // Deliberately does not touch mergeProfileIds: the request body built above never
-        // carries it, so clearing here would discard a queued merge — durable since this PR,
-        // in memory before it — on a request that could not have delivered it.
+        // Deliberately does not clear the merge queue: the request body built above never
+        // carries mergeProfileIds, so clearing here would discard a merge that no request has
+        // delivered yet.
     }
 
     /**
@@ -392,15 +355,12 @@ class RelevaClient(
         val deviceId = storage.getDeviceId()
             ?: throw Exception("Please provide deviceId using client.setDeviceId() before using the client!")
 
-        // Snapshot before the network round trip, not read again after it returns: a
-        // concurrent setProfileId() on another Dispatchers.IO coroutine can append to
-        // mergeProfileIds while this request is in flight (setCart/setWishlist auto-push
-        // through trackScreenView, and the documented login path calls setProfileId from the
-        // host's own coroutine), and an id appended after this snapshot was never sent, so it
-        // must not be cleared on success. Taking the copy under mergeLock (rather than iterating
-        // the live list into JSONArray() directly) is what makes this safe against that same
-        // concurrent add(): see mergeLock's declaration above.
-        val sentMergeIds = synchronized(mergeLock) { mergeProfileIds.toList() }
+        // Read once, before the request goes out, and removed by value on success rather than
+        // re-read afterwards: a concurrent setProfileId() on another Dispatchers.IO coroutine
+        // (setCart/setWishlist auto-push through trackScreenView, or the host's own login
+        // coroutine) can queue an id while this request is in flight, and that id was never on
+        // the wire, so it has to survive this push's cleanup.
+        val sentMergeIds = storage.getMergeProfileIds()
 
         val payload = JSONObject().apply {
             put("deviceId", deviceId)
@@ -484,24 +444,10 @@ class RelevaClient(
         wishlistChanged = false
         profileChanged = false
         deviceIdChanged = false
-        // Remove only what this request actually sent. An id appended by a concurrent
-        // setProfileId() while this push was in flight (see sentMergeIds above) is not in
-        // sentMergeIds, so it survives here — in memory and, by rewriting rather than
-        // clearing storage, on disk too — for the next push to pick up. Both the mutation and
-        // the resulting storage write happen under mergeLock so they can't interleave with a
-        // concurrent setProfileId()'s add() (see mergeLock's declaration above).
+        // Removes only what this request actually sent, so an id queued while it was in flight
+        // (see sentMergeIds above) stays queued for the next push.
         if (sentMergeIds.isNotEmpty()) {
-            synchronized(mergeLock) {
-                mergeProfileIds.removeAll(sentMergeIds)
-                val persisted = if (mergeProfileIds.isEmpty()) {
-                    storage.clearMergeProfileIds()
-                } else {
-                    storage.setMergeProfileIds(mergeProfileIds.toList())
-                }
-                if (!persisted) {
-                    Log.w(TAG, "Failed to persist merge profile ids after push (commit() returned false)")
-                }
-            }
+            storage.removeMergeProfileIds(sentMergeIds)
         }
 
         val relevaResponse = RelevaResponse.fromJson(response.body)
