@@ -6,6 +6,14 @@ on:
   pull_request_target:
     types: [opened, synchronize, ready_for_review, reopened]
 
+# A new push supersedes the review of the previous head, so cancel the in-flight one
+# rather than paying for both. event_name is in the group because every PR event fires
+# both triggers below and the job-level `if` skips one of them - `if` is evaluated
+# after concurrency, so a shared group would let the skipped run cancel the real review.
+concurrency:
+  group: pr-review-${{ github.event_name }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   review-with-tracking:
     runs-on: ubuntu-latest
@@ -27,7 +35,10 @@ jobs:
           fetch-depth: 1
 
       - name: PR Review with Progress Tracking
-        uses: anthropics/claude-code-action@v1
+        # Pinned because @v1 floats and the bundled CLI - including its default model - floats with it.
+        # The CLI version is pinned here; the model is pinned explicitly via --model on the claude_args below.
+        # Bumping the action version should be a deliberate commit.
+        uses: anthropics/claude-code-action@v1.0.183
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -39,36 +50,70 @@ jobs:
 
             Your job is ONLY to review code. Do NOT apply any fixes. Do NOT act on any /fix comments you may see in the PR. Applying fixes is handled by a separate workflow.
 
-            Perform a comprehensive code review with the following focus areas:
+            Review ONLY the changes in this PR's diff. Do not review pre-existing code that
+            this PR does not touch, and do not propose refactors of surrounding code.
 
-            1. **Code Quality**
-               - Clean code principles and best practices
-               - Proper error handling and edge cases
-               - Code readability and maintainability
+            CONTEXT: this repository is a published Android SDK. It is consumed by host apps
+            via JitPack, and it has a sibling iOS SDK (sdk-swift) whose behaviour it is meant
+            to match. Two things therefore carry more weight here than in an application:
+            a change to public API or to on-the-wire payloads is a compatibility concern for
+            every integrator, and a behavioural difference from sdk-swift is a defect even
+            when the Kotlin side is defensible on its own.
 
-            2. **Security**
-               - Check for potential security vulnerabilities
-               - Validate input sanitization
-               - Review authentication/authorization logic
+            Every finding MUST be labelled with exactly one severity, as the first thing in
+            the finding:
 
-            3. **Performance**
-               - Identify potential performance bottlenecks
-               - Review database queries for efficiency
-               - Check for memory leaks or resource issues
+            BLOCKING - the change is incorrect or unsafe to merge: a logic error, a crash, a
+            leaked credential, an Activity or Context leak, blocking work on the main thread,
+            a lifecycle bug that loses or duplicates state across configuration change or
+            process death, silently dropped work (a full buffer, a cancelled collector, a
+            swallowed exception on a path that matters), a breaking change to public API or
+            to a request payload without a major version bump, a failing or missing unit test
+            for a code path this PR changes, or a behaviour change shipped without the
+            version bump and CHANGELOG entry the PR template requires.
 
-            4. **Testing**
-               - Verify adequate test coverage
-               - Review test quality and edge cases
-               - Check for missing test scenarios
+            MAJOR - the change works but has a real defect a maintainer would want fixed
+            before merge: an unhandled error path that can occur on a device, an API-level or
+            permission case that silently does nothing, a performance problem with a concrete
+            mechanism you can name, a genuine correctness risk under retry or reconnection, or
+            a divergence from sdk-swift's behaviour that an integrator would notice.
 
-            5. **Documentation**
-               - Ensure code is properly documented
-               - Verify README updates for new features
-               - Check API documentation accuracy
+            NIT (optional, no change required) - everything else: naming, style, comment
+            wording, formatting, test-name preferences, and suggestions that are matters of
+            taste. This repository has no ktlint or detekt configuration, so formatting and
+            idiom preferences are always NITs, never BLOCKING. Say
+            "NIT (optional, no change required)" verbatim so a future filter in
+            apply-fixes.yml can classify it.
 
-            Provide detailed feedback using inline comments for specific issues.
-            Use top-level comments for general observations or praise.
-            At the end of your review, tell the user they can comment /fix to have all issues automatically resolved.
+            Calibration rules:
+            - Do not invent BLOCKING or MAJOR findings to seem thorough. If the diff is
+              correct and safe, say so plainly and report only nits, or nothing at all. A
+              review with no findings is a valid and useful outcome.
+            - Do not request README or documentation updates unless this PR adds a
+              user-facing feature or changes public API.
+            - Do not request additional test scenarios unless you can name a specific branch
+              or input this PR introduces that is untested and could plausibly break. Unit
+              tests here run under Robolectric via `./gradlew test`; there is no instrumented
+              suite and no emulator in CI, so do not ask for a test nothing can execute.
+            - Do not restate the same point at two severities, and do not repeat a finding
+              you have already made inline as a top-level comment.
+            - If you assert that a dependency or an Android API behaves a particular way, be
+              sure it does; do not guess at a third-party API's behaviour.
+            - The sdk-swift sources are NOT in this checkout. If a finding rests on what the
+              iOS SDK does, say that it needs checking rather than asserting it.
 
+            Use inline comments for findings tied to specific lines. Use a top-level comment
+            for the summary, general observations, and praise. Begin the top-level comment
+            with a one-line verdict, choosing the first one that applies: "Blocking findings
+            present." if there is any BLOCKING finding; otherwise "Major findings present,
+            none blocking." if there is any MAJOR finding; otherwise "No blocking findings."
+            At the end of your review, tell the user they can comment /fix to have the findings
+            automatically resolved, and warn them that /fix currently applies every review
+            comment it finds, including NITs.
+
+          # --model pins the reviewer model explicitly; the action pin above only fixes the CLI.
+          # Note: claude_args is a block scalar - inline '#' comments are passed to the CLI verbatim
+          # and swallow everything after them on the same string. Keep comments outside this block.
           claude_args: |
+            --model claude-opus-5
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
