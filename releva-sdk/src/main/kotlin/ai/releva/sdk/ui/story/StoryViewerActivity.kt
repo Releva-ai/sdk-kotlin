@@ -218,23 +218,17 @@ class StoryViewerActivity : AppCompatActivity() {
         // A restored instance may never reach onResume: the platform can relaunch a
         // non-resumed activity straight through onCreate -> onStart -> onStop without ever
         // resuming it (e.g. the host was already backgrounded when the configuration
-        // change arrived). onPause is the only thing that cancels what scheduleAdvance
-        // posts, and onPause never runs for such an instance — so scheduling the
-        // full-duration advance here would leave it to fire, unattended, against an
-        // invisible viewer. onResume already reposts advanceRemainingMs whenever it does
-        // run (including the ordinary, visible rotation this fix targets), so it is the
-        // only place that may schedule a restored instance's advance. A genuinely new
-        // viewer has no such gap: launch() starts it to the foreground directly.
+        // change arrived). onPause cancels what scheduleAdvance posts, and onPause never
+        // runs for such an instance — so scheduling the full-duration advance here would
+        // leave it to fire, unattended, against an invisible viewer. onResume already
+        // reposts advanceRemainingMs whenever it does run (including the ordinary, visible
+        // rotation this fix targets), so it is the only place that may schedule a restored
+        // instance's advance. A genuinely new viewer has no such gap: launch() starts it to
+        // the foreground directly.
         //
-        // Not pinned by a test: Robolectric 4.11.1's ActivityController.configurationChange
-        // (and recreate()) always drives the recreated instance through to RESUMED,
-        // regardless of the stage (even STOPPED) the original was in beforehand — verified
-        // by instrumenting onResume and calling pause().stop() on the controller before
-        // configurationChange(); the recreated instance's onResume had already run by the
-        // time configurationChange() returned. There is no seam here to land a Robolectric
-        // activity in the created-but-not-resumed state this guards against, so a test
-        // would only re-assert the ordinary resumed path the other survival tests already
-        // cover.
+        // Not pinned by a test: see StoryViewerActivityTest's class KDoc for why Robolectric
+        // cannot land a recreated activity in the created-but-not-resumed state this guards
+        // against.
         startSlideTimer(scheduleAdvanceNow = savedInstanceState == null)
     }
 

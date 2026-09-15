@@ -22,8 +22,8 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -54,6 +54,19 @@ import org.robolectric.annotation.Config
  * slide duration on the very next [shadowOf]-driven idle — even a bare, no-argument `idle()`,
  * which by contract only drains already-due messages. The animator only paints; disabling it
  * changes nothing about the Handler-driven advance these tests assert on.
+ *
+ * One `onCreate` invariant is documented rather than tested: a restored instance may never
+ * reach `onResume` (the platform can relaunch a non-resumed activity straight through
+ * `onCreate -> onStart -> onStop`), so only `onResume` may schedule a restored instance's
+ * advance. There is no test for the created-but-not-resumed case here because
+ * `ActivityController.configurationChange` (and `recreate()`) on Robolectric 4.11.1 always
+ * drives the recreated instance through to `RESUMED`, regardless of the stage — even
+ * `STOPPED` — the original was in beforehand: verified by instrumenting `onResume` with a
+ * counter and calling `pause().stop()` on the controller before `configurationChange()`; the
+ * counter was already 1, i.e. the recreated instance's `onResume` had already run, by the
+ * time `configurationChange()` returned. There is no seam to land a Robolectric activity in
+ * that state, so a test here would only re-assert the ordinary resumed path the survival
+ * tests below already cover.
  */
 @RunWith(RobolectricTestRunner::class)
 // StoryViewerActivity's own manifest entry already pins android:theme to
@@ -468,6 +481,11 @@ class StoryViewerActivityTest {
 
         controller.configurationChange(rotated(original))
 
+        // Without this the counts below would pass vacuously on a Robolectric that decided
+        // the activity handles the change itself: no recreation, no second onCreate to
+        // double-track from.
+        assertNotSame(original, controller.get())
+
         // A duplicate is dispatched by the recreated instance's onCreate, which has already
         // run by here; this only gives it time to reach the server, and returns as soon as
         // one shows up.
@@ -505,8 +523,110 @@ class StoryViewerActivityTest {
         controller.configurationChange(rotated(original))
 
         val recreated = controller.get()
+        // Without this the assertions below would pass vacuously on a Robolectric that
+        // decided the activity handles the change itself: same instance, index already 1.
+        assertNotSame(original, recreated)
         assertEquals(1, recreated.currentSlideIndexForTest())
         assertNotNull(findViewWithText(recreated, "Second"))
+    }
+
+    /**
+     * The other two saved fields have no coverage above: [StoryViewerActivity.onSaveInstanceState]
+     * also writes `STATE_ADVANCE_REMAINING_MS`, and nothing here has idled the fake clock
+     * *after* a recreation to observe what it restores to. If the remainder were dropped —
+     * e.g. `onCreate` restoring it but nothing ever reposting it, or `onResume` reposting
+     * from a fresh full duration instead of the saved remainder — `startSlideTimer`'s
+     * `scheduleAdvanceNow = savedInstanceState == null` still leaves the recreated instance
+     * with nothing scheduled, and it would sit on its current slide for the rest of its life.
+     * Every other test in this suite stops idling at (or before) the recreation and would
+     * not notice.
+     *
+     * Two slides of five seconds. Two seconds in, rotate; `ActivityController
+     * .configurationChange` runs the whole destroy/create sequence inside `runPaused`, so it
+     * does not itself advance the fake clock. Idling two more seconds (t+4 of the first
+     * slide's five) must still show slide 0 — a remainder restarted from the full duration
+     * would already have fired here — and idling past t+5 must show slide 1 — a remainder
+     * silently dropped (stuck at 0, nothing ever reposted) would never advance at all.
+     */
+    @Test
+    fun `the restored slide's remaining time survives a configuration change`() {
+        val (_, controller) = launchController(
+            StoryResponse(
+                token = "remaining-time-story",
+                slides = listOf(
+                    StorySlideResponse(id = 1, durationSeconds = 5),
+                    StorySlideResponse(id = 2, durationSeconds = 5)
+                )
+            )
+        )
+        val original = controller.create().start().resume().get()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+
+        controller.configurationChange(rotated(original))
+
+        // t+4 of the first slide's 5s: still due, whether or not the fix landed correctly.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, controller.get().currentSlideIndexForTest())
+
+        // Past t+5: due only if the ~3s remainder was actually restored and reposted.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(1, controller.get().currentSlideIndexForTest())
+    }
+
+    /**
+     * [StoryViewerActivity.storyCompleteTracked] is the third saved field, and is equally
+     * unobserved above. Rather than tapping to re-trigger `goToNextSlide` post-rotation
+     * (which needs a laid-out view tree — see [launchVisibleViewer] — that a configuration
+     * change does not preserve), an `endBehavior = "loop"` story does it on its own clock: a
+     * single slide loops back onto itself every `durationSeconds`, and each lap's
+     * end-of-story branch only calls `trackEvent("storyComplete")` when the flag is still
+     * false. Rotate mid-lap, then idle past the same slide's duration again — if the flag
+     * came back `false` instead of the true it was saved as, this second lap tracks a
+     * second `storyComplete` for what the flag says should still be the first.
+     */
+    @Test
+    fun `a configuration change does not double-track storyComplete on a looping story`() {
+        val actions = CopyOnWriteArrayList<String>()
+        val trackingClient = clientPostingTo(actions)
+        val (_, controller) = launchController(
+            story = StoryResponse(
+                token = "loop-complete-story",
+                slides = listOf(StorySlideResponse(id = 1, durationSeconds = 2)),
+                endBehavior = "loop"
+            ),
+            client = trackingClient
+        )
+        val original = controller.create().start().resume().get()
+        assertTrue(
+            "initial tracking calls never arrived: $actions",
+            awaitUntil { actions.containsAll(listOf("storyImpression", "storySlideView")) }
+        )
+
+        // Past the 2s slide once: the loop's own end-of-story branch tracks the first
+        // storyComplete, then wraps back to slide 0, re-tracks storySlideView and
+        // reschedules. Waiting for the exact count of 4 (rather than just storyComplete's
+        // count reaching 1, which the pre-rotation state already satisfies) gives the
+        // post-rotation wait below a real baseline to grow past.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        assertTrue(
+            "first lap's storyComplete/storySlideView pair never arrived: $actions",
+            awaitUntil { actions.count { it == "storyComplete" } == 1 && actions.size == 4 }
+        )
+
+        controller.configurationChange(rotated(original))
+
+        // Past the duration again in the recreated instance. The loop's end-of-story branch
+        // re-tracks storySlideView on every lap regardless of this bug, so the list is
+        // guaranteed to grow past 4 either way — that growth is what is waited for, not
+        // storyComplete's count directly, which the fixed behaviour would leave unchanged
+        // and a naive "count >= 1" wait would therefore return on immediately, before a
+        // second storyComplete dispatched by the bug had any real time to reach the server.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        assertTrue(
+            "second lap's storySlideView never arrived: $actions",
+            awaitUntil { actions.size > 4 }
+        )
+        assertEquals("tracked: $actions", 1, actions.count { it == "storyComplete" })
     }
 
     /**
