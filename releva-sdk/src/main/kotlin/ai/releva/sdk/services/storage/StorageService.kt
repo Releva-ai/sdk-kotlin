@@ -19,6 +19,7 @@ class StorageService private constructor(context: Context) {
 
         // Storage keys
         private const val KEY_PROFILE_ID = "rprofile_id"
+        private const val KEY_MERGE_PROFILE_IDS = "merge_profile_ids"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_SESSION_ID = "session_id"
         private const val KEY_SESSION_TIMESTAMP = "session_timestamp"
@@ -48,6 +49,29 @@ class StorageService private constructor(context: Context) {
     }
 
     fun getProfileId(): String? = preferences.getString(KEY_PROFILE_ID, null)
+
+    /**
+     * Profile ids waiting to be merged into the current one. Persisted so the intent to
+     * merge outlives the process if the push that would carry them never succeeds.
+     */
+    fun setMergeProfileIds(profileIds: List<String>) {
+        val jsonArray = JSONArray(profileIds)
+        preferences.edit().putString(KEY_MERGE_PROFILE_IDS, jsonArray.toString()).apply()
+    }
+
+    fun getMergeProfileIds(): List<String> {
+        val jsonString = preferences.getString(KEY_MERGE_PROFILE_IDS, null) ?: return emptyList()
+        return try {
+            val jsonArray = JSONArray(jsonString)
+            List(jsonArray.length()) { jsonArray.getString(it) }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun clearMergeProfileIds() {
+        preferences.edit().remove(KEY_MERGE_PROFILE_IDS).apply()
+    }
 
     fun setDeviceId(deviceId: String) {
         preferences.edit().putString(KEY_DEVICE_ID, deviceId).apply()

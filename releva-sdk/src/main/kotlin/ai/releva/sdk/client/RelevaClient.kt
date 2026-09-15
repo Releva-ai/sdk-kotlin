@@ -53,7 +53,8 @@ class RelevaClient(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    private val mergeProfileIds = mutableListOf<String>()
+    // Restored from storage so a merge queued before a failed push is not lost with the process
+    private val mergeProfileIds = storage.getMergeProfileIds().toMutableList()
     private var cartChanged = false
     private var wishlistChanged = false
     private var deviceIdChanged = false
@@ -96,10 +97,21 @@ class RelevaClient(
         if (previousProfileId == null || previousProfileId != profileId) {
             profileChanged = true
             storage.setProfileId(profileId)
-            if (previousProfileId != null && !skipMergeWithPreviousProfileId) {
+            if (skipMergeWithPreviousProfileId) {
+                clearMergeProfileIds()
+            } else if (previousProfileId != null && !mergeProfileIds.contains(previousProfileId)) {
                 mergeProfileIds.add(previousProfileId)
+                storage.setMergeProfileIds(mergeProfileIds)
             }
         }
+    }
+
+    /**
+     * Drop the profile ids queued for merging, in memory and in storage.
+     */
+    private fun clearMergeProfileIds() {
+        mergeProfileIds.clear()
+        storage.clearMergeProfileIds()
     }
 
     /**
@@ -241,7 +253,7 @@ class RelevaClient(
         wishlistChanged = false
         profileChanged = false
         deviceIdChanged = false
-        mergeProfileIds.clear()
+        clearMergeProfileIds()
     }
 
     /**
@@ -423,7 +435,7 @@ class RelevaClient(
         wishlistChanged = false
         profileChanged = false
         deviceIdChanged = false
-        mergeProfileIds.clear()
+        clearMergeProfileIds()
 
         val relevaResponse = RelevaResponse.fromJson(response.body)
 

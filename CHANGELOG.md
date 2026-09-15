@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A profile merge was lost permanently if the app died before the first successful push.**
+  `RelevaClient` kept the ids queued by `setProfileId` in an in-memory list only, while the new
+  profile id itself was written to storage immediately. On the next launch the list was empty and
+  the previous id was no longer recoverable — `storage.getProfileId()` already returned the new
+  one — so the two identities were never linked, silently and permanently. Device-verified with a
+  control: online, the push body carried `mergeProfileIds = ["ctl-A-000036"]`; with the radios off
+  and a force-stop before any successful push, the next launch sent `mergeProfileIds = []`. The
+  queue is now persisted through `StorageService` and restored when a client is constructed, and
+  cleared from storage exactly where the in-memory list was already cleared: after a successful
+  push, after a successful push-token registration, and on `skipMergeWithPreviousProfileId` (the
+  logout path). Matching the Swift SDK, a previous id already in the queue is no longer appended
+  twice, so A → B → A → B queues `["A", "B"]` rather than `["A", "B", "A"]`. The wire format is
+  unchanged.
+
 ## 1.4.0
 
 Everything here came out of a device pass against a real domain, replicating the

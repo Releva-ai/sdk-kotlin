@@ -194,6 +194,37 @@ class StorageServiceTest {
         assertEquals("""{"products":[{"id":"p2"}]}""", storageService.getCartData())
     }
 
+    // Merge Profile ID Tests
+
+    @Test
+    fun `set and get merge profile ids`() {
+        storageService.setMergeProfileIds(listOf("profile-1", "profile-2"))
+
+        assertEquals(listOf("profile-1", "profile-2"), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `get merge profile ids returns empty list when not set`() {
+        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `clear merge profile ids removes them`() {
+        storageService.setMergeProfileIds(listOf("profile-1"))
+
+        storageService.clearMergeProfileIds()
+
+        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `get merge profile ids returns empty list for malformed json`() {
+        // Manually set invalid JSON to test error handling
+        storageService.setString("merge_profile_ids", "invalid json {[")
+
+        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+    }
+
     // Wishlist Management Tests
 
     @Test
