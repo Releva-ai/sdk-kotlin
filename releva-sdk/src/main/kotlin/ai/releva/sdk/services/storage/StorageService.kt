@@ -15,6 +15,9 @@ class StorageService private constructor(context: Context) {
         Context.MODE_PRIVATE
     )
 
+    /** @see getMergeProfileIds */
+    private val mergeQueueLock = Any()
+
     companion object {
         private const val TAG = "StorageService"
         private const val PREFS_NAME = "releva_sdk_prefs"
@@ -57,23 +60,27 @@ class StorageService private constructor(context: Context) {
      * read straight from here at every use rather than mirrored into a field, so the intent to
      * merge outlives the process when the push that would carry it never succeeds.
      *
-     * The mutators are `@Synchronized`, like [incrementDeviceViewsCount] and for the same
-     * reason: each is a read-modify-write, and `RelevaClient` appends from `setProfileId` while
-     * removing from `push` on an independent `Dispatchers.IO` coroutine. Holding the lock here
-     * rather than in the caller also serialises across `RelevaClient` instances, since this
-     * class is a process-wide singleton.
+     * Every accessor here is a read-modify-write, and `RelevaClient` appends from `setProfileId`
+     * while removing from `push` on an independent `Dispatchers.IO` coroutine, so they are
+     * serialised on [mergeQueueLock]. A private lock rather than this instance's own monitor
+     * (what `@Synchronized` would take): the writes below block on `commit()`, and the instance
+     * monitor is held by main-thread callers — `SessionService` observes `ProcessLifecycleOwner`
+     * and calls [incrementDeviceSessionCount] from `onStart`. The private lock keeps the main
+     * thread out of this fsync while still serialising across `RelevaClient` instances, since
+     * this class is a process-wide singleton.
      *
      * Writes use `commit()` rather than `apply()`, unlike the rest of this file: this is the one
      * value whose whole purpose is to survive a force-stop, and every caller is already on
      * `Dispatchers.IO`.
      */
-    @Synchronized
-    fun getMergeProfileIds(): List<String> {
-        val jsonString = preferences.getString(KEY_MERGE_PROFILE_IDS, null) ?: return emptyList()
-        return try {
+    fun getMergeProfileIds(): List<String> = synchronized(mergeQueueLock) {
+        val jsonString = preferences.getString(KEY_MERGE_PROFILE_IDS, null)
+            ?: return@synchronized emptyList()
+        try {
             val jsonArray = JSONArray(jsonString)
             List(jsonArray.length()) { jsonArray.getString(it) }
         } catch (e: Exception) {
+            Log.w(TAG, "Merge profile ids are unreadable; a queued profile merge is lost", e)
             emptyList()
         }
     }
@@ -82,8 +89,7 @@ class StorageService private constructor(context: Context) {
      * Queues [profileId] for merging unless it is already queued.
      * @see getMergeProfileIds
      */
-    @Synchronized
-    fun addMergeProfileId(profileId: String) {
+    fun addMergeProfileId(profileId: String) = synchronized(mergeQueueLock) {
         val queued = getMergeProfileIds()
         if (!queued.contains(profileId)) {
             writeMergeProfileIds(queued + profileId)
@@ -94,18 +100,21 @@ class StorageService private constructor(context: Context) {
      * Removes exactly [profileIds], leaving anything queued since they were read.
      * @see getMergeProfileIds
      */
-    @Synchronized
-    fun removeMergeProfileIds(profileIds: List<String>) {
+    fun removeMergeProfileIds(profileIds: List<String>) = synchronized(mergeQueueLock) {
         writeMergeProfileIds(getMergeProfileIds() - profileIds.toSet())
     }
 
     /** @see getMergeProfileIds */
-    @Synchronized
-    fun clearMergeProfileIds() {
+    fun clearMergeProfileIds() = synchronized(mergeQueueLock) {
         writeMergeProfileIds(emptyList())
     }
 
     private fun writeMergeProfileIds(profileIds: List<String>) {
+        // Nothing queued and nothing stored: skip the blocking commit. That is every
+        // setProfileId(..., skipMergeWithPreviousProfileId = true) call on a host that passes
+        // the flag routinely.
+        if (profileIds.isEmpty() && !preferences.contains(KEY_MERGE_PROFILE_IDS)) return
+
         val editor = preferences.edit()
         if (profileIds.isEmpty()) {
             editor.remove(KEY_MERGE_PROFILE_IDS)

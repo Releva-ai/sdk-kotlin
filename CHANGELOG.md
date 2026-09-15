@@ -2,6 +2,9 @@
 
 ## 1.4.1
 
+Not yet released. 1.4.0 is tagged and published, so this lands under its own version
+rather than in the section above.
+
 ### Fixed
 
 - **A profile merge was lost permanently if the app died before the first successful push.**
@@ -13,20 +16,17 @@
   and a force-stop before any successful push, the next launch sent `mergeProfileIds = []`.
 
   The queue now lives in `StorageService` and nowhere else, so it survives the process by
-  construction. Alongside that:
+  construction. Alongside that: a successful push removes only the ids it actually sent, so an id
+  queued while that request was in flight is no longer dropped with them; `registerPushToken` no
+  longer clears the queue, since its request never carried `mergeProfileIds` and clearing there
+  only discarded a merge a later push still had to send; `skipMergeWithPreviousProfileId` (the
+  logout path) now clears the queue whether or not the id passed with it has changed, so a stale
+  entry cannot outlive a logout; and, matching the Swift SDK, an id already queued is not queued
+  again, so A → B → A → B queues `["A", "B"]` rather than `["A", "B", "A"]`.
 
-  - A successful push removes only the ids that push actually sent, so an id queued by a
-    concurrent `setProfileId` while a push was in flight is no longer dropped with them.
-  - `skipMergeWithPreviousProfileId` (the logout path) now clears the queue, whether or not the
-    profile id passed alongside the flag has changed. Previously it only suppressed adding to the
-    queue, so a stale entry from an earlier merge could survive a logout.
-  - `registerPushToken` no longer clears the queue on success. Its request never carried
-    `mergeProfileIds`, so clearing there only ever discarded a merge a later push still had to
-    send — harmless while the queue was in memory only, but not once it is durable.
-  - Matching the Swift SDK, an id already queued is not queued again, so A → B → A → B queues
-    `["A", "B"]` rather than `["A", "B", "A"]`.
-
-  The wire format is unchanged.
+  The wire format is unchanged. `profileChanged` is now sent as `true` whenever the body carries
+  merge ids, which is the only combination of the two the backend has ever received — before the
+  queue was durable, an id could not outlive the flag.
 
 ## 1.4.0
 

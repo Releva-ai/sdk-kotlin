@@ -97,7 +97,11 @@ class RelevaClientTest {
         secondClient.setEndpointOverride(server.url("/").toString().trimEnd('/'))
         secondClient.push(PushRequest())
 
-        assertEquals(listOf("profile-A"), mergeProfileIdsOf(server.takeRequest().body.readUtf8()))
+        val body = server.takeRequest().body.readUtf8()
+        assertEquals(listOf("profile-A"), mergeProfileIdsOf(body))
+        // The new client never saw the profile change, but the ids it is carrying say one
+        // happened, so the flag has to agree with them.
+        assertTrue(JSONObject(body).getJSONObject("context").getBoolean("profileChanged"))
     }
 
     @Test
@@ -241,7 +245,10 @@ class RelevaClientTest {
                 // response lets the test append to the live queue while the push is
                 // still "in flight" from the client's perspective.
                 requestReceived.countDown()
-                releaseResponse.await(2, TimeUnit.SECONDS)
+                // Generous: these are failure bounds, not waits. A tight one that expires on a
+                // loaded machine would release the response early and turn this into a
+                // different scenario, failing on the mid-flight assertion below.
+                releaseResponse.await(30, TimeUnit.SECONDS)
                 return MockResponse().setResponseCode(200).setBody("{}")
             }
         }
@@ -265,7 +272,7 @@ class RelevaClientTest {
                 pushFailure = t
             }
         }
-        assertTrue(requestReceived.await(2, TimeUnit.SECONDS))
+        assertTrue(requestReceived.await(30, TimeUnit.SECONDS))
 
         // Appended after the request body was built but before the response (and the
         // resulting clear) arrives — this id was never on the wire.
@@ -273,11 +280,11 @@ class RelevaClientTest {
         assertEquals(listOf("profile-A", "profile-B"), storageService.getMergeProfileIds())
 
         releaseResponse.countDown()
-        pushThread.join(2000)
+        pushThread.join(30_000)
         pushFailure?.let { throw it }
         // Without this, a hung push thread would fall through to the assertion below and read
         // as a logic regression rather than as the hang it is.
-        assertFalse("push() did not complete within 2s", pushThread.isAlive)
+        assertFalse("push() did not complete within 30s", pushThread.isAlive)
 
         // "profile-A" was sent and is removed; "profile-B" was queued mid-flight and survives
         // for the next push to send.

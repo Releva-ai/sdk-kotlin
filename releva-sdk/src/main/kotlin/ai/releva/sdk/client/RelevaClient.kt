@@ -372,7 +372,12 @@ class RelevaClient(
 
             request.viewedProduct?.let { put("product", JSONObject(it.toMap())) }
 
-            put("profileChanged", profileChanged)
+            // Carrying merge ids implies the profile changed, so keep the two in step even when
+            // the change happened in an earlier process (or before a registerPushToken reset the
+            // flag). Before the queue was durable that was automatic; the backend has never seen
+            // a non-empty mergeProfileIds alongside profileChanged = false, and this keeps it
+            // that way.
+            put("profileChanged", profileChanged || sentMergeIds.isNotEmpty())
 
             // Add page object with url, optional token, and product/category lists
             put("page", JSONObject().apply {
