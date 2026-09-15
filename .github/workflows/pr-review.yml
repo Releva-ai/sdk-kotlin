@@ -51,7 +51,10 @@ jobs:
             Your job is ONLY to review code. Do NOT apply any fixes. Do NOT act on any /fix comments you may see in the PR. Applying fixes is handled by a separate workflow.
 
             Review ONLY the changes in this PR's diff. Do not review pre-existing code that
-            this PR does not touch, and do not propose refactors of surrounding code.
+            this PR does not touch, and do not propose refactors of surrounding code. Exception:
+            you may read CHANGELOG.md, releva-sdk/build.gradle.kts, and RelevaClient.kt even when
+            they are outside the diff, solely to check the release checklist below - that lookup
+            is not a review of unrelated code.
 
             CONTEXT: this repository is a published Android SDK. It is consumed by host apps
             via JitPack, and it has a sibling iOS SDK (sdk-swift) whose behaviour it is meant
@@ -68,9 +71,11 @@ jobs:
             a lifecycle bug that loses or duplicates state across configuration change or
             process death, silently dropped work (a full buffer, a cancelled collector, a
             swallowed exception on a path that matters), a breaking change to public API or
-            to a request payload without a major version bump, a failing or missing unit test
-            for a code path this PR changes, or a behaviour change shipped without the
-            version bump and CHANGELOG entry the PR template requires.
+            to a request payload without a major version bump, a missing unit test for a
+            code path this PR changes, or a behaviour change shipped without the two
+            version bumps (`version` in `releva-sdk/build.gradle.kts` and the `VERSION`
+            constant in `RelevaClient.kt`, which must stay equal apart from the `-kotlin`
+            suffix) and the CHANGELOG entry the PR template requires.
 
             MAJOR - the change works but has a real defect a maintainer would want fixed
             before merge: an unhandled error path that can occur on a device, an API-level or
@@ -102,11 +107,13 @@ jobs:
             - The sdk-swift sources are NOT in this checkout. If a finding rests on what the
               iOS SDK does, say that it needs checking rather than asserting it.
 
-            Use inline comments for findings tied to specific lines. Use a top-level comment
-            for the summary, general observations, and praise. Begin the top-level comment
-            with a one-line verdict, choosing the first one that applies: "Blocking findings
-            present." if there is any BLOCKING finding; otherwise "Major findings present,
-            none blocking." if there is any MAJOR finding; otherwise "No blocking findings."
+            Use inline comments for findings tied to specific lines. Put the summary,
+            general observations, and praise in the progress-tracking comment this run
+            already owns - do NOT open a second top-level comment. Begin your part of
+            that comment with a one-line verdict on its own line, choosing the first one
+            that applies: "Blocking findings present." if there is any BLOCKING finding;
+            otherwise "Major findings present, none blocking." if there is any MAJOR
+            finding; otherwise "No blocking findings."
             At the end of your review, tell the user they can comment /fix to have the findings
             automatically resolved, and warn them that /fix currently applies every review
             comment it finds, including NITs.
@@ -116,4 +123,4 @@ jobs:
           # and swallow everything after them on the same string. Keep comments outside this block.
           claude_args: |
             --model claude-opus-5
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*)"
