@@ -61,8 +61,19 @@ object StoryDisplayManager {
             }
         })
 
+        // CREATED, not STARTED. The viewer is an Activity that covers the host, so with
+        // STARTED the collector is cancelled the instant the first story opens — and
+        // storyFlow has no replay, so every story emitted in the same pass as that first
+        // one is gone before anything can queue it. A page triggering three stories showed
+        // one and silently dropped two: the queue below could only ever sequence what the
+        // collector had already received, and it had received exactly one.
+        //
+        // Collecting while CREATED keeps the collector alive across the host being stopped,
+        // so the rest of the pass lands in the queue and pump() shows them as the viewer
+        // closes. pump() is safe to call while stopped: `showing` is still true, so it
+        // queues and returns rather than launching a second viewer over the first.
         activity.lifecycleScope.launch {
-            activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            activity.repeatOnLifecycle(Lifecycle.State.CREATED) {
                 StoryDisplayController.storyFlow.collect { story ->
                     queue.addLast(story)
                     pump(activity)
