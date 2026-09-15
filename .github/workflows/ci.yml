@@ -77,15 +77,24 @@ jobs:
       # The PR template asks for both to be bumped together; this is what checks it.
       - name: VERSION must match the published version
         run: |
-          # `|| true` on both substitutions: under bash -e (the default for a `run:`
-          # block with no shell: key), a failed command substitution aborts the script
-          # right here, before the -z check below ever runs — which is exactly the
-          # scenario ("has either declaration moved?") the check exists to diagnose.
-          # `| head -1` pins each to its first match, so a second "version = " at the
-          # same indentation (a commented-out line, a second publication) can't turn
-          # $published into two lines and fail the comparison with a confusing message.
-          published=$(grep -oP '(?<=^\s*version = ")[^"]+' releva-sdk/build.gradle.kts | head -1 || true)
-          constant=$(grep -oP '(?<=private const val VERSION = ")[^"]+' \
+          # `| head -1` is what actually keeps `bash -e` (the default for a `run:`
+          # block with no shell: key) from aborting: it's the last command in the
+          # pipeline and always exits 0 (pipefail isn't set), so a failed grep can no
+          # longer abort the script before the -z check below runs — which is exactly
+          # the scenario ("has either declaration moved?") the check exists to
+          # diagnose. It also pins each substitution to its first match, so a second
+          # "version = " at the same indentation (a commented-out line, a second
+          # publication) can't turn $published into two lines and fail the comparison
+          # with a confusing message. `|| true` is redundant given `head -1`'s exit
+          # code, but kept as insurance if `head` is ever dropped.
+          #
+          # `\K` rather than a lookbehind: PCRE lookbehinds must be fixed length, and
+          # the indentation before `version = "` isn't, so `(?<=^\s*version = ")`
+          # fails to compile ("lookbehind assertion is not fixed length", exit 2) and
+          # this job fails red on every run. `\K` resets the match start instead of
+          # asserting backwards, so it allows the variable-length prefix.
+          published=$(grep -oP '^\s*version = "\K[^"]+' releva-sdk/build.gradle.kts | head -1 || true)
+          constant=$(grep -oP 'private const val VERSION = "\K[^"]+' \
             releva-sdk/src/main/kotlin/ai/releva/sdk/client/RelevaClient.kt | head -1 || true)
           echo "build.gradle.kts : $published"
           echo "RelevaClient.kt  : $constant"
