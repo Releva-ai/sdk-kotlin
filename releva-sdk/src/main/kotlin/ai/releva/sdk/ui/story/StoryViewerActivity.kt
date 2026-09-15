@@ -215,7 +215,27 @@ class StoryViewerActivity : AppCompatActivity() {
             trackEvent("storyImpression")
             trackSlideView()
         }
-        startSlideTimer()
+        // A restored instance may never reach onResume: the platform can relaunch a
+        // non-resumed activity straight through onCreate -> onStart -> onStop without ever
+        // resuming it (e.g. the host was already backgrounded when the configuration
+        // change arrived). onPause is the only thing that cancels what scheduleAdvance
+        // posts, and onPause never runs for such an instance — so scheduling the
+        // full-duration advance here would leave it to fire, unattended, against an
+        // invisible viewer. onResume already reposts advanceRemainingMs whenever it does
+        // run (including the ordinary, visible rotation this fix targets), so it is the
+        // only place that may schedule a restored instance's advance. A genuinely new
+        // viewer has no such gap: launch() starts it to the foreground directly.
+        //
+        // Not pinned by a test: Robolectric 4.11.1's ActivityController.configurationChange
+        // (and recreate()) always drives the recreated instance through to RESUMED,
+        // regardless of the stage (even STOPPED) the original was in beforehand — verified
+        // by instrumenting onResume and calling pause().stop() on the controller before
+        // configurationChange(); the recreated instance's onResume had already run by the
+        // time configurationChange() returned. There is no seam here to land a Robolectric
+        // activity in the created-but-not-resumed state this guards against, so a test
+        // would only re-assert the ordinary resumed path the other survival tests already
+        // cover.
+        startSlideTimer(scheduleAdvanceNow = savedInstanceState == null)
     }
 
     /**
@@ -423,8 +443,13 @@ class StoryViewerActivity : AppCompatActivity() {
      *
      * So the advance is a posted callback on a real clock, and the animator now only
      * paints.
+     *
+     * @param scheduleAdvanceNow Whether to post the advance immediately. False on a
+     * restored instance's onCreate, where onResume — not onCreate — must be the one to
+     * schedule it (see the call site's comment). The progress bars and the decorative
+     * animator are unaffected: they still reflect the current slide either way.
      */
-    private fun startSlideTimer() {
+    private fun startSlideTimer(scheduleAdvanceNow: Boolean = true) {
         progressAnimator?.cancel()
         advanceRunnable?.let { handler.removeCallbacks(it) }
 
@@ -454,7 +479,9 @@ class StoryViewerActivity : AppCompatActivity() {
             }
         }
 
-        scheduleAdvance(duration)
+        if (scheduleAdvanceNow) {
+            scheduleAdvance(duration)
+        }
     }
 
     private fun scheduleAdvance(delayMs: Long) {

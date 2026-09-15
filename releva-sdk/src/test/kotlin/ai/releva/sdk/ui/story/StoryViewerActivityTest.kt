@@ -236,6 +236,47 @@ class StoryViewerActivityTest {
     }
 
     /**
+     * `retireLaunch` does two things: it drops the key from `aliveKeys` (asserted by
+     * [isAlive] in the tests above) and the launch data from `pendingLaunches`. Only the
+     * former was pinned anywhere in this suite — every survival test asserts on `isAlive`
+     * alone, and none of them can tell `pendingLaunches.remove(key)` apart from a no-op,
+     * since a genuinely new instance never looks the key up twice.
+     *
+     * Pinned the same way the genuinely-invalid-key case below is: finish a viewer, then
+     * build a *second* controller on an intent carrying the *same* key. That second
+     * `onCreate` only finds nothing — and finishes — if the entry was actually dropped;
+     * otherwise the static map would keep growing by one `PendingLaunchData` (story, client
+     * and both callbacks) for every story ever shown in the process, unnoticed.
+     */
+    @Test
+    fun `finishing drops the launch data, so a later onCreate with the same key finds nothing`() {
+        val story = StoryResponse(
+            token = "retired-data-story",
+            slides = listOf(StorySlideResponse(id = 1, durationSeconds = 5))
+        )
+        val host = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val key = StoryViewerActivity.launch(context = host, story = story, client = client)
+        val intent = Intent(host, StoryViewerActivity::class.java).apply {
+            putExtra("releva_story_key", key)
+        }
+        val first = Robolectric.buildActivity(StoryViewerActivity::class.java, intent)
+            .create()
+            .start()
+            .resume()
+            .get()
+
+        // finish() runs synchronously (unlike onBackPressed()'s dispatcher indirection
+        // above), so retireLaunch has already run by the next line.
+        first.finish()
+
+        val second = Robolectric.buildActivity(StoryViewerActivity::class.java, intent)
+            .create()
+            .get()
+
+        assertTrue(second.isFinishing)
+    }
+
+    /**
      * Device QA found the slide's call to action dead: a tap well inside the button's
      * reported bounds never reached its click listener, and the navigation overlay advanced
      * a slide instead. Everything the overlay covers is only reachable through the overlay's
