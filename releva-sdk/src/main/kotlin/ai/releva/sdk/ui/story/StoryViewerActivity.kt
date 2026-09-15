@@ -265,16 +265,16 @@ class StoryViewerActivity : AppCompatActivity() {
         }
         root.addView(touchOverlay)
 
-        // The slide's action button lives here, above the overlay, rather than in
-        // contentContainer below it. Everything below the overlay is only reachable through
-        // the overlay's own hit test (findClickableViewAt, screen coordinates); on a device
-        // that test missed the button — a tap well inside its bounds was handled as slide
-        // navigation and the call to action was dead. Above the overlay the button is
-        // reached by ordinary touch dispatch, the same way the close button in topRow is,
-        // and that one works on a device. This container is not clickable and holds nothing
-        // else, so a tap that misses the button is not consumed here and still reaches the
-        // overlay as navigation. Its geometry matches contentContainer, so the button lands
-        // exactly where it did before.
+        // The action button lives here, not in contentContainer, because anything under the
+        // overlay is reachable only through findClickableViewAt — which compares the event's
+        // raw coordinates against the view's screen coordinates — and on a device that
+        // comparison missed the button: a tap well inside its reported bounds navigated
+        // instead. Above the overlay the button is reached by ordinary dispatch, the path
+        // topRow's close button already takes and the one that works on that device.
+        // Nothing in here is clickable but the button, so a tap that misses it is not
+        // consumed and still reaches the overlay as navigation; the layout params below
+        // must stay identical to contentContainer's, which is what keeps the button in the
+        // place it renders today.
         actionContainer = FrameLayout(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
