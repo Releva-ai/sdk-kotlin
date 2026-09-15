@@ -69,6 +69,16 @@ except where an entry below says otherwise.
   displays, with the existing default filling the other half. The unused `silent_channel` — created
   on every notification and never routed to, since `getNotificationChannelId()` returns the default
   unconditionally — is gone with it.
+- **A story closed itself when the device was rotated.** The viewer's launch data was passed
+  through a static map and consumed by the first `onCreate`, and the activity declares no
+  `android:configChanges` — so a configuration change destroyed it, recreated it from the same
+  intent, found nothing under the same key and finished. Rotation is the easiest trigger; a
+  dark-mode toggle, a font- or display-size change, a locale change and a multi-window resize
+  all take the same path. The data now lives as long as the launch does and is dropped when the
+  viewer finishes, and the recreated viewer restores its slide, its remaining slide time and the
+  fact that it has already tracked the story — so a rotation neither restarts the story nor
+  counts a second impression. An intent with no launch key, and a story with no slides, still
+  close immediately.
 
 ### Added
 

@@ -86,7 +86,17 @@ class StoryViewerActivity : AppCompatActivity() {
         /** Tag value set on views that need touch forwarding (e.g. carousel). */
         const val INTERACTIVE_VIEW_TAG = "releva_interactive"
         private const val EXTRA_LAUNCH_KEY = "releva_story_key"
+        private const val STATE_SLIDE_INDEX = "releva_story_slide_index"
+        private const val STATE_STORY_COMPLETE_TRACKED = "releva_story_complete_tracked"
+        private const val STATE_ADVANCE_REMAINING_MS = "releva_story_advance_remaining_ms"
 
+        // The launch data for every viewer whose launch is still running. Held until the
+        // launch is retired rather than consumed by the first onCreate: a configuration
+        // change (rotation, dark mode, font or display size, locale, multi-window resize)
+        // destroys the activity and recreates it from the *same* intent, so onCreate runs
+        // again with the same key and has to find the entry still there. Consuming it on
+        // first read left the second onCreate with nothing to show and it finished — the
+        // story vanished on rotation.
         private val pendingLaunches = java.util.concurrent.ConcurrentHashMap<String, PendingLaunchData>()
 
         // Keys for viewers currently alive, so a caller holding a launch key can ask "is
@@ -114,6 +124,12 @@ class StoryViewerActivity : AppCompatActivity() {
 
         /** True if the viewer launched with this key has been requested and is not finishing. */
         fun isAlive(key: String): Boolean = aliveKeys.contains(key)
+
+        /** Ends a launch: the key stops being alive and its data stops being restorable. */
+        private fun retireLaunch(key: String) {
+            aliveKeys.remove(key)
+            pendingLaunches.remove(key)
+        }
 
         /**
          * Skips creating the decorative progress-fill [ValueAnimator] in [startSlideTimer]
@@ -171,7 +187,9 @@ class StoryViewerActivity : AppCompatActivity() {
         // what retires it, so an instance that aborts before reaching setupUI() still has
         // to clear its own key rather than leaving it alive forever.
         launchKey = key
-        val data = pendingLaunches.remove(key) ?: run { finish(); return }
+        // Read, not removed: the entry belongs to the launch, not to this instance, and a
+        // recreated instance arrives here with the same key. finish() retires it.
+        val data = pendingLaunches[key] ?: run { finish(); return }
 
         story = data.story
         client = data.client
@@ -183,10 +201,36 @@ class StoryViewerActivity : AppCompatActivity() {
             return
         }
 
+        savedInstanceState?.let {
+            currentSlideIndex = it.getInt(STATE_SLIDE_INDEX)
+            storyCompleteTracked = it.getBoolean(STATE_STORY_COMPLETE_TRACKED)
+            // Reposted by onResume, which runs right after this — see onSaveInstanceState.
+            advanceRemainingMs = it.getLong(STATE_ADVANCE_REMAINING_MS)
+        }
+
         setupUI()
-        trackEvent("storyImpression")
-        trackSlideView()
+        // Only for a genuinely new viewer. A recreated one is the same impression of the
+        // same story: tracking it again would count one rotation as a second view.
+        if (savedInstanceState == null) {
+            trackEvent("storyImpression")
+            trackSlideView()
+        }
         startSlideTimer()
+    }
+
+    /**
+     * Saves what a recreated instance cannot get from the launch data: which slide is
+     * showing, whether storyComplete has already been tracked, and how much of the current
+     * slide was left. [advanceRemainingMs] is captured by [onPause], which always runs
+     * before this, and the restored value is reposted by [onResume] — the same machinery
+     * that already survives a background pause, so a rotation costs the slide only the time
+     * the recreation itself takes rather than restarting it.
+     */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(STATE_SLIDE_INDEX, currentSlideIndex)
+        outState.putBoolean(STATE_STORY_COMPLETE_TRACKED, storyCompleteTracked)
+        outState.putLong(STATE_ADVANCE_REMAINING_MS, advanceRemainingMs)
     }
 
     /**
@@ -205,8 +249,10 @@ class StoryViewerActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
+        // Slides are addressed through currentSlideIndex, not slide 0: after a
+        // configuration change this runs again on the slide the viewer was already showing.
         val root = FrameLayout(this).apply {
-            setBackgroundColor(getSlideBackgroundColor(story.slides[0]))
+            setBackgroundColor(getSlideBackgroundColor(story.slides[currentSlideIndex]))
             fitsSystemWindows = true
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -352,7 +398,7 @@ class StoryViewerActivity : AppCompatActivity() {
         root.addView(topRow)
 
         // Action button area
-        renderSlideContent(story.slides[0])
+        renderSlideContent(story.slides[currentSlideIndex])
 
         setContentView(root)
     }
@@ -685,9 +731,12 @@ class StoryViewerActivity : AppCompatActivity() {
      * this viewer's `onPause` and its `onStop`/`onDestroy` (documented Activity lifecycle
      * ordering), so clearing the key in `onDestroy` was always too late for the one caller
      * — `StoryDisplayManager`'s host-resume observer — this exists for.
+     *
+     * This is also where the launch data is dropped, since finishing is the one thing that
+     * means no further instance will need it.
      */
     override fun finish() {
-        launchKey?.let { aliveKeys.remove(it) }
+        launchKey?.let { retireLaunch(it) }
         super.finish()
     }
 
@@ -697,9 +746,16 @@ class StoryViewerActivity : AppCompatActivity() {
         scope.cancel()
         // Safety net: finish() is the normal retirement point (see its KDoc), but a viewer
         // that is destroyed without finish() ever being called (e.g. the host process/task
-        // is torn down directly) must not leave a stale key alive forever. Set.remove is
-        // idempotent, so this is a no-op on the normal finish()-then-destroy path.
-        launchKey?.let { aliveKeys.remove(it) }
+        // is torn down directly) must not leave a stale key alive forever. Both removals
+        // are idempotent, so this is a no-op on the normal finish()-then-destroy path.
+        //
+        // A configuration change is the one destroy that is not the end of the viewer: the
+        // successor instance is created from the same intent and needs both the key (it is
+        // still on screen, so isAlive must stay true across the rotation) and the launch
+        // data (it has nothing else to render from).
+        if (!isChangingConfigurations) {
+            launchKey?.let { retireLaunch(it) }
+        }
         super.onDestroy()
     }
 }
