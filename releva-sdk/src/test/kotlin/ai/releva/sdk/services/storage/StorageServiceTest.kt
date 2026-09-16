@@ -194,6 +194,66 @@ class StorageServiceTest {
         assertEquals("""{"products":[{"id":"p2"}]}""", storageService.getCartData())
     }
 
+    // Merge Profile ID Tests
+
+    @Test
+    fun `add and get merge profile ids preserves queue order`() {
+        storageService.addMergeProfileId("profile-1")
+        storageService.addMergeProfileId("profile-2")
+
+        assertEquals(listOf("profile-1", "profile-2"), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `get merge profile ids returns empty list when not set`() {
+        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `add merge profile id does not queue the same id twice`() {
+        storageService.addMergeProfileId("profile-1")
+        storageService.addMergeProfileId("profile-2")
+        storageService.addMergeProfileId("profile-1")
+
+        assertEquals(listOf("profile-1", "profile-2"), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `remove merge profile ids removes only the given ids`() {
+        storageService.addMergeProfileId("profile-1")
+        storageService.addMergeProfileId("profile-2")
+
+        storageService.removeMergeProfileIds(listOf("profile-1"))
+
+        assertEquals(listOf("profile-2"), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `remove merge profile ids ignores ids that are not queued`() {
+        storageService.addMergeProfileId("profile-1")
+
+        storageService.removeMergeProfileIds(listOf("profile-9"))
+
+        assertEquals(listOf("profile-1"), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `clear merge profile ids removes them`() {
+        storageService.addMergeProfileId("profile-1")
+
+        storageService.clearMergeProfileIds()
+
+        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `get merge profile ids returns empty list for malformed json`() {
+        // Manually set invalid JSON to test error handling
+        storageService.setString("merge_profile_ids", "invalid json {[")
+
+        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+    }
+
     // Wishlist Management Tests
 
     @Test

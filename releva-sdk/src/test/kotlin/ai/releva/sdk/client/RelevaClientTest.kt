@@ -9,12 +9,16 @@ import ai.releva.sdk.types.device.DeviceType
 import ai.releva.sdk.types.event.CustomEvent
 import ai.releva.sdk.types.filter.SimpleFilter
 import ai.releva.sdk.types.response.BannerResponse
+import ai.releva.sdk.types.tracking.PushRequest
 import ai.releva.sdk.types.wishlist.WishlistProduct
 import android.content.Context
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.*
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.After
@@ -24,6 +28,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -32,7 +37,7 @@ class RelevaClientTest {
 
     private lateinit var context: Context
     private lateinit var storageService: StorageService
-    private lateinit var mockWebServer: MockWebServer
+    private var mockWebServer: MockWebServer? = null
     private lateinit var client: RelevaClient
 
     @Before
@@ -41,13 +46,15 @@ class RelevaClientTest {
         storageService = StorageService.getInstance(context)
         storageService.clear()
 
-        // Note: We can't easily test with MockWebServer because RelevaClient
-        // creates its own OkHttpClient internally. These tests focus on state management,
-        // initialization logic, and request preparation logic.
+        // Note: most tests here focus on state management, initialization logic and
+        // request preparation; the ones that need to inspect a request body point the
+        // client at a MockWebServer via setEndpointOverride().
     }
 
     @After
     fun tearDown() {
+        mockWebServer?.shutdown()
+        mockWebServer = null
         storageService.clear()
     }
 
@@ -71,6 +78,221 @@ class RelevaClientTest {
 
         assertEquals("new-profile", storageService.getProfileId())
         // Note: mergeProfileIds is private, but its effect is visible in API requests
+    }
+
+    // Merge Profile ID Tests
+
+    @Test
+    fun `merge profile id survives a client that dies before a successful push`() = runTest {
+        storageService.setDeviceId("device-1")
+        val firstClient = createTestClient()
+        firstClient.setProfileId("profile-A")
+        firstClient.setProfileId("profile-B")
+        // firstClient is dropped without ever pushing successfully
+
+        val server = startPushServer()
+        val secondClient = createTestClient()
+        secondClient.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        secondClient.push(PushRequest())
+
+        val body = server.takeRequest().body.readUtf8()
+        assertEquals(listOf("profile-A"), mergeProfileIdsOf(body))
+        // The new client never saw the profile change, but the ids it is carrying say one
+        // happened, so the flag has to agree with them.
+        assertTrue(JSONObject(body).getJSONObject("context").getBoolean("profileChanged"))
+    }
+
+    @Test
+    fun `successful push clears the merge list from storage`() = runTest {
+        storageService.setDeviceId("device-1")
+        val server = startPushServer()
+
+        val client = createTestClient()
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B")
+        client.push(PushRequest())
+
+        assertEquals(listOf("profile-A"), mergeProfileIdsOf(server.takeRequest().body.readUtf8()))
+        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+
+        // A later client over the same storage must not resend it
+        val laterClient = createTestClient()
+        laterClient.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        laterClient.push(PushRequest())
+
+        val laterBody = server.takeRequest().body.readUtf8()
+        assertEquals(emptyList<String>(), mergeProfileIdsOf(laterBody))
+        // An empty queue must not fabricate a profile change either.
+        assertFalse(JSONObject(laterBody).getJSONObject("context").getBoolean("profileChanged"))
+    }
+
+    @Test
+    fun `a failed push leaves the merge queue persisted for the next attempt`() = runTest {
+        storageService.setDeviceId("device-1")
+        val server = MockWebServer()
+        server.start()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) =
+                MockResponse().setResponseCode(500).setBody("boom")
+        }
+        mockWebServer = server
+
+        val client = createTestClient()
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B")
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+
+        // The push fails (non-200): the clear block at the end of push() is never reached,
+        // so the queue must still be there afterwards, both in this client and a fresh one.
+        try {
+            client.push(PushRequest())
+            fail("Expected push() to throw on a 500 response")
+        } catch (e: Exception) {
+            // expected
+        }
+
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+
+        // Drain every request the failed push produced, however many that is, so the
+        // takeRequest() at the end of this test is unambiguously the later client's and
+        // cannot silently become a retry of the push above.
+        var drained = 0
+        while (server.takeRequest(100, TimeUnit.MILLISECONDS) != null) {
+            drained++
+        }
+        assertTrue("expected the failed push to have reached the server", drained > 0)
+
+        val laterClient = createTestClient()
+        laterClient.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) =
+                MockResponse().setResponseCode(200).setBody("{}")
+        }
+        laterClient.push(PushRequest())
+
+        assertEquals(listOf("profile-A"), mergeProfileIdsOf(server.takeRequest().body.readUtf8()))
+    }
+
+    @Test
+    fun `setProfileId with skipMerge does not queue the id it is replacing`() = runTest {
+        val client = createTestClient()
+
+        client.setProfileId("profile-A")
+        client.setProfileId("anonymous-B", skipMergeWithPreviousProfileId = true)
+
+        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `logging out discards a queue that could only be delivered to the wrong profile`() = runTest {
+        // A -> B is queued and undelivered (the device was offline), then the host logs out.
+        // Keeping the queue looks like preserving that link, and is not: push sends
+        // mergeProfileIds alongside profile.id read from storage AT PUSH TIME, so after the
+        // logout the body would be profile.id = anonymous-C with mergeProfileIds = ["A"] —
+        // merging the signed-out user into the anonymous session rather than into B, which is
+        // no longer stored anywhere. A -> B is already unrecoverable at this point; the only
+        // question is whether A gets delivered to the wrong profile, and it must not.
+        val client = createTestClient()
+
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B")
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+
+        client.setProfileId("anonymous-C", skipMergeWithPreviousProfileId = true)
+
+        assertEquals(
+            "a queued id must not outlive the profile it was queued against",
+            emptyList<String>(), storageService.getMergeProfileIds()
+        )
+    }
+
+    @Test
+    fun `skipMerge clears the queue even when the profile id is unchanged`() = runTest {
+        // The changed-id guard below would skip this transition entirely, but a caller passing
+        // the flag still means "cancel anything pending" — and the clear sits above that guard
+        // so it happens either way.
+        val client = createTestClient()
+
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B")
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+
+        client.setProfileId("profile-B", skipMergeWithPreviousProfileId = true)
+
+        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `the same previous profile id is not queued for merging twice`() = runTest {
+        val client = createTestClient()
+
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B")
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B")
+
+        assertEquals(listOf("profile-A", "profile-B"), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `a successful push token registration leaves the persisted merge queue intact`() = runTest {
+        storageService.setDeviceId("device-1")
+        val server = MockWebServer()
+        server.start()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) =
+                MockResponse().setResponseCode(202).setBody("{}")
+        }
+        mockWebServer = server
+
+        val client = createTestClient()
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B")
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+
+        // registerPushToken's request body never carries mergeProfileIds, so a successful
+        // call here must not discard the queue a later push() would still need to send.
+        client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `a successful push clears only the ids it sent, not ones queued while it was in flight`() = runTest {
+        storageService.setDeviceId("device-1")
+        val client = createTestClient()
+
+        // Recorded rather than asserted inside dispatch(): MockWebServer swallows a throw from
+        // its dispatcher thread, which would surface as an unrelated transport failure.
+        var queueMidFlight: List<String>? = null
+        val server = MockWebServer()
+        server.start()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                // Runs on the server's thread, after push() built and sent the body but before
+                // it sees a response — so this id is queued while the request is in flight and
+                // was never on the wire.
+                runBlocking { client.setProfileId("profile-C") } // queues "profile-B"
+                queueMidFlight = storageService.getMergeProfileIds()
+                return MockResponse().setResponseCode(200).setBody("{}")
+            }
+        }
+        mockWebServer = server
+
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B") // queues "profile-A"
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+
+        client.push(PushRequest())
+
+        assertEquals(listOf("profile-A", "profile-B"), queueMidFlight)
+        // "profile-A" was sent and is removed; "profile-B" was queued mid-flight and survives
+        // for the next push to send.
+        assertEquals(listOf("profile-B"), storageService.getMergeProfileIds())
     }
 
     @Test
@@ -477,5 +699,26 @@ class RelevaClientTest {
         config: RelevaConfig = RelevaConfig.full()
     ): RelevaClient {
         return RelevaClient(context, realm, accessToken, config)
+    }
+
+    /**
+     * Starts a server that answers every push with an empty (but valid) response body.
+     */
+    private fun startPushServer(): MockWebServer {
+        val server = MockWebServer()
+        server.start()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) =
+                MockResponse().setResponseCode(200).setBody("{}")
+        }
+        mockWebServer = server
+        return server
+    }
+
+    private fun mergeProfileIdsOf(requestBody: String): List<String> {
+        val ids = JSONObject(requestBody)
+            .getJSONObject("context")
+            .getJSONArray("mergeProfileIds")
+        return List(ids.length()) { ids.getString(it) }
     }
 }

@@ -2,6 +2,7 @@ package ai.releva.sdk.services.storage
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import org.json.JSONArray
 
 /**
@@ -14,11 +15,16 @@ class StorageService private constructor(context: Context) {
         Context.MODE_PRIVATE
     )
 
+    /** @see getMergeProfileIds */
+    private val mergeQueueLock = Any()
+
     companion object {
+        private const val TAG = "StorageService"
         private const val PREFS_NAME = "releva_sdk_prefs"
 
         // Storage keys
         private const val KEY_PROFILE_ID = "rprofile_id"
+        private const val KEY_MERGE_PROFILE_IDS = "merge_profile_ids"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_SESSION_ID = "session_id"
         private const val KEY_SESSION_TIMESTAMP = "session_timestamp"
@@ -48,6 +54,77 @@ class StorageService private constructor(context: Context) {
     }
 
     fun getProfileId(): String? = preferences.getString(KEY_PROFILE_ID, null)
+
+    /**
+     * Profile ids queued to be merged into the current profile. This is the only copy — it is
+     * read from here at every use rather than mirrored into a field — so the intent to merge
+     * outlives the process when the push that would carry it never succeeds.
+     *
+     * The accessors below are read-modify-writes run from independent `Dispatchers.IO`
+     * coroutines, so they are serialised on [mergeQueueLock]. A private lock rather than
+     * `@Synchronized`: these writes block on `commit()`, and this instance's own monitor is
+     * taken on the main thread (`SessionService.onStart` → [incrementDeviceSessionCount]).
+     * `commit()` rather than the `apply()` used elsewhere in this file because this is the one
+     * value whose purpose is to survive a force-stop.
+     */
+    fun getMergeProfileIds(): List<String> = synchronized(mergeQueueLock) {
+        val jsonString = preferences.getString(KEY_MERGE_PROFILE_IDS, null)
+            ?: return@synchronized emptyList()
+        try {
+            val jsonArray = JSONArray(jsonString)
+            List(jsonArray.length()) { jsonArray.getString(it) }
+        } catch (e: Exception) {
+            // Exception logged by type only: org.json puts the unparseable input in the
+            // message, and that input is a list of profile identifiers.
+            Log.w(TAG, "Merge profile ids are unreadable (${e.javaClass.simpleName}); a queued profile merge is lost")
+            emptyList()
+        }
+    }
+
+    /**
+     * Queues [profileId] for merging unless it is already queued.
+     * @see getMergeProfileIds
+     */
+    fun addMergeProfileId(profileId: String) = synchronized(mergeQueueLock) {
+        val queued = getMergeProfileIds()
+        if (!queued.contains(profileId)) {
+            writeMergeProfileIds(queued + profileId)
+        }
+    }
+
+    /**
+     * Removes exactly [profileIds], leaving anything queued since they were read.
+     * @see getMergeProfileIds
+     */
+    fun removeMergeProfileIds(profileIds: List<String>) = synchronized(mergeQueueLock) {
+        val queued = getMergeProfileIds()
+        val remaining = queued - profileIds.toSet()
+        if (remaining != queued) {
+            writeMergeProfileIds(remaining)
+        }
+    }
+
+    /** @see getMergeProfileIds */
+    fun clearMergeProfileIds() = synchronized(mergeQueueLock) {
+        writeMergeProfileIds(emptyList())
+    }
+
+    private fun writeMergeProfileIds(profileIds: List<String>) {
+        // Nothing queued and nothing stored: skip the blocking commit. That is every
+        // setProfileId(..., skipMergeWithPreviousProfileId = true) call on a host that passes
+        // the flag routinely.
+        if (profileIds.isEmpty() && !preferences.contains(KEY_MERGE_PROFILE_IDS)) return
+
+        val editor = preferences.edit()
+        if (profileIds.isEmpty()) {
+            editor.remove(KEY_MERGE_PROFILE_IDS)
+        } else {
+            editor.putString(KEY_MERGE_PROFILE_IDS, JSONArray(profileIds).toString())
+        }
+        if (!editor.commit()) {
+            Log.w(TAG, "Failed to persist merge profile ids; a queued profile merge may be lost")
+        }
+    }
 
     fun setDeviceId(deviceId: String) {
         preferences.edit().putString(KEY_DEVICE_ID, deviceId).apply()

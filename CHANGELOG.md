@@ -53,6 +53,28 @@ rather than in the section above.
   re-sent and a 5xx now gets this SDK's shared four-request budget instead of its old two — still
   more than Swift's own NPS budget of two, per the note above.
 
+- **A profile merge was lost permanently if the app died before the first successful push.**
+  `RelevaClient` kept the ids queued by `setProfileId` in an in-memory list only, while the new
+  profile id itself was written to storage immediately. On the next launch the list was empty and
+  the previous id was no longer recoverable — `storage.getProfileId()` already returned the new
+  one — so the two identities were never linked, silently and permanently. Device-verified with a
+  control: online, the push body carried `mergeProfileIds = ["ctl-A-000036"]`; with the radios off
+  and a force-stop before any successful push, the next launch sent `mergeProfileIds = []`.
+
+  The queue now lives in `StorageService` and nowhere else, so it survives the process by
+  construction. Alongside that: a successful push removes only the ids it actually sent, so an id
+  queued while that request was in flight is no longer dropped with them; `registerPushToken` no
+  longer clears the queue, since its request never carried `mergeProfileIds` and clearing there
+  only discarded a merge a later push still had to send; `skipMergeWithPreviousProfileId` (the
+  logout path) clears the queue whether or not the id passed with it has changed, because a
+  queued id is delivered against `profile.id` as it stands *at push time* — so keeping one past
+  a logout would not preserve the old link (its other half is already gone) but would merge the
+  signed-out user into the anonymous session; and, matching the Swift SDK, an id already queued is not queued
+  again, so A → B → A → B queues `["A", "B"]` rather than `["A", "B", "A"]`.
+
+  The wire format is unchanged. `profileChanged` is now sent as `true` whenever the body carries
+  merge ids, which is the only combination of the two the backend has ever received — before the
+  queue was durable, an id could not outlive the flag.
 
 ## 1.4.0
 

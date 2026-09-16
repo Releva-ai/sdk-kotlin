@@ -56,7 +56,6 @@ class RelevaClient(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    private val mergeProfileIds = mutableListOf<String>()
     private var cartChanged = false
     private var wishlistChanged = false
     private var deviceIdChanged = false
@@ -106,14 +105,34 @@ class RelevaClient(
      * Set profile ID
      */
     suspend fun setProfileId(profileId: String, skipMergeWithPreviousProfileId: Boolean = false) = withContext(Dispatchers.IO) {
+        // Clears the whole queue, not just this transition, and the reason is where the queue
+        // is *delivered* rather than where it is filled. `push` sends `mergeProfileIds`
+        // alongside `profile.id` read from storage at push time — not the profile that was
+        // current when an id was queued. So after A -> B offline and then a logout to anon-C,
+        // B is neither queued nor stored and A -> B is already unrecoverable; keeping ["A"]
+        // would send `profile.id = anon-C` with `mergeProfileIds = ["A"]` and merge the
+        // signed-out user into the anonymous session. On a shared device that is one person's
+        // data landing in another's.
+        //
+        // The choice is not "lose a link or keep it" — it is "drop a link that can no longer
+        // be delivered, or deliver it to the wrong profile". Swift clears here for the same
+        // reason.
+        if (skipMergeWithPreviousProfileId) {
+            storage.clearMergeProfileIds()
+        }
+
         val previousProfileId = storage.getProfileId()
 
         if (previousProfileId == null || previousProfileId != profileId) {
             profileChanged = true
-            storage.setProfileId(profileId)
-            if (previousProfileId != null && !skipMergeWithPreviousProfileId) {
-                mergeProfileIds.add(previousProfileId)
+            // Queue before writing the new id. The two writes are not atomic, so dying between
+            // them has to lose one; this order leaves a queued id against an unchanged profile
+            // (a redundant self-merge at worst) rather than the new id with no record of where
+            // it came from, which is the loss this fix exists to prevent.
+            if (!skipMergeWithPreviousProfileId && previousProfileId != null) {
+                storage.addMergeProfileId(previousProfileId)
             }
+            storage.setProfileId(profileId)
         }
     }
 
@@ -256,7 +275,9 @@ class RelevaClient(
         wishlistChanged = false
         profileChanged = false
         deviceIdChanged = false
-        mergeProfileIds.clear()
+        // Deliberately does not clear the merge queue: the request body built above never
+        // carries mergeProfileIds, so clearing here would discard a merge that no request has
+        // delivered yet.
     }
 
     /**
@@ -356,6 +377,11 @@ class RelevaClient(
         val deviceId = storage.getDeviceId()
             ?: throw Exception("Please provide deviceId using client.setDeviceId() before using the client!")
 
+        // Read once here and removed by value on success, rather than re-read afterwards: a
+        // concurrent setProfileId() can queue an id while this request is in flight, and that
+        // id was never on the wire, so it has to survive this push's cleanup.
+        val sentMergeIds = storage.getMergeProfileIds()
+
         val payload = JSONObject().apply {
             put("deviceId", deviceId)
             put("deviceIdChanged", deviceIdChanged)
@@ -366,7 +392,11 @@ class RelevaClient(
 
             request.viewedProduct?.let { put("product", JSONObject(it.toMap())) }
 
-            put("profileChanged", profileChanged)
+            // Carrying merge ids implies the profile changed, so keep the two in step even when
+            // the change happened in an earlier process. Before the queue was durable an id
+            // could not outlive the flag, so the backend has never seen a non-empty
+            // mergeProfileIds alongside profileChanged = false; this keeps it that way.
+            put("profileChanged", profileChanged || sentMergeIds.isNotEmpty())
 
             // Add page object with url, optional token, and product/category lists
             put("page", JSONObject().apply {
@@ -392,7 +422,7 @@ class RelevaClient(
                 } ?: JSONArray())
             })
             put("wishlistChanged", wishlistChanged)
-            put("mergeProfileIds", JSONArray(mergeProfileIds))
+            put("mergeProfileIds", JSONArray(sentMergeIds))
 
             // Add custom events if present
             request.getCustomEvents()?.let { events ->
@@ -438,7 +468,11 @@ class RelevaClient(
         wishlistChanged = false
         profileChanged = false
         deviceIdChanged = false
-        mergeProfileIds.clear()
+        // Removes only what this request actually sent, so an id queued while it was in flight
+        // (see sentMergeIds above) stays queued for the next push.
+        if (sentMergeIds.isNotEmpty()) {
+            storage.removeMergeProfileIds(sentMergeIds)
+        }
 
         val relevaResponse = RelevaResponse.fromJson(response.body)
 
