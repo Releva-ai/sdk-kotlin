@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -42,6 +43,7 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
     private lateinit var contentContainer: FrameLayout
 
     companion object {
+        private const val TAG = "NpsDialogFragment"
         private const val ARG_CONFIG = "releva_nps_config"
         private const val STATE_SCORE = "releva_nps_score"
         private const val STATE_SUBMITTED = "releva_nps_submitted"
@@ -64,6 +66,28 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
                     putString(ARG_CONFIG, JSONObject(config.toMap()).toString())
                 }
             }
+        }
+
+        /**
+         * Retained so a caller who built the dialog directly — rather than through
+         * [NpsDisplayManager.attach] — still compiles: [config] and its callbacks were the
+         * whole signature before this fix. The callbacks cannot travel with the fragment
+         * across a configuration change either way, so this registers them on
+         * [NpsDisplayManager] and defers to the two-argument overload above, which is exactly
+         * what the fragment itself now depends on.
+         */
+        @Deprecated(
+            "Register callbacks on NpsDisplayManager; they cannot survive recreation on the fragment.",
+            ReplaceWith("NpsDialogFragment.newInstance(config)")
+        )
+        fun newInstance(
+            config: NpsConfig,
+            onSubmit: suspend (String, Int, String?) -> Unit,
+            onSkip: (() -> Unit)? = null
+        ): NpsDialogFragment {
+            NpsDisplayManager.setOnSubmit(onSubmit)
+            onSkip?.let(NpsDisplayManager::setOnSkip)
+            return newInstance(config)
         }
     }
 
@@ -408,7 +432,16 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
         submitting = true
         scope.launch {
             try {
-                NpsDisplayManager.submitCallback()?.invoke(config.token, score, comment)
+                val onSubmit = NpsDisplayManager.submitCallback()
+                if (onSubmit != null) {
+                    onSubmit(config.token, score, comment)
+                } else {
+                    // The host activity has not called NpsDisplayManager.setOnSubmit at all —
+                    // an integration mistake, not a runtime one, but the thank-you step below
+                    // still shows, so this is the only signal an integrator gets that nothing
+                    // was actually sent.
+                    Log.w(TAG, "NPS submit reached with no onSubmit callback registered; feedback was not sent")
+                }
             } catch (_: Exception) {
                 // Submission failures are silent per spec
             }

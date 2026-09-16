@@ -40,9 +40,11 @@ rather than in the section above.
   — is saved in `onSaveInstanceState`. The callbacks cannot go in a Bundle, so the fragment reads
   them from `NpsDisplayManager` when it needs them instead of being handed them once at
   construction; a recreated dialog submits to the same callback as before. A fragment with no
-  config at all still dismisses. `NpsDialogFragment.newInstance` consequently takes only the
-  config now — the callbacks were already registered through `NpsDisplayManager.setOnSubmit` /
-  `setOnSkip`, which is the documented way to wire the survey up and is unchanged.
+  config at all still dismisses. `NpsDialogFragment.newInstance` now takes only the config; the
+  three-argument overload that also took `onSubmit`/`onSkip` is kept, `@Deprecated`, forwarding
+  into `NpsDisplayManager.setOnSubmit`/`setOnSkip` and then the new overload, so an existing
+  caller of the old signature still compiles and gets a dialog that survives a configuration
+  change.
 
 - **A momentary network failure or a transient 5xx dropped the event for good.**
   `RelevaClient.execute` made exactly one call and handed whatever came back — or whatever it

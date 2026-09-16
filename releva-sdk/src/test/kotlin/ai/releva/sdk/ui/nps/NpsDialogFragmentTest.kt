@@ -2,6 +2,7 @@ package ai.releva.sdk.ui.nps
 
 import ai.releva.sdk.types.response.NpsConfig
 import ai.releva.sdk.types.response.NpsFollowUp
+import ai.releva.sdk.types.response.NpsThankYou
 import android.content.res.Configuration
 import android.os.Looper
 import android.view.View
@@ -13,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -35,6 +37,11 @@ import org.robolectric.annotation.Config
  * The submit test is the one that catches the half-fix: a dialog that comes back on screen but
  * whose callbacks did not come back with it is worse than one that vanished, because the user
  * taps submit, gets the thank-you screen and believes they have answered.
+ *
+ * [NpsDisplayManager] is an `object` with no way to clear its callbacks, so the lambda [setUp]
+ * registers on every run outlives this class inside the Robolectric sandbox; nothing outside
+ * this suite reads it, so it is harmless, but a fresh `onSubmit` from a later test class would
+ * silently replace it rather than stack with it.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
@@ -96,6 +103,69 @@ class NpsDialogFragmentTest {
     }
 
     /**
+     * `submitted` is written to [android.os.Bundle] but nothing else reads it back: every other
+     * test in this class rotates before a score is ever submitted. A rotation on the thank-you
+     * step is not exotic — the step sits on screen for two full seconds behind a
+     * non-cancelable, non-dismissible sheet before it auto-dismisses — and if this ever stopped
+     * surviving, the recreated dialog would fall through to the score step and ask an already
+     * -answered user to answer again, producing a second submission with nothing on the wire to
+     * collapse it. `thankYou` is set on the config so the assertion below names a string only
+     * the thank-you step can produce, not the question or the follow-up.
+     */
+    @Test
+    fun `a survey restored after a submission stays on the thank-you step`() {
+        val thankYouMessage = "You made our day!"
+        val (controller, original) = showSurvey(config(thankYou = NpsThankYou(promoter = thankYouMessage)))
+        findViewWithText(original, "9")!!.performClick()
+        findViewWithText(original, SUBMIT_LABEL)!!.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNotNull(findViewWithText(original, thankYouMessage))
+
+        val recreated = rotate(controller, original)
+
+        assertNotNull(findViewWithText(recreated, thankYouMessage))
+        assertNull(findViewWithText(recreated, "9"))
+        assertEquals(1, submissions.size)
+    }
+
+    /**
+     * The follow-up step has no skip button and the sheet is non-cancelable, so a user who
+     * rotates with a required comment already typed and comes back to a disabled submit button
+     * has no visible way forward. Asserting `isEnabled` is the point: the comment coming back
+     * into the [EditText] would pass even if the restore ran before the [android.text.TextWatcher]
+     * was wired, which is exactly the ordering bug this pins.
+     */
+    @Test
+    fun `a comment restored into a required follow-up re-enables the submit button`() {
+        val (controller, original) = showSurvey(config(followUpRequired = true))
+        findViewWithText(original, "9")!!.performClick()
+        editTextIn(original)!!.setText("quick delivery")
+
+        val recreated = rotate(controller, original)
+
+        assertEquals("quick delivery", editTextIn(recreated)?.text?.toString())
+        assertTrue(findViewWithText(recreated, SUBMIT_LABEL)!!.isEnabled)
+    }
+
+    /**
+     * The skip path moved to [NpsDisplayManager.skipCallback] along with submit, but nothing
+     * else in this class reaches it: the default test config leaves `skipLabel` null, so the
+     * button is never built. The mechanism is the same one the submit test already proves, so
+     * this is mostly belt-and-braces coverage for the other half of the singleton read.
+     */
+    @Test
+    fun `skipping after a configuration change still reaches the skip callback`() {
+        var skipped = false
+        NpsDisplayManager.setOnSkip { skipped = true }
+        val (controller, original) = showSurvey(config(skipLabel = SKIP_LABEL))
+
+        val recreated = rotate(controller, original)
+        findViewWithText(recreated, SKIP_LABEL)!!.performClick()
+
+        assertTrue(skipped)
+    }
+
+    /**
      * Carrying the config in the arguments must not turn the genuinely invalid case into a
      * dialog that stays open: a fragment with no arguments at all has no survey to show.
      */
@@ -111,11 +181,18 @@ class NpsDialogFragmentTest {
         assertFalse(fragment.isAdded)
     }
 
-    private fun config() = NpsConfig(
+    private fun config(
+        followUpRequired: Boolean = false,
+        thankYou: NpsThankYou? = null,
+        skipLabel: String? = null
+    ) = NpsConfig(
         token = TOKEN,
         question = QUESTION,
         followUp = NpsFollowUp(promoter = PROMOTER_QUESTION, detractor = "What went wrong?"),
-        submitLabel = SUBMIT_LABEL
+        followUpRequired = followUpRequired,
+        submitLabel = SUBMIT_LABEL,
+        skipLabel = skipLabel,
+        thankYou = thankYou
     )
 
     private fun showSurvey(
@@ -186,5 +263,6 @@ class NpsDialogFragmentTest {
         const val QUESTION = "How likely are you to recommend us?"
         const val PROMOTER_QUESTION = "What did you like most?"
         const val SUBMIT_LABEL = "Send feedback"
+        const val SKIP_LABEL = "No thanks"
     }
 }
