@@ -2,11 +2,10 @@
 
 ## 1.5.0
 
-Not yet released. 1.4.0 is tagged and published, so this lands under its own version
-rather than in the section above. Bumped to MINOR rather than the PATCH originally
-planned: the NPS fix below adds `NpsDialogFragment.newInstance(NpsConfig)` as new public
-API and deprecates the three-argument overload, which `RELEASING.md` classifies as MINOR
-regardless of what else ships alongside it.
+Released 16 September 2026. MINOR rather than the PATCH originally planned: the NPS fix
+below adds `NpsDialogFragment.newInstance(NpsConfig)` as new public API and deprecates the
+three-argument overload, which `RELEASING.md` classifies as MINOR regardless of what else
+ships alongside it.
 
 ### Fixed
 
