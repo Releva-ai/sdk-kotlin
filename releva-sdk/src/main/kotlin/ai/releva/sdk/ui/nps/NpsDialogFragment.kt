@@ -1,6 +1,7 @@
 package ai.releva.sdk.ui.nps
 
 import ai.releva.sdk.types.response.NpsConfig
+import ai.releva.sdk.types.response.RelevaResponse
 import android.app.Dialog
 import android.content.res.Configuration
 import android.graphics.Color
@@ -10,11 +11,13 @@ import android.os.Handler
 import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
+import androidx.annotation.VisibleForTesting
 import androidx.fragment.app.DialogFragment
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -22,7 +25,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 /**
  * NPS survey dialog that supports both bottom sheet and centered modal positions.
@@ -30,39 +35,123 @@ import kotlinx.coroutines.launch
  */
 class NpsDialogFragment : BottomSheetDialogFragment() {
 
-    private var config: NpsConfig? = null
-    private var onSubmit: (suspend (String, Int, String?) -> Unit)? = null
-    private var onSkip: (() -> Unit)? = null
     private var selectedScore: Int? = null
+    private var submitted = false
     private var submitting = false
+    private var followUpInput: EditText? = null
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // Set only by the deprecated three-argument newInstance, and only on the instance it
+    // returns. Plain fields, exactly how the survey and its callbacks travelled on master,
+    // so that factory's dialog still behaves exactly as it did there: the FragmentManager
+    // recreates the fragment through its no-arg constructor, directConfig comes back null
+    // and onCreateDialog's no-config exit dismisses it.
+    private var directConfig: NpsConfig? = null
+    private var directOnSubmit: (suspend (String, Int, String?) -> Unit)? = null
+    private var directOnSkip: (() -> Unit)? = null
+
+    /**
+     * True on exactly the instances the deprecated factory returns, and only while they are
+     * the original instance. Those dialogs use the callbacks they were handed and never read
+     * the ones [NpsDisplayManager] holds for the `attach()` path, so calling the deprecated
+     * factory cannot change what a survey shown through `attach()` submits to, and a survey
+     * shown through `attach()` cannot fire a callback the deprecated call never registered.
+     */
+    private val usesDirectCallbacks get() = directConfig != null
 
     private lateinit var contentContainer: FrameLayout
 
     companion object {
+        private const val TAG = "NpsDialogFragment"
+        private const val ARG_CONFIG = "releva_nps_config"
+        private const val STATE_SCORE = "releva_nps_score"
+        private const val STATE_SUBMITTED = "releva_nps_submitted"
+        private const val STATE_COMMENT = "releva_nps_comment"
+
+        /**
+         * The survey travels in [arguments] rather than in a field: a configuration change
+         * destroys the fragment and the FragmentManager recreates it through the no-arg
+         * constructor, so a field set here is gone by the time the successor's
+         * `onCreateDialog` runs — and it dismissed itself. [arguments] is restored for the
+         * successor. [NpsConfig] is neither Parcelable nor Serializable, so it goes in as
+         * the JSON its own `toMap`/`fromMap` already round-trip through.
+         *
+         * The submit and skip callbacks are not passed at all; they cannot go in a Bundle,
+         * so the fragment reads them from [NpsDisplayManager] when it needs them.
+         */
+        fun newInstance(config: NpsConfig): NpsDialogFragment {
+            return NpsDialogFragment().apply {
+                arguments = Bundle().apply {
+                    putString(ARG_CONFIG, JSONObject(config.toMap()).toString())
+                }
+            }
+        }
+
+        /**
+         * Retained so a caller who built the dialog directly — rather than through
+         * [NpsDisplayManager.attach] — still compiles; [config] and its callbacks were the
+         * whole signature before this fix.
+         *
+         * It behaves exactly as it did before this fix, losing the dialog on a configuration
+         * change included: the survey and both callbacks go on the instance, and an instance
+         * field is gone once the FragmentManager recreates the fragment. Keeping it that way
+         * is the point — a lambda handed to one dialog stays with that dialog, and nothing
+         * here reaches for [NpsDisplayManager]'s process-wide callbacks to stand in for it.
+         * The rotation fix is on [newInstance] above, the path [NpsDisplayManager] uses and
+         * the one the integration guide documents.
+         *
+         * Deliberately no `ReplaceWith`: the replacement is not this call minus its
+         * arguments, it is registering them on [NpsDisplayManager], so a quick-fix would
+         * silently drop them.
+         */
+        @Deprecated(
+            "Show the survey through NpsDisplayManager; a dialog built here does not survive a configuration change."
+        )
         fun newInstance(
             config: NpsConfig,
             onSubmit: suspend (String, Int, String?) -> Unit,
             onSkip: (() -> Unit)? = null
         ): NpsDialogFragment {
             return NpsDialogFragment().apply {
-                this.config = config
-                this.onSubmit = onSubmit
-                this.onSkip = onSkip
+                directConfig = config
+                directOnSubmit = onSubmit
+                directOnSkip = onSkip
             }
         }
     }
 
     override fun onDestroyView() {
         scope.cancel()
+        // The thank-you step's auto-dismiss is posted two seconds out. Now that that step can
+        // be on screen across a recreation, leaving it queued would keep this destroyed
+        // fragment — and through it the old activity — reachable until it fires.
+        handler.removeCallbacksAndMessages(null)
+        followUpInput = null
         super.onDestroyView()
     }
 
+    /**
+     * Saves what the arguments cannot carry: how far through the survey the user is. The
+     * step's views are built in code without ids, so the platform's own view-state saving
+     * does not reach the typed comment either.
+     */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        selectedScore?.let { outState.putInt(STATE_SCORE, it) }
+        outState.putBoolean(STATE_SUBMITTED, submitted)
+        followUpInput?.let { outState.putString(STATE_COMMENT, it.text.toString()) }
+    }
+
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
-        val cfg = config ?: run {
+        val cfg = directConfig ?: configFromArguments() ?: run {
             dismissAllowingStateLoss()
             return super.onCreateDialog(savedInstanceState)
+        }
+
+        savedInstanceState?.let {
+            if (it.containsKey(STATE_SCORE)) selectedScore = it.getInt(STATE_SCORE)
+            submitted = it.getBoolean(STATE_SUBMITTED)
         }
 
         val dialog = BottomSheetDialog(requireContext(), theme)
@@ -70,12 +159,32 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
         dialog.setCanceledOnTouchOutside(false)
 
         contentContainer = FrameLayout(requireContext())
-        showScoreStep(cfg)
+        val score = selectedScore
+        val followUp = score?.let { cfg.followUp?.forScore(it) }
+        when {
+            score != null && submitted -> showThankYouStep(cfg, score)
+            score != null && followUp != null ->
+                showFollowUpStep(cfg, followUp, savedInstanceState?.getString(STATE_COMMENT))
+            // A score with no follow-up question submits immediately, so a restored score
+            // that reaches here is one whose submission the recreation interrupted. The
+            // score step lets the user answer again rather than stranding them.
+            else -> showScoreStep(cfg)
+        }
 
         dialog.setContentView(contentContainer)
         @Suppress("DEPRECATION")
         dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         return dialog
+    }
+
+    /**
+     * `internal` so a test can assert on the [NpsConfig] that comes back through the real
+     * `org.json` hop, including fields this fragment never renders.
+     */
+    @VisibleForTesting
+    internal fun configFromArguments(): NpsConfig? {
+        val json = arguments?.getString(ARG_CONFIG) ?: return null
+        return NpsConfig.fromMap(RelevaResponse.jsonObjectToMap(JSONObject(json)))
     }
 
     private fun resolveColors(config: NpsConfig): Triple<Int, Int, Int> {
@@ -199,7 +308,8 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
                 gravity = Gravity.CENTER
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 setOnClickListener {
-                    onSkip?.invoke()
+                    (if (usesDirectCallbacks) directOnSkip else NpsDisplayManager.skipCallback())
+                        ?.invoke()
                     dismissAllowingStateLoss()
                 }
             }
@@ -213,13 +323,13 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
         selectedScore = score
         val followUp = config.followUp?.forScore(score)
         if (followUp != null) {
-            showFollowUpStep(config, followUp)
+            showFollowUpStep(config, followUp, null)
         } else {
             submitScore(config, score, null)
         }
     }
 
-    private fun showFollowUpStep(config: NpsConfig, followUpQuestion: String) {
+    private fun showFollowUpStep(config: NpsConfig, followUpQuestion: String, initialComment: String?) {
         contentContainer.removeAllViews()
         val (primary, bg, textCol) = resolveColors(config)
         val ctx = requireContext()
@@ -266,6 +376,7 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         root.addView(editText)
+        followUpInput = editText
 
         root.setOnTouchListener { _, event ->
             if (event.action == android.view.MotionEvent.ACTION_DOWN) {
@@ -330,6 +441,15 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
             submitBtn.alpha = 0.4f
         }
 
+        // After the watcher is wired, so a comment restored into a required follow-up
+        // re-enables the submit button the same way typing it would have. The caret goes
+        // back to the end, so someone who rotated mid-sentence carries on where they were
+        // rather than at the start of their own comment.
+        initialComment?.let {
+            editText.setText(it)
+            editText.setSelection(it.length)
+        }
+
         root.addView(submitBtn)
 
         val scrollView = android.widget.ScrollView(ctx).apply {
@@ -357,16 +477,36 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
         submitting = true
         scope.launch {
             try {
-                onSubmit?.invoke(config.token, score, comment)
+                val onSubmit =
+                    if (usesDirectCallbacks) directOnSubmit else NpsDisplayManager.submitCallback()
+                if (onSubmit != null) {
+                    onSubmit(config.token, score, comment)
+                } else {
+                    // An integration mistake rather than a runtime one: the thank-you step
+                    // below still shows, so log it rather than letting it pass in silence.
+                    Log.w(TAG, "NPS submit reached with no onSubmit callback registered; feedback was not sent")
+                }
             } catch (_: Exception) {
                 // Submission failures are silent per spec
             }
+            // A configuration change while onSubmit is suspended cancels this coroutine from
+            // onDestroyView, and the catch above swallows the CancellationException that
+            // resumes it; rendering the thank-you step from here would then call
+            // requireContext() on a fragment already detaching, and crash. Asking whether
+            // this job is still alive answers that directly — and, unlike catching the
+            // exception, it does not mistake a cancellation the host's own onSubmit
+            // propagated out of some other job for this fragment going away, which would
+            // strand the user on a non-cancelable sheet whose submit button is latched off
+            // by `submitting`.
+            if (!isActive) return@launch
             submitting = false
+            submitted = true
             showThankYouStep(config, score)
         }
     }
 
     private fun showThankYouStep(config: NpsConfig, score: Int) {
+        followUpInput = null
         contentContainer.removeAllViews()
         val (primary, bg, textCol) = resolveColors(config)
         val ctx = requireContext()

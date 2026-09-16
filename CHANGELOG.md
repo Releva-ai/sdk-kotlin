@@ -1,9 +1,12 @@
 # Changelog
 
-## 1.4.1
+## 1.5.0
 
 Not yet released. 1.4.0 is tagged and published, so this lands under its own version
-rather than in the section above.
+rather than in the section above. Bumped to MINOR rather than the PATCH originally
+planned: the NPS fix below adds `NpsDialogFragment.newInstance(NpsConfig)` as new public
+API and deprecates the three-argument overload, which `RELEASING.md` classifies as MINOR
+regardless of what else ships alongside it.
 
 ### Fixed
 
@@ -25,7 +28,27 @@ rather than in the section above.
   fact that it has already tracked the story — so a rotation neither restarts the story nor
   counts a second impression. An intent with no launch key, and a story with no slides, still
   close immediately.
-
+- **An NPS survey was destroyed when the device was rotated, losing a part-answered response.**
+  The survey config and the callbacks were set as fields on the fragment by
+  `NpsDialogFragment.newInstance`, and the FragmentManager recreates a fragment through its
+  no-arg constructor — so a configuration change left the successor with a null config and it
+  dismissed itself, while `NpsManagerService` had already marked the survey as shown for the
+  rest of the session. Rotation is the easiest trigger; a dark-mode toggle, a font- or
+  display-size change, a locale change and a multi-window resize all take the same path.
+  Device-verified on a Xiaomi 2407FPN8EG (Android 16): the survey vanished on rotation and
+  turning the phone back did not bring it back. The config now travels in the fragment's
+  `arguments`, which the FragmentManager restores, and the step the user had reached — the
+  selected score, the typed comment, whether the response was already sent — is saved in
+  `onSaveInstanceState`; callbacks cannot go in a Bundle, so the fragment reads them from
+  `NpsDisplayManager` and a recreated dialog submits to the same one as before. A fragment with
+  no config at all still dismisses, `NpsDisplayManager` no longer stacks a second sheet on a
+  survey already on screen, and a configuration change landing while a submission is suspended
+  inside the callback no longer crashes on the way to the thank-you step.
+  `NpsDialogFragment.newInstance` now takes just the config; the three-argument overload is
+  kept, `@Deprecated`, and behaves exactly as it did before — its survey and its callbacks stay
+  on the one instance it returns, it neither reads nor writes the ones `NpsDisplayManager`
+  holds, and its dialog is still lost on a configuration change. Callers get the fix by moving
+  to `NpsDisplayManager`, which is the integration the guide documents.
 - **A momentary network failure or a transient 5xx dropped the event for good.**
   `RelevaClient.execute` made exactly one call and handed whatever came back — or whatever it
   threw — straight to the caller, so a pageview, cart sync, impression or push-token

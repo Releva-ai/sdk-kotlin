@@ -2,6 +2,7 @@ package ai.releva.sdk.ui.nps
 
 import ai.releva.sdk.services.nps.NpsDisplayController
 import ai.releva.sdk.types.response.NpsConfig
+import androidx.annotation.VisibleForTesting
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -13,6 +14,8 @@ import kotlinx.coroutines.launch
  * Call [attach] from your Activity's onCreate().
  */
 object NpsDisplayManager {
+
+    private const val DIALOG_TAG = "nps_dialog"
 
     private var onSubmit: (suspend (String, Int, String?) -> Unit)? = null
     private var onSkip: (() -> Unit)? = null
@@ -32,6 +35,17 @@ object NpsDisplayManager {
     }
 
     /**
+     * The callbacks [NpsDialogFragment] invokes. It reads them from here when it needs
+     * them rather than being handed them at construction: a lambda cannot travel in the
+     * arguments Bundle that carries the fragment through a configuration change, so a
+     * dialog recreated by one would hold nulls and its submit button would silently do
+     * nothing.
+     */
+    internal fun submitCallback(): (suspend (String, Int, String?) -> Unit)? = onSubmit
+
+    internal fun skipCallback(): (() -> Unit)? = onSkip
+
+    /**
      * Start collecting NPS events and showing dialogs.
      * Call from Activity.onCreate() after setting callbacks.
      */
@@ -45,10 +59,20 @@ object NpsDisplayManager {
         }
     }
 
-    private fun showNps(activity: FragmentActivity, config: NpsConfig) {
-        val submit = onSubmit ?: return
+    /**
+     * `internal` rather than `private` so a test can call it directly without driving the
+     * full `attach()` -> `repeatOnLifecycle` -> flow-collection chain.
+     *
+     * The tag check matters now that a restored dialog stays on screen instead of dismissing
+     * itself: a second emission for an activity that already has a survey up would otherwise
+     * stack a second non-cancelable sheet on the first.
+     */
+    @VisibleForTesting
+    internal fun showNps(activity: FragmentActivity, config: NpsConfig) {
+        if (onSubmit == null) return
         NpsDisplayController.consumeNps()
-        val dialog = NpsDialogFragment.newInstance(config, submit, onSkip)
-        dialog.show(activity.supportFragmentManager, "nps_dialog")
+        if (activity.supportFragmentManager.findFragmentByTag(DIALOG_TAG) != null) return
+        val dialog = NpsDialogFragment.newInstance(config)
+        dialog.show(activity.supportFragmentManager, DIALOG_TAG)
     }
 }
