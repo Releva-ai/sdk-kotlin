@@ -109,10 +109,16 @@ class RelevaClient(
 
         if (previousProfileId == null || previousProfileId != profileId) {
             profileChanged = true
-            // Both branches below run before the new id is written. The two writes are not
-            // atomic, so dying between them has to lose one; this order leaves a queued id
-            // against an unchanged profile (a redundant self-merge at worst) rather than the
-            // new id with no record of where it came from.
+            // Both branches below run before the new id is written; the two writes are not
+            // atomic, so dying between them has to lose one, and each branch loses a different
+            // thing. Adding the previous id first (the else-if branch) means dying before
+            // `setProfileId` leaves a queued id against a still-unchanged profile — a redundant
+            // self-merge at worst — rather than the new id stored with no record of where it
+            // came from. Clearing first (the skipMerge branch) means dying before `setProfileId`
+            // leaves an empty queue against a still-unchanged profile, which is only a missed
+            // clear, not a loss; the opposite order — writing the new id first — would instead
+            // risk the new id being live in storage while the old queue is still there, which is
+            // exactly the cross-contamination this clear exists to prevent.
             //
             // skipMerge clears the whole queue, not just this transition, and the reason is
             // where the queue is *delivered* rather than where it is filled: `push` sends
@@ -128,6 +134,9 @@ class RelevaClient(
             // the queued ids are still destined for the profile that is still current, so
             // clearing there wiped the queue at every relaunch, before any push could deliver
             // it.
+            //
+            // Swift still clears unconditionally here (the behaviour this file had before this
+            // change); this SDK is deliberately ahead of it until Swift gets the same fix.
             if (skipMergeWithPreviousProfileId) {
                 storage.clearMergeProfileIds()
             } else if (previousProfileId != null) {

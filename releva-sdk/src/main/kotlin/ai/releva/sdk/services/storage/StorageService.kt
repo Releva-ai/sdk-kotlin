@@ -110,9 +110,9 @@ class StorageService private constructor(context: Context) {
     }
 
     private fun writeMergeProfileIds(profileIds: List<String>) {
-        // Nothing queued and nothing stored: skip the blocking commit. That is every
-        // setProfileId(..., skipMergeWithPreviousProfileId = true) call on a host that passes
-        // the flag routinely.
+        // Nothing queued and nothing stored: skip the blocking commit. That is a logout
+        // (skipMergeWithPreviousProfileId = true with a changed id) on a host with an
+        // already-empty queue; a re-assertion of the same id no longer reaches here at all.
         if (profileIds.isEmpty() && !preferences.contains(KEY_MERGE_PROFILE_IDS)) return
 
         val editor = preferences.edit()

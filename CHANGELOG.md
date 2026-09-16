@@ -65,15 +65,19 @@ rather than in the section above.
   construction. Alongside that: a successful push removes only the ids it actually sent, so an id
   queued while that request was in flight is no longer dropped with them; `registerPushToken` no
   longer clears the queue, since its request never carried `mergeProfileIds` and clearing there
-  only discarded a merge a later push still had to send; `skipMergeWithPreviousProfileId` (the
-  logout path) clears the queue when the id passed with it differs from the stored one, because a
-  queued id is delivered against `profile.id` as it stands *at push time* — so keeping one past
-  a logout would not preserve the old link (its other half is already gone) but would merge the
-  signed-out user into the anonymous session, while the same flag with the id already stored is
-  not a logout but a host re-asserting its stored id at every initialisation, and clearing there
-  would wipe the queue at the relaunch step and leave the durable queue with nothing to deliver;
-  and, matching the Swift SDK, an id already queued is not queued
-  again, so A → B → A → B queues `["A", "B"]` rather than `["A", "B", "A"]`.
+  only discarded a merge a later push still had to send; and an id already queued is not queued
+  again, so A → B → A → B queues `["A", "B"]` rather than `["A", "B", "A"]` (matching the Swift
+  SDK's dedupe — Swift's clearing behaviour below is not matched, see next).
+
+  `skipMergeWithPreviousProfileId` (the logout path) now clears the queue only when the id passed
+  with it differs from the stored one. A queued id is delivered against `profile.id` as it stands
+  *at push time*, so keeping one past a real logout would not preserve the old link (its other
+  half is already gone) but would merge the signed-out user into the anonymous session — that case
+  still clears. The same flag with the id already stored is not a logout but a host re-asserting
+  its stored id at every initialisation; clearing there wiped the queue at the relaunch step and
+  left the durable queue with nothing to deliver, before this fix. This is a deliberate divergence
+  from the Swift SDK, which still clears unconditionally on that flag; Swift is not fixed by this
+  change.
 
   The wire format is unchanged. `profileChanged` is now sent as `true` whenever the body carries
   merge ids, which is the only combination of the two the backend has ever received — before the
