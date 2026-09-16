@@ -25,7 +25,6 @@ rather than in the section above.
   fact that it has already tracked the story — so a rotation neither restarts the story nor
   counts a second impression. An intent with no launch key, and a story with no slides, still
   close immediately.
-
 - **An NPS survey was destroyed when the device was rotated, losing a part-answered response.**
   The survey config and the submit/skip callbacks were set as fields on the fragment instance by
   `NpsDialogFragment.newInstance`, and the FragmentManager recreates a fragment through its no-arg
@@ -39,13 +38,14 @@ rather than in the section above.
   user had reached — the selected score, the typed comment, whether the response was already sent
   — is saved in `onSaveInstanceState`. The callbacks cannot go in a Bundle, so the fragment reads
   them from `NpsDisplayManager` when it needs them instead of being handed them once at
-  construction; a recreated dialog submits to the same callback as before. A fragment with no
-  config at all still dismisses. `NpsDialogFragment.newInstance` now takes only the config; the
-  three-argument overload that also took `onSubmit`/`onSkip` is kept, `@Deprecated`, forwarding
-  into `NpsDisplayManager.setOnSubmit`/`setOnSkip` and then the new overload, so an existing
-  caller of the old signature still compiles and gets a dialog that survives a configuration
-  change.
-
+  construction; a recreated dialog submits to the same callback as before. `NpsDisplayManager`
+  also no longer shows a second sheet on top of one the FragmentManager has already restored
+  after process death. A fragment with no config at all still dismisses.
+  `NpsDialogFragment.newInstance` now takes only the config; the three-argument overload that
+  also took `onSubmit`/`onSkip` is kept, `@Deprecated`, so an existing caller of the old
+  signature still compiles — but it now registers those callbacks on `NpsDisplayManager`
+  process-wide rather than scoping them to the one dialog it returns, before delegating to the
+  new overload.
 - **A momentary network failure or a transient 5xx dropped the event for good.**
   `RelevaClient.execute` made exactly one call and handed whatever came back — or whatever it
   threw — straight to the caller, so a pageview, cart sync, impression or push-token

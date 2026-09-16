@@ -2,6 +2,7 @@ package ai.releva.sdk.ui.nps
 
 import ai.releva.sdk.services.nps.NpsDisplayController
 import ai.releva.sdk.types.response.NpsConfig
+import androidx.annotation.VisibleForTesting
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -13,6 +14,8 @@ import kotlinx.coroutines.launch
  * Call [attach] from your Activity's onCreate().
  */
 object NpsDisplayManager {
+
+    private const val DIALOG_TAG = "nps_dialog"
 
     private var onSubmit: (suspend (String, Int, String?) -> Unit)? = null
     private var onSkip: (() -> Unit)? = null
@@ -56,10 +59,26 @@ object NpsDisplayManager {
         }
     }
 
-    private fun showNps(activity: FragmentActivity, config: NpsConfig) {
+    /**
+     * `internal` rather than `private` so a test can call it directly without driving the
+     * full `attach()` -> `repeatOnLifecycle` -> flow-collection chain.
+     *
+     * The tag check guards a stacking hazard this fix's own restore behaviour opens up.
+     * Before it, the only way a second [NpsDialogFragment] could exist was one the
+     * FragmentManager was restoring, and a restored one dismissed itself in
+     * `onCreateDialog` — so this could add unconditionally. Now a restored dialog stays on
+     * screen, and after process death nothing remembers that: `NpsManagerService`'s
+     * `suppressedThisSession` is in-memory only, so if the next push response still carries
+     * the same unanswered `nps` config and a server-side trigger has already fired, this
+     * would otherwise show a second sheet on top of the one the FragmentManager already
+     * restored.
+     */
+    @VisibleForTesting
+    internal fun showNps(activity: FragmentActivity, config: NpsConfig) {
         if (onSubmit == null) return
         NpsDisplayController.consumeNps()
+        if (activity.supportFragmentManager.findFragmentByTag(DIALOG_TAG) != null) return
         val dialog = NpsDialogFragment.newInstance(config)
-        dialog.show(activity.supportFragmentManager, "nps_dialog")
+        dialog.show(activity.supportFragmentManager, DIALOG_TAG)
     }
 }

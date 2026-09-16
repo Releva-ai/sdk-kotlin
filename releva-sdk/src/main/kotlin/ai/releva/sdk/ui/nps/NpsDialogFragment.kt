@@ -17,6 +17,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
+import androidx.annotation.VisibleForTesting
 import androidx.fragment.app.DialogFragment
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -75,10 +76,18 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
          * across a configuration change either way, so this registers them on
          * [NpsDisplayManager] and defers to the two-argument overload above, which is exactly
          * what the fragment itself now depends on.
+         *
+         * That registration is process-wide, not scoped to this one dialog: before this fix,
+         * [onSubmit] and [onSkip] belonged to the single fragment instance they were passed to;
+         * calling this now installs them on the [NpsDisplayManager] singleton, so a survey
+         * shown afterwards by [NpsDisplayManager.attach] — or by a second call to this same
+         * overload — submits through whichever [onSubmit] was registered last. A `null`
+         * [onSkip] (the default) does not clear a previously-registered skip callback either;
+         * only a non-null value overwrites it.
          */
         @Deprecated(
-            "Register callbacks on NpsDisplayManager; they cannot survive recreation on the fragment.",
-            ReplaceWith("NpsDialogFragment.newInstance(config)")
+            "Register callbacks on NpsDisplayManager; they cannot survive recreation on the fragment, " +
+                "and calling this installs them process-wide rather than scoped to this dialog."
         )
         fun newInstance(
             config: NpsConfig,
@@ -147,6 +156,15 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
         val json = arguments?.getString(ARG_CONFIG) ?: return null
         return NpsConfig.fromMap(RelevaResponse.jsonObjectToMap(JSONObject(json)))
     }
+
+    /**
+     * Exposes the round trip [configFromArguments] performs so a test can assert on the exact
+     * [NpsConfig] that comes back through the real `org.json` hop — including fields, like
+     * `triggers` and `appearance`, that this fragment never renders and so cannot otherwise be
+     * observed to have survived.
+     */
+    @VisibleForTesting
+    internal fun configFromArgumentsForTest(): NpsConfig? = configFromArguments()
 
     private fun resolveColors(config: NpsConfig): Triple<Int, Int, Int> {
         val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES

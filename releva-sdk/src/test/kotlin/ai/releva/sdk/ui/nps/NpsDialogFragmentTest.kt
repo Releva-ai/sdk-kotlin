@@ -1,8 +1,11 @@
 package ai.releva.sdk.ui.nps
 
+import ai.releva.sdk.types.response.NpsAppearance
+import ai.releva.sdk.types.response.NpsAppearanceDark
 import ai.releva.sdk.types.response.NpsConfig
 import ai.releva.sdk.types.response.NpsFollowUp
 import ai.releva.sdk.types.response.NpsThankYou
+import ai.releva.sdk.types.response.NpsTrigger
 import android.content.res.Configuration
 import android.os.Looper
 import android.view.View
@@ -181,10 +184,76 @@ class NpsDialogFragmentTest {
         assertFalse(fragment.isAdded)
     }
 
+    /**
+     * The other tests in this class only prove the round trip for `followUp` (via
+     * [PROMOTER_QUESTION], which nothing but `NpsFollowUp.fromMap` can produce) and, by
+     * omission, that a *default* `appearance` survives — which a lost one is
+     * indistinguishable from, since [NpsConfig.fromMap] substitutes
+     * [ai.releva.sdk.types.response.NpsAppearance.defaults] right back in. `triggers` is a
+     * `List<Map<String, Any?>>`, the one shape here that depends on `org.json`'s `wrap()`
+     * recursing into collection *elements*, not just into maps — and it is the shape the
+     * server actually sends, per `NpsManagerService.initialize`. This asserts on the
+     * restored [NpsConfig] itself, via [NpsDialogFragment.configFromArgumentsForTest],
+     * because neither field is rendered anywhere in the dialog's UI.
+     */
+    @Test
+    fun `triggers and a non-default appearance survive a configuration change`() {
+        val cfg = config(
+            triggers = listOf(
+                NpsTrigger(type = "customEvent", eventName = "checkout"),
+                NpsTrigger(type = "sessionCount", minSessions = 3)
+            ),
+            appearance = NpsAppearance(
+                primaryColor = "#112233",
+                buttonStyle = "rounded",
+                dark = NpsAppearanceDark(primaryColor = "#445566")
+            )
+        )
+        val (controller, original) = showSurvey(cfg)
+
+        val recreated = rotate(controller, original)
+
+        val restored = recreated.configFromArgumentsForTest()
+        assertEquals(cfg.triggers, restored?.triggers)
+        assertEquals(cfg.appearance, restored?.appearance)
+    }
+
+    /**
+     * [NpsDialogFragment.newInstance] with two callback arguments is deprecated but retained
+     * for a caller who built the dialog directly instead of going through
+     * [NpsDisplayManager.attach]; nothing else in this class calls it, so without this test
+     * it ships unexercised. It also pins the semantic change the deprecation note describes:
+     * the callbacks it takes are not scoped to this one dialog — they replace whatever is on
+     * [NpsDisplayManager] process-wide, which is why [submissions], registered in [setUp],
+     * receives nothing once this runs.
+     */
+    @Suppress("DEPRECATION")
+    @Test
+    fun `the deprecated three-argument newInstance still reaches its own callback across a configuration change`() {
+        val deprecatedSubmissions = mutableListOf<Triple<String, Int, String?>>()
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        NpsDialogFragment.newInstance(
+            config(),
+            onSubmit = { token, score, comment -> deprecatedSubmissions.add(Triple(token, score, comment)) }
+        ).show(controller.get().supportFragmentManager, TAG)
+        controller.get().supportFragmentManager.executePendingTransactions()
+        val original = shownFragment(controller)
+        findViewWithText(original, "9")!!.performClick()
+
+        val recreated = rotate(controller, original)
+        findViewWithText(recreated, SUBMIT_LABEL)!!.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(listOf(Triple(TOKEN, 9, null)), deprecatedSubmissions)
+        assertTrue("the callback registered in setUp() should have been replaced process-wide", submissions.isEmpty())
+    }
+
     private fun config(
         followUpRequired: Boolean = false,
         thankYou: NpsThankYou? = null,
-        skipLabel: String? = null
+        skipLabel: String? = null,
+        triggers: List<NpsTrigger> = emptyList(),
+        appearance: NpsAppearance = NpsAppearance.defaults()
     ) = NpsConfig(
         token = TOKEN,
         question = QUESTION,
@@ -192,7 +261,9 @@ class NpsDialogFragmentTest {
         followUpRequired = followUpRequired,
         submitLabel = SUBMIT_LABEL,
         skipLabel = skipLabel,
-        thankYou = thankYou
+        thankYou = thankYou,
+        triggers = triggers,
+        appearance = appearance
     )
 
     private fun showSurvey(
