@@ -186,13 +186,14 @@ class RelevaClientTest {
     }
 
     @Test
-    fun `logging out does not discard a merge queued before it`() = runTest {
-        // The scenario the durable queue exists for, followed by the one thing that must not
-        // undo it. A -> B is queued and undelivered because the device is offline; the host
-        // then logs out. skipMerge means "do not queue the id I am replacing right now", and
-        // A -> B is not that id — it is an earlier transition no request has carried yet.
-        // Clearing the whole queue here would lose that link without any process death, which
-        // is the same loss this queue was made durable to prevent.
+    fun `logging out discards a queue that could only be delivered to the wrong profile`() = runTest {
+        // A -> B is queued and undelivered (the device was offline), then the host logs out.
+        // Keeping the queue looks like preserving that link, and is not: push sends
+        // mergeProfileIds alongside profile.id read from storage AT PUSH TIME, so after the
+        // logout the body would be profile.id = anonymous-C with mergeProfileIds = ["A"] —
+        // merging the signed-out user into the anonymous session rather than into B, which is
+        // no longer stored anywhere. A -> B is already unrecoverable at this point; the only
+        // question is whether A gets delivered to the wrong profile, and it must not.
         val client = createTestClient()
 
         client.setProfileId("profile-A")
@@ -202,9 +203,25 @@ class RelevaClientTest {
         client.setProfileId("anonymous-C", skipMergeWithPreviousProfileId = true)
 
         assertEquals(
-            "the pending A -> B merge must survive a logout",
-            listOf("profile-A"), storageService.getMergeProfileIds()
+            "a queued id must not outlive the profile it was queued against",
+            emptyList<String>(), storageService.getMergeProfileIds()
         )
+    }
+
+    @Test
+    fun `skipMerge clears the queue even when the profile id is unchanged`() = runTest {
+        // The changed-id guard below would skip this transition entirely, but a caller passing
+        // the flag still means "cancel anything pending" — and the clear sits above that guard
+        // so it happens either way.
+        val client = createTestClient()
+
+        client.setProfileId("profile-A")
+        client.setProfileId("profile-B")
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+
+        client.setProfileId("profile-B", skipMergeWithPreviousProfileId = true)
+
+        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
     }
 
     @Test

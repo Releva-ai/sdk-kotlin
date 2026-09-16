@@ -105,6 +105,22 @@ class RelevaClient(
      * Set profile ID
      */
     suspend fun setProfileId(profileId: String, skipMergeWithPreviousProfileId: Boolean = false) = withContext(Dispatchers.IO) {
+        // Clears the whole queue, not just this transition, and the reason is where the queue
+        // is *delivered* rather than where it is filled. `push` sends `mergeProfileIds`
+        // alongside `profile.id` read from storage at push time — not the profile that was
+        // current when an id was queued. So after A -> B offline and then a logout to anon-C,
+        // B is neither queued nor stored and A -> B is already unrecoverable; keeping ["A"]
+        // would send `profile.id = anon-C` with `mergeProfileIds = ["A"]` and merge the
+        // signed-out user into the anonymous session. On a shared device that is one person's
+        // data landing in another's.
+        //
+        // The choice is not "lose a link or keep it" — it is "drop a link that can no longer
+        // be delivered, or deliver it to the wrong profile". Swift clears here for the same
+        // reason.
+        if (skipMergeWithPreviousProfileId) {
+            storage.clearMergeProfileIds()
+        }
+
         val previousProfileId = storage.getProfileId()
 
         if (previousProfileId == null || previousProfileId != profileId) {
@@ -113,15 +129,6 @@ class RelevaClient(
             // them has to lose one; this order leaves a queued id against an unchanged profile
             // (a redundant self-merge at worst) rather than the new id with no record of where
             // it came from, which is the loss this fix exists to prevent.
-            // The flag's scope is this transition and no other: "do not queue the id I am
-            // replacing right now". It deliberately does NOT clear ids queued by earlier
-            // transitions that no request has delivered yet — a host that goes A -> B offline
-            // and then logs out with the flag set would otherwise lose the pending A -> B link,
-            // which is the exact loss the durable queue exists to prevent, reached without any
-            // process death. Swift clears the whole queue here; matching it would mean
-            // importing that loss, so this keeps the narrower meaning the flag's name promises
-            // and the one Kotlin already had. A host that genuinely wants "forget everything
-            // pending" needs an explicit call for it, not this flag.
             if (!skipMergeWithPreviousProfileId && previousProfileId != null) {
                 storage.addMergeProfileId(previousProfileId)
             }

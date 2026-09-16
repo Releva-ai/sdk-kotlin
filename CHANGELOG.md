@@ -61,19 +61,15 @@ rather than in the section above.
   control: online, the push body carried `mergeProfileIds = ["ctl-A-000036"]`; with the radios off
   and a force-stop before any successful push, the next launch sent `mergeProfileIds = []`.
 
-  `skipMergeWithPreviousProfileId` keeps the narrow meaning its name promises — do not queue
-  the id being replaced right now — and does not clear ids queued by earlier transitions.
-  The Swift SDK does clear the whole queue there; matching it would mean a host that goes
-  A -> B offline and then logs out loses the pending A -> B link, without any process death,
-  which is the loss this entry is about. A deliberate divergence, not an oversight.
-
   The queue now lives in `StorageService` and nowhere else, so it survives the process by
   construction. Alongside that: a successful push removes only the ids it actually sent, so an id
   queued while that request was in flight is no longer dropped with them; `registerPushToken` no
   longer clears the queue, since its request never carried `mergeProfileIds` and clearing there
   only discarded a merge a later push still had to send; `skipMergeWithPreviousProfileId` (the
-  logout path) now clears the queue whether or not the id passed with it has changed, so a stale
-  entry cannot outlive a logout; and, matching the Swift SDK, an id already queued is not queued
+  logout path) clears the queue whether or not the id passed with it has changed, because a
+  queued id is delivered against `profile.id` as it stands *at push time* — so keeping one past
+  a logout would not preserve the old link (its other half is already gone) but would merge the
+  signed-out user into the anonymous session; and, matching the Swift SDK, an id already queued is not queued
   again, so A → B → A → B queues `["A", "B"]` rather than `["A", "B", "A"]`.
 
   The wire format is unchanged. `profileChanged` is now sent as `true` whenever the body carries
