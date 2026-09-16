@@ -482,6 +482,61 @@ class RelevaClientTest {
         assertNotNull(client)
     }
 
+    @Test
+    fun `registerPushToken sends nothing when push notifications are disabled`() = runTest {
+        storageService.setDeviceId("device-1")
+        storageService.setProfileId("profile-1")
+        val server = startTokenServer()
+
+        // trackingOnly is the preset this was found under: it says the app does not do push,
+        // so no token may reach the backend.
+        val client = createTestClient(config = RelevaConfig.trackingOnly())
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+
+        client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `registerPushToken sends one request when push notifications are enabled`() = runTest {
+        storageService.setDeviceId("device-1")
+        storageService.setProfileId("profile-1")
+        val server = startTokenServer()
+
+        val client = createTestClient(config = RelevaConfig.pushOnly())
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+
+        client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+
+        assertEquals(1, server.requestCount)
+        assertEquals("/api/v0/appPush/tokens", server.takeRequest().path)
+    }
+
+    @Test
+    fun `registerPushToken still throws on a missing deviceId or profileId`() = runTest {
+        val server = startTokenServer()
+        val client = createTestClient(config = RelevaConfig.pushOnly())
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+
+        try {
+            client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+            fail("Expected registerPushToken() to throw without a deviceId")
+        } catch (e: Exception) {
+            // expected
+        }
+
+        storageService.setDeviceId("device-1")
+        try {
+            client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+            fail("Expected registerPushToken() to throw without a profileId")
+        } catch (e: Exception) {
+            // expected
+        }
+
+        assertEquals(0, server.requestCount)
+    }
+
     // Session Management Tests
 
     @Test
@@ -710,6 +765,20 @@ class RelevaClientTest {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest) =
                 MockResponse().setResponseCode(200).setBody("{}")
+        }
+        mockWebServer = server
+        return server
+    }
+
+    /**
+     * Starts a server that accepts every push-token registration (the endpoint answers 202).
+     */
+    private fun startTokenServer(): MockWebServer {
+        val server = MockWebServer()
+        server.start()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) =
+                MockResponse().setResponseCode(202).setBody("{}")
         }
         mockWebServer = server
         return server
