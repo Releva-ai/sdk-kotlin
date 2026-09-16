@@ -13,6 +13,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.TextView
 import androidx.fragment.app.FragmentActivity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -258,13 +259,13 @@ class NpsDialogFragmentTest {
      * dispatched at all, so `submitScore`'s `try` is never entered. On a device the more
      * likely window is a rotation while the coroutine is genuinely suspended *inside*
      * `onSubmit` — e.g. waiting on network IO — which is what this pins: `onDestroyView`'s
-     * `scope.cancel()` resumes that suspension with a `CancellationException`, and if that
-     * were swallowed by the generic `catch` instead of rethrown, execution would fall through
-     * to `showThankYouStep` on a fragment already mid-detach, whose `requireContext()` throws
-     * `IllegalStateException` — an app crash. `idle()` after tapping submit lets the body
-     * start and park inside the callback before rotating; `idle()` again after rotating is
-     * what actually runs the posted cancellation resumption, since `Dispatchers.Main` here is
-     * a paused Robolectric looper.
+     * `scope.cancel()` resumes that suspension with a `CancellationException` the generic
+     * `catch` swallows, and without the `isActive` check that follows it, execution would
+     * carry on into `showThankYouStep` on a fragment already mid-detach, whose
+     * `requireContext()` throws `IllegalStateException` — an app crash. `idle()` after
+     * tapping submit lets the body start and park inside the callback before rotating;
+     * `idle()` again after rotating is what actually runs the posted cancellation
+     * resumption, since `Dispatchers.Main` here is a paused Robolectric looper.
      *
      * The crash this pins does not surface as a thrown exception `idle()` propagates:
      * kotlinx.coroutines hands an exception that escapes a coroutine with no
@@ -299,6 +300,35 @@ class NpsDialogFragmentTest {
     }
 
     /**
+     * The mirror of the test above, and the reason the fragment asks whether its own job is
+     * still alive rather than catching the `CancellationException`. A catch cannot tell "my
+     * scope was cancelled because the view is going away" from "the host's `onSubmit`
+     * propagated a cancellation belonging to some other job" — an `await()` on a `Deferred`
+     * somebody else cancelled, say, which is the integrator's shape to choose since
+     * `onSubmit` is a public `suspend` lambda. Treating the second as the first strands the
+     * user: `submitting` stays latched, so the follow-up step's submit button (its only
+     * control — the step renders no skip, and the sheet is `setCancelable(false)` with back
+     * dismissal off) goes permanently dead, over the host app, with no way out but a
+     * force-stop. Here the fragment is untouched and attached throughout, so the survey must
+     * simply finish.
+     */
+    @Test
+    fun `a cancellation propagated out of the host's callback still finishes the survey`() {
+        val thankYouMessage = "You made our day!"
+        NpsDisplayManager.setOnSubmit { _, _, _ -> throw CancellationException("another job's") }
+        val (_, fragment) = showSurvey(config(thankYou = NpsThankYou(promoter = thankYouMessage)))
+        findViewWithText(fragment, "9")!!.performClick()
+
+        findViewWithText(fragment, SUBMIT_LABEL)!!.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNotNull(
+            "the sheet must not be left on the follow-up step with its submit button latched off",
+            findViewWithText(fragment, thankYouMessage)
+        )
+    }
+
+    /**
      * [NpsDialogFragment.newInstance] with two callback arguments is deprecated but retained
      * for a caller who built the dialog directly instead of going through
      * [NpsDisplayManager.attach]; nothing else in this class calls it, so without this test
@@ -327,15 +357,48 @@ class NpsDialogFragmentTest {
     }
 
     /**
-     * The trade the deprecation note names: an instance field cannot survive a configuration
-     * change, so a dialog built through the deprecated overload and then recreated falls back
-     * to [NpsDisplayManager]'s callback rather than the one this call was given — worse than
-     * the callback surviving, but confined to the path the deprecation is steering callers off
-     * of, and not worse than master, where the whole dialog was dismissed on recreation.
+     * The other half of the same scoping rule, and the one with no callback to fall back on:
+     * `onSkip` is optional on the deprecated overload, so the common two-argument call leaves
+     * it null. That must mean "this dialog has no skip handler", as it did before this fix —
+     * not "use the app-wide one", which would hand the integrator a skip event for a survey
+     * [NpsDisplayManager] never showed. The default test config leaves `skipLabel` null, so
+     * no other test in this class even builds the button.
      */
     @Suppress("DEPRECATION")
     @Test
-    fun `the deprecated three-argument newInstance falls back to NpsDisplayManager after a configuration change`() {
+    fun `the deprecated three-argument newInstance with no onSkip does not fire NpsDisplayManager's`() {
+        var managerSkipped = false
+        NpsDisplayManager.setOnSkip { managerSkipped = true }
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        NpsDialogFragment.newInstance(
+            config(skipLabel = SKIP_LABEL),
+            onSubmit = { _, _, _ -> }
+        ).show(controller.get().supportFragmentManager, TAG)
+        controller.get().supportFragmentManager.executePendingTransactions()
+        val original = shownFragment(controller)
+
+        findViewWithText(original, SKIP_LABEL)!!.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertFalse(
+            "a deprecated call that passed no onSkip must not reach the app-wide skip callback",
+            managerSkipped
+        )
+    }
+
+    /**
+     * The deprecated overload is deliberately left on master's behaviour, this included: the
+     * survey and the callbacks are instance fields, an instance field does not survive the
+     * FragmentManager recreating the fragment, and the no-config exit then dismisses it. The
+     * alternative — restoring the dialog and letting it submit through whatever
+     * [NpsDisplayManager] happens to hold — would send one caller's response to another
+     * caller's callback, so losing the sheet exactly as before is the better of the two.
+     * Callers get the fix by moving to [NpsDisplayManager], which is what the deprecation
+     * says.
+     */
+    @Suppress("DEPRECATION")
+    @Test
+    fun `a dialog from the deprecated three-argument newInstance still does not survive a configuration change`() {
         val deprecatedSubmissions = mutableListOf<Triple<String, Int, String?>>()
         val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
         NpsDialogFragment.newInstance(
@@ -343,14 +406,17 @@ class NpsDialogFragmentTest {
             onSubmit = { token, score, comment -> deprecatedSubmissions.add(Triple(token, score, comment)) }
         ).show(controller.get().supportFragmentManager, TAG)
         controller.get().supportFragmentManager.executePendingTransactions()
-        val original = shownFragment(controller)
 
-        val recreated = rotate(controller, original)
-        findViewWithText(recreated, "9")!!.performClick()
+        rotateActivity(controller)
         shadowOf(Looper.getMainLooper()).idle()
 
-        assertTrue("the deprecated call's own callback cannot survive recreation", deprecatedSubmissions.isEmpty())
-        assertEquals(listOf(Triple(TOKEN, 9, null)), submissions)
+        val restored = controller.get().supportFragmentManager.findFragmentByTag(TAG)
+        assertTrue(
+            "a dialog built through the deprecated factory must not come back half-wired, got: $restored",
+            restored == null || !restored.isAdded
+        )
+        assertTrue(deprecatedSubmissions.isEmpty())
+        assertTrue("nothing may reach the app-wide callback either", submissions.isEmpty())
     }
 
     private fun config(
@@ -391,15 +457,20 @@ class NpsDialogFragmentTest {
         controller: ActivityController<FragmentActivity>,
         original: NpsDialogFragment
     ): NpsDialogFragment {
+        rotateActivity(controller)
+        val recreated = shownFragment(controller)
+        assertNotSame(original, recreated)
+        return recreated
+    }
+
+    /** Rotation on its own, for the one test where no dialog is expected to come back. */
+    private fun rotateActivity(controller: ActivityController<FragmentActivity>) {
         controller.configurationChange(
             Configuration(controller.get().resources.configuration).apply {
                 orientation = Configuration.ORIENTATION_LANDSCAPE
             }
         )
         controller.get().supportFragmentManager.executePendingTransactions()
-        val recreated = shownFragment(controller)
-        assertNotSame(original, recreated)
-        return recreated
     }
 
     private fun shownFragment(controller: ActivityController<FragmentActivity>): NpsDialogFragment {
