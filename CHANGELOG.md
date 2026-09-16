@@ -76,6 +76,18 @@ rather than in the section above.
   merge ids, which is the only combination of the two the backend has ever received — before the
   queue was durable, an id could not outlive the flag.
 
+- **`enablePushNotifications` gated nothing, so a config that disables push still registered a
+  push token.** Nothing in the SDK read the flag, while the Swift SDK reads it in five places,
+  so `trackingOnly()` and `messagingOnly()` — both of which set it to `false` — registered a
+  token against the integrator's profile exactly like `pushOnly()` did. Device-verified on a
+  Xiaomi 2407FPN8EG (Android 16): one `POST /api/v0/appPush/tokens` per preset, whatever the
+  flag said. `registerPushToken` is now a silent no-op when the flag is false, returning before
+  it touches storage or the network, the same shape as the existing `enableTracking` guards —
+  so it no longer throws the missing-deviceId/profileId errors for a merely disabled feature
+  either. With the flag true nothing changes, including those errors. `enableScreenTracking`,
+  `enableInAppMessaging` and `enableAnalytics` are still read by nothing on either SDK and are
+  deliberately left alone.
+
 ## 1.4.0
 
 Everything here came out of a device pass against a real domain, replicating the

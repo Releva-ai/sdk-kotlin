@@ -246,9 +246,15 @@ class RelevaClient(
     }
 
     /**
-     * Register push token
+     * Register push token. A no-op when [RelevaConfig.enablePushNotifications] is false.
      */
     suspend fun registerPushToken(type: DeviceType, token: String) = withContext(Dispatchers.IO) {
+        if (!config.enablePushNotifications) {
+            // Silent and ahead of the deviceId/profileId checks, like the enableTracking
+            // guards: a disabled feature is not a misconfigured caller, so it must not throw.
+            return@withContext
+        }
+
         val deviceId = storage.getDeviceId()
             ?: throw Exception("Please provide deviceId using client.setDeviceId() before using the client!")
 
