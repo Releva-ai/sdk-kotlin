@@ -105,12 +105,6 @@ class RelevaClient(
      * Set profile ID
      */
     suspend fun setProfileId(profileId: String, skipMergeWithPreviousProfileId: Boolean = false) = withContext(Dispatchers.IO) {
-        // Outside the changed-id guard below: re-asserting the current id with this flag set
-        // still means "cancel any pending merge".
-        if (skipMergeWithPreviousProfileId) {
-            storage.clearMergeProfileIds()
-        }
-
         val previousProfileId = storage.getProfileId()
 
         if (previousProfileId == null || previousProfileId != profileId) {
@@ -119,6 +113,15 @@ class RelevaClient(
             // them has to lose one; this order leaves a queued id against an unchanged profile
             // (a redundant self-merge at worst) rather than the new id with no record of where
             // it came from, which is the loss this fix exists to prevent.
+            // The flag's scope is this transition and no other: "do not queue the id I am
+            // replacing right now". It deliberately does NOT clear ids queued by earlier
+            // transitions that no request has delivered yet — a host that goes A -> B offline
+            // and then logs out with the flag set would otherwise lose the pending A -> B link,
+            // which is the exact loss the durable queue exists to prevent, reached without any
+            // process death. Swift clears the whole queue here; matching it would mean
+            // importing that loss, so this keeps the narrower meaning the flag's name promises
+            // and the one Kotlin already had. A host that genuinely wants "forget everything
+            // pending" needs an explicit call for it, not this flag.
             if (!skipMergeWithPreviousProfileId && previousProfileId != null) {
                 storage.addMergeProfileId(previousProfileId)
             }

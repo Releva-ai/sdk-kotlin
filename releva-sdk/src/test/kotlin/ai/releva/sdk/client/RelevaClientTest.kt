@@ -176,7 +176,23 @@ class RelevaClientTest {
     }
 
     @Test
-    fun `setProfileId with skipMerge clears the stored merge list`() = runTest {
+    fun `setProfileId with skipMerge does not queue the id it is replacing`() = runTest {
+        val client = createTestClient()
+
+        client.setProfileId("profile-A")
+        client.setProfileId("anonymous-B", skipMergeWithPreviousProfileId = true)
+
+        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `logging out does not discard a merge queued before it`() = runTest {
+        // The scenario the durable queue exists for, followed by the one thing that must not
+        // undo it. A -> B is queued and undelivered because the device is offline; the host
+        // then logs out. skipMerge means "do not queue the id I am replacing right now", and
+        // A -> B is not that id — it is an earlier transition no request has carried yet.
+        // Clearing the whole queue here would lose that link without any process death, which
+        // is the same loss this queue was made durable to prevent.
         val client = createTestClient()
 
         client.setProfileId("profile-A")
@@ -185,22 +201,10 @@ class RelevaClientTest {
 
         client.setProfileId("anonymous-C", skipMergeWithPreviousProfileId = true)
 
-        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
-    }
-
-    @Test
-    fun `setProfileId with skipMerge clears the queue even when the profile id is unchanged`() = runTest {
-        val client = createTestClient()
-
-        client.setProfileId("profile-A")
-        client.setProfileId("profile-B")
-        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
-
-        // Same id as already stored: the outer changed-id guard alone would skip this,
-        // but a caller passing skipMerge here still means "cancel any pending merge".
-        client.setProfileId("profile-B", skipMergeWithPreviousProfileId = true)
-
-        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+        assertEquals(
+            "the pending A -> B merge must survive a logout",
+            listOf("profile-A"), storageService.getMergeProfileIds()
+        )
     }
 
     @Test
