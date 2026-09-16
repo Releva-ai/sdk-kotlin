@@ -193,8 +193,8 @@ class NpsDialogFragmentTest {
      * `List<Map<String, Any?>>`, the one shape here that depends on `org.json`'s `wrap()`
      * recursing into collection *elements*, not just into maps — and it is the shape the
      * server actually sends, per `NpsManagerService.initialize`. This asserts on the
-     * restored [NpsConfig] itself, via [NpsDialogFragment.configFromArgumentsForTest],
-     * because neither field is rendered anywhere in the dialog's UI.
+     * restored [NpsConfig] itself, via [NpsDialogFragment.configFromArguments], because
+     * neither field is rendered anywhere in the dialog's UI.
      */
     @Test
     fun `triggers and a non-default appearance survive a configuration change`() {
@@ -213,9 +213,42 @@ class NpsDialogFragmentTest {
 
         val recreated = rotate(controller, original)
 
-        val restored = recreated.configFromArgumentsForTest()
+        val restored = recreated.configFromArguments()
         assertEquals(cfg.triggers, restored?.triggers)
         assertEquals(cfg.appearance, restored?.appearance)
+    }
+
+    /**
+     * The third restore arm: a score came back but there is no follow-up question for it and
+     * nothing was submitted. A score with no follow-up submits the moment it is tapped, so the
+     * only way to reach this state is a recreation that interrupted the submission —
+     * `onDestroyView` cancels the fragment's scope, so the in-flight call dies with it.
+     *
+     * Landing on the score step means the user can produce a second response for a token the
+     * server may already have accepted. That is the deliberate trade: the alternative, treating
+     * this as submitted and showing the thank-you step, tells a user their feedback was sent
+     * when the cancellation means it may not have been — the failure the brief singles out as
+     * the worse of the two. Pinning it here stops a later change flipping it silently.
+     */
+    @Test
+    fun `a score whose submission was interrupted comes back to the score step`() {
+        val thankYouMessage = "You made our day!"
+        val (controller, original) = showSurvey(
+            config(followUp = null, thankYou = NpsThankYou(promoter = thankYouMessage))
+        )
+        findViewWithText(original, "9")!!.performClick()
+        // No idle() on purpose: submitScore dispatches through Dispatchers.Main, so under
+        // Robolectric's paused looper the submission is still queued when the rotation lands,
+        // and onDestroyView's scope.cancel() takes it with the fragment.
+
+        val recreated = rotate(controller, original)
+
+        assertNotNull(findViewWithText(recreated, QUESTION))
+        assertNotNull(findViewWithText(recreated, "9"))
+        // The assertion that separates the two outcomes: not the thank-you step, so the user
+        // is not told a cancelled submission was sent.
+        assertNull(findViewWithText(recreated, thankYouMessage))
+        assertTrue(submissions.isEmpty())
     }
 
     /**
@@ -249,6 +282,7 @@ class NpsDialogFragmentTest {
     }
 
     private fun config(
+        followUp: NpsFollowUp? = NpsFollowUp(promoter = PROMOTER_QUESTION, detractor = "What went wrong?"),
         followUpRequired: Boolean = false,
         thankYou: NpsThankYou? = null,
         skipLabel: String? = null,
@@ -257,7 +291,7 @@ class NpsDialogFragmentTest {
     ) = NpsConfig(
         token = TOKEN,
         question = QUESTION,
-        followUp = NpsFollowUp(promoter = PROMOTER_QUESTION, detractor = "What went wrong?"),
+        followUp = followUp,
         followUpRequired = followUpRequired,
         submitLabel = SUBMIT_LABEL,
         skipLabel = skipLabel,

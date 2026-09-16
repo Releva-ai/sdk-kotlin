@@ -63,15 +63,9 @@ object NpsDisplayManager {
      * `internal` rather than `private` so a test can call it directly without driving the
      * full `attach()` -> `repeatOnLifecycle` -> flow-collection chain.
      *
-     * The tag check guards a stacking hazard this fix's own restore behaviour opens up.
-     * Before it, the only way a second [NpsDialogFragment] could exist was one the
-     * FragmentManager was restoring, and a restored one dismissed itself in
-     * `onCreateDialog` — so this could add unconditionally. Now a restored dialog stays on
-     * screen, and after process death nothing remembers that: `NpsManagerService`'s
-     * `suppressedThisSession` is in-memory only, so if the next push response still carries
-     * the same unanswered `nps` config and a server-side trigger has already fired, this
-     * would otherwise show a second sheet on top of the one the FragmentManager already
-     * restored.
+     * The tag check matters now that a restored dialog stays on screen instead of dismissing
+     * itself: a second emission for an activity that already has a survey up would otherwise
+     * stack a second non-cancelable sheet on the first.
      */
     @VisibleForTesting
     internal fun showNps(activity: FragmentActivity, config: NpsConfig) {

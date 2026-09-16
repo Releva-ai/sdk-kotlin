@@ -11,16 +11,13 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Regression coverage for the stacking hazard [NpsDialogFragment]'s arguments-based restore
- * opens up. Before that fix, the only way a second [NpsDialogFragment] could exist was one the
- * FragmentManager was restoring after a configuration change, and a restored one dismissed
- * itself in `onCreateDialog` — so [NpsDisplayManager.showNps] could add a dialog unconditionally
- * and never actually stack one. Now a restored dialog stays on screen, and after process death
- * nothing remembers that: `NpsManagerService.suppressedThisSession` is in-memory only, so a
- * second [NpsDisplayManager.showNps] call for an activity that already has a survey showing —
- * e.g. the FragmentManager restores the dialog from its arguments and the next push response
- * still carries the same unanswered config, with a server-side trigger already fired — must not
- * add a second sheet on top of it.
+ * Regression coverage for the stacking hazard the arguments-based restore opens up.
+ * [NpsDisplayManager.showNps] used to add a dialog unconditionally, which never actually
+ * stacked one: the only second [NpsDialogFragment] that could exist was one the FragmentManager
+ * was restoring, and a restored one dismissed itself in `onCreateDialog`. Now it stays on
+ * screen, so a second emission for an activity that already has a survey up — reachable in one
+ * process, since `NpsManagerService.suppressedThisSession` is in-memory and `startNewSession()`
+ * clears it — must not put a second non-cancelable sheet on top of it.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])

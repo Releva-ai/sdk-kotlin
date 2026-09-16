@@ -26,26 +26,23 @@ rather than in the section above.
   counts a second impression. An intent with no launch key, and a story with no slides, still
   close immediately.
 - **An NPS survey was destroyed when the device was rotated, losing a part-answered response.**
-  The survey config and the submit/skip callbacks were set as fields on the fragment instance by
-  `NpsDialogFragment.newInstance`, and the FragmentManager recreates a fragment through its no-arg
-  constructor — so a configuration change left the successor with a null config and it dismissed
-  itself. Rotation is the easiest trigger; a dark-mode toggle, a font- or display-size change, a
-  locale change and a multi-window resize all take the same path. Device-verified on a Xiaomi
-  2407FPN8EG (Android 16): the survey vanished on rotation and turning the phone back did not
-  bring it back — and `NpsManagerService` marks the survey as shown for the rest of the session
-  the moment it is emitted, so nothing asked the user again either. The config
-  now travels in the fragment's `arguments`, which the FragmentManager restores, and the step the
-  user had reached — the selected score, the typed comment, whether the response was already sent
-  — is saved in `onSaveInstanceState`. The callbacks cannot go in a Bundle, so the fragment reads
-  them from `NpsDisplayManager` when it needs them instead of being handed them once at
-  construction; a recreated dialog submits to the same callback as before. `NpsDisplayManager`
-  also no longer shows a second sheet on top of one the FragmentManager has already restored
-  after process death. A fragment with no config at all still dismisses.
-  `NpsDialogFragment.newInstance` now takes only the config; the three-argument overload that
-  also took `onSubmit`/`onSkip` is kept, `@Deprecated`, so an existing caller of the old
-  signature still compiles — but it now registers those callbacks on `NpsDisplayManager`
-  process-wide rather than scoping them to the one dialog it returns, before delegating to the
-  new overload.
+  The survey config and the callbacks were set as fields on the fragment by
+  `NpsDialogFragment.newInstance`, and the FragmentManager recreates a fragment through its
+  no-arg constructor — so a configuration change left the successor with a null config and it
+  dismissed itself, while `NpsManagerService` had already marked the survey as shown for the
+  rest of the session. Rotation is the easiest trigger; a dark-mode toggle, a font- or
+  display-size change, a locale change and a multi-window resize all take the same path.
+  Device-verified on a Xiaomi 2407FPN8EG (Android 16): the survey vanished on rotation and
+  turning the phone back did not bring it back. The config now travels in the fragment's
+  `arguments`, which the FragmentManager restores, and the step the user had reached — the
+  selected score, the typed comment, whether the response was already sent — is saved in
+  `onSaveInstanceState`. Callbacks cannot go in a Bundle, so the fragment reads them from
+  `NpsDisplayManager` when it needs them and a recreated dialog submits to the same callback as
+  before; `NpsDisplayManager` also no longer stacks a second sheet on a survey already on
+  screen. A fragment with no config at all still dismisses. `NpsDialogFragment.newInstance`
+  now takes just the config; the three-argument overload is kept and `@Deprecated`, so existing
+  callers still compile, but the callbacks it is given are registered on `NpsDisplayManager`
+  process-wide rather than scoped to the one dialog.
 - **A momentary network failure or a transient 5xx dropped the event for good.**
   `RelevaClient.execute` made exactly one call and handed whatever came back — or whatever it
   threw — straight to the caller, so a pageview, cart sync, impression or push-token
