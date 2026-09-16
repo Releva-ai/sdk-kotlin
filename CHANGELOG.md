@@ -66,10 +66,13 @@ rather than in the section above.
   queued while that request was in flight is no longer dropped with them; `registerPushToken` no
   longer clears the queue, since its request never carried `mergeProfileIds` and clearing there
   only discarded a merge a later push still had to send; `skipMergeWithPreviousProfileId` (the
-  logout path) clears the queue whether or not the id passed with it has changed, because a
+  logout path) clears the queue when the id passed with it differs from the stored one, because a
   queued id is delivered against `profile.id` as it stands *at push time* — so keeping one past
   a logout would not preserve the old link (its other half is already gone) but would merge the
-  signed-out user into the anonymous session; and, matching the Swift SDK, an id already queued is not queued
+  signed-out user into the anonymous session, while the same flag with the id already stored is
+  not a logout but a host re-asserting its stored id at every initialisation, and clearing there
+  would wipe the queue at the relaunch step and leave the durable queue with nothing to deliver;
+  and, matching the Swift SDK, an id already queued is not queued
   again, so A → B → A → B queues `["A", "B"]` rather than `["A", "B", "A"]`.
 
   The wire format is unchanged. `profileChanged` is now sent as `true` whenever the body carries

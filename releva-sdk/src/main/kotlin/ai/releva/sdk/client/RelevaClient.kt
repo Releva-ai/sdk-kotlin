@@ -105,31 +105,32 @@ class RelevaClient(
      * Set profile ID
      */
     suspend fun setProfileId(profileId: String, skipMergeWithPreviousProfileId: Boolean = false) = withContext(Dispatchers.IO) {
-        // Clears the whole queue, not just this transition, and the reason is where the queue
-        // is *delivered* rather than where it is filled. `push` sends `mergeProfileIds`
-        // alongside `profile.id` read from storage at push time — not the profile that was
-        // current when an id was queued. So after A -> B offline and then a logout to anon-C,
-        // B is neither queued nor stored and A -> B is already unrecoverable; keeping ["A"]
-        // would send `profile.id = anon-C` with `mergeProfileIds = ["A"]` and merge the
-        // signed-out user into the anonymous session. On a shared device that is one person's
-        // data landing in another's.
-        //
-        // The choice is not "lose a link or keep it" — it is "drop a link that can no longer
-        // be delivered, or deliver it to the wrong profile". Swift clears here for the same
-        // reason.
-        if (skipMergeWithPreviousProfileId) {
-            storage.clearMergeProfileIds()
-        }
-
         val previousProfileId = storage.getProfileId()
 
         if (previousProfileId == null || previousProfileId != profileId) {
             profileChanged = true
-            // Queue before writing the new id. The two writes are not atomic, so dying between
-            // them has to lose one; this order leaves a queued id against an unchanged profile
-            // (a redundant self-merge at worst) rather than the new id with no record of where
-            // it came from, which is the loss this fix exists to prevent.
-            if (!skipMergeWithPreviousProfileId && previousProfileId != null) {
+            // Both branches below run before the new id is written. The two writes are not
+            // atomic, so dying between them has to lose one; this order leaves a queued id
+            // against an unchanged profile (a redundant self-merge at worst) rather than the
+            // new id with no record of where it came from.
+            //
+            // skipMerge clears the whole queue, not just this transition, and the reason is
+            // where the queue is *delivered* rather than where it is filled: `push` sends
+            // `mergeProfileIds` alongside `profile.id` read from storage at push time. After
+            // A -> B offline and then a logout to anon-C, A -> B is already unrecoverable, and
+            // keeping ["A"] would send `profile.id = anon-C` with `mergeProfileIds = ["A"]`,
+            // merging the signed-out user into the anonymous session — on a shared device, one
+            // person's data landing in another's.
+            //
+            // That argument only holds where the id actually changes, which is why the clear
+            // lives inside this guard. skipMerge with the id already stored is not a logout but
+            // a host re-asserting its stored id, which hosts do on every SDK initialisation;
+            // the queued ids are still destined for the profile that is still current, so
+            // clearing there wiped the queue at every relaunch, before any push could deliver
+            // it.
+            if (skipMergeWithPreviousProfileId) {
+                storage.clearMergeProfileIds()
+            } else if (previousProfileId != null) {
                 storage.addMergeProfileId(previousProfileId)
             }
             storage.setProfileId(profileId)

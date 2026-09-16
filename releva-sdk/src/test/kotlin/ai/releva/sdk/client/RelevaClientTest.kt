@@ -209,10 +209,10 @@ class RelevaClientTest {
     }
 
     @Test
-    fun `skipMerge clears the queue even when the profile id is unchanged`() = runTest {
-        // The changed-id guard below would skip this transition entirely, but a caller passing
-        // the flag still means "cancel anything pending" — and the clear sits above that guard
-        // so it happens either way.
+    fun `skipMerge keeps the queue when the profile id is unchanged`() = runTest {
+        // Passing the id that is already stored is not a logout — it is a host re-asserting
+        // its stored id, which hosts do on every initialisation. The queued id is still
+        // destined for the profile that is still current, so it must survive to be delivered.
         val client = createTestClient()
 
         client.setProfileId("profile-A")
@@ -221,7 +221,40 @@ class RelevaClientTest {
 
         client.setProfileId("profile-B", skipMergeWithPreviousProfileId = true)
 
-        assertEquals(emptyList<String>(), storageService.getMergeProfileIds())
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+    }
+
+    @Test
+    fun `a queued merge survives a relaunch that re-asserts the same profile id`() = runTest {
+        // The sequence the durable queue exists for, end to end: queue a merge offline, lose
+        // the process, come back and let the host do what it does at every initialisation.
+        storageService.setDeviceId("device-1")
+
+        val firstClient = createTestClient()
+        firstClient.setProfileId("profile-A")
+        firstClient.setProfileId("profile-B")
+        assertEquals(listOf("profile-A"), storageService.getMergeProfileIds())
+        // firstClient is dropped without ever pushing — the process died while offline.
+
+        val server = startPushServer()
+        val relaunchedClient = createTestClient()
+        relaunchedClient.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        relaunchedClient.setProfileId("profile-B", skipMergeWithPreviousProfileId = true)
+
+        assertEquals(
+            "a relaunch must not discard a merge nothing has delivered yet",
+            listOf("profile-A"), storageService.getMergeProfileIds()
+        )
+
+        relaunchedClient.push(PushRequest())
+
+        val body = server.takeRequest().body.readUtf8()
+        assertEquals(listOf("profile-A"), mergeProfileIdsOf(body))
+        assertEquals(
+            "profile-B",
+            JSONObject(body).getJSONObject("context").getJSONObject("profile").getString("id")
+        )
+        assertTrue(JSONObject(body).getJSONObject("context").getBoolean("profileChanged"))
     }
 
     @Test
