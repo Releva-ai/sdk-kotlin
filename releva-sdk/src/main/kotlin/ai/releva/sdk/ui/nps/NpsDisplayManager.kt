@@ -32,6 +32,17 @@ object NpsDisplayManager {
     }
 
     /**
+     * The callbacks [NpsDialogFragment] invokes. It reads them from here when it needs
+     * them rather than being handed them at construction: a lambda cannot travel in the
+     * arguments Bundle that carries the fragment through a configuration change, so a
+     * dialog recreated by one would hold nulls and its submit button would silently do
+     * nothing.
+     */
+    internal fun submitCallback(): (suspend (String, Int, String?) -> Unit)? = onSubmit
+
+    internal fun skipCallback(): (() -> Unit)? = onSkip
+
+    /**
      * Start collecting NPS events and showing dialogs.
      * Call from Activity.onCreate() after setting callbacks.
      */
@@ -46,9 +57,9 @@ object NpsDisplayManager {
     }
 
     private fun showNps(activity: FragmentActivity, config: NpsConfig) {
-        val submit = onSubmit ?: return
+        if (onSubmit == null) return
         NpsDisplayController.consumeNps()
-        val dialog = NpsDialogFragment.newInstance(config, submit, onSkip)
+        val dialog = NpsDialogFragment.newInstance(config)
         dialog.show(activity.supportFragmentManager, "nps_dialog")
     }
 }
