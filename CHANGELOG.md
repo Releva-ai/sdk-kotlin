@@ -40,9 +40,18 @@ rather than in the section above.
   `NpsDisplayManager` when it needs them and a recreated dialog submits to the same callback as
   before; `NpsDisplayManager` also no longer stacks a second sheet on a survey already on
   screen. A fragment with no config at all still dismisses. `NpsDialogFragment.newInstance`
-  now takes just the config; the three-argument overload is kept and `@Deprecated`, so existing
-  callers still compile, but the callbacks it is given are registered on `NpsDisplayManager`
-  process-wide rather than scoped to the one dialog.
+  now takes just the config; the three-argument overload is kept and `@Deprecated`, and its
+  callbacks are kept scoped to the one dialog it returns — an instance field, the same as on
+  the version before this fix — so calling it cannot change what a survey shown separately
+  through `NpsDisplayManager.attach()` submits to. The trade is that an instance field cannot
+  survive a configuration change either, so a dialog built through the deprecated overload and
+  then rotated falls back to whatever `NpsDisplayManager` holds instead of the callback it was
+  given.
+  Also fixed in the same pass: a configuration change landing while a submission was
+  genuinely in flight — suspended inside the submit callback, not merely queued — cancelled
+  the coroutine, and the cancellation was being swallowed and fell through to rendering the
+  thank-you step on a fragment already mid-detach, crashing the app; the cancellation is now
+  rethrown instead.
 - **A momentary network failure or a transient 5xx dropped the event for good.**
   `RelevaClient.execute` made exactly one call and handed whatever came back — or whatever it
   threw — straight to the caller, so a pageview, cart sync, impression or push-token

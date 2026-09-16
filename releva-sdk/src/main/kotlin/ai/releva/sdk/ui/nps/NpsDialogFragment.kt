@@ -21,6 +21,7 @@ import androidx.annotation.VisibleForTesting
 import androidx.fragment.app.DialogFragment
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,6 +41,16 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
     private var followUpInput: EditText? = null
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // Set only by the deprecated three-argument newInstance, and only on the instance it
+    // returns — an instance field, same as this callback travelled on master, so it cannot
+    // leak into a survey NpsDisplayManager.attach() shows separately. It also cannot survive
+    // a configuration change: a field set here is gone once the FragmentManager recreates
+    // this fragment through the no-arg constructor, same as config was before this fix. A
+    // dialog recreated that way falls back to NpsDisplayManager's callbacks below, which is
+    // where the deprecation is steering every caller anyway.
+    private var directOnSubmit: (suspend (String, Int, String?) -> Unit)? = null
+    private var directOnSkip: (() -> Unit)? = null
 
     private lateinit var contentContainer: FrameLayout
 
@@ -74,24 +85,29 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
          * [NpsDisplayManager.attach] — still compiles; [config] and its callbacks were the
          * whole signature before this fix.
          *
-         * The registration it performs is process-wide, not scoped to the dialog it returns:
-         * [onSubmit] replaces whatever [NpsDisplayManager] holds, and a `null` [onSkip] (the
-         * default) leaves an already-registered skip callback in place rather than clearing
-         * it. Callbacks cannot travel with a fragment across a configuration change at all,
-         * so there is no scoped alternative — which is what the deprecation is for.
+         * [onSubmit] and [onSkip] are kept on the returned instance only — [directOnSubmit] /
+         * [directOnSkip] — exactly as they travelled on master, so calling this cannot change
+         * what a survey shown separately through [NpsDisplayManager.attach] submits to. The
+         * trade is the one the deprecation message names: an instance field cannot survive a
+         * configuration change, so a dialog built this way and then recreated falls back to
+         * [NpsDisplayManager]'s callbacks — null for a caller who never calls
+         * [NpsDisplayManager.setOnSubmit] — and logs the warning below instead of submitting.
+         * That is worse than this call surviving intact, but it is confined to the path this
+         * deprecation already tells callers to move off of, and it is not worse than master,
+         * where the whole dialog was dismissed outright on recreation.
          */
         @Deprecated(
-            "Register callbacks on NpsDisplayManager; they cannot survive recreation on the fragment, " +
-                "and calling this installs them process-wide rather than scoped to this dialog."
+            "Register callbacks on NpsDisplayManager; they cannot survive recreation on the fragment."
         )
         fun newInstance(
             config: NpsConfig,
             onSubmit: suspend (String, Int, String?) -> Unit,
             onSkip: (() -> Unit)? = null
         ): NpsDialogFragment {
-            NpsDisplayManager.setOnSubmit(onSubmit)
-            onSkip?.let(NpsDisplayManager::setOnSkip)
-            return newInstance(config)
+            return newInstance(config).apply {
+                directOnSubmit = onSubmit
+                directOnSkip = onSkip
+            }
         }
     }
 
@@ -278,7 +294,7 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
                 gravity = Gravity.CENTER
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 setOnClickListener {
-                    NpsDisplayManager.skipCallback()?.invoke()
+                    (directOnSkip ?: NpsDisplayManager.skipCallback())?.invoke()
                     dismissAllowingStateLoss()
                 }
             }
@@ -441,7 +457,7 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
         submitting = true
         scope.launch {
             try {
-                val onSubmit = NpsDisplayManager.submitCallback()
+                val onSubmit = directOnSubmit ?: NpsDisplayManager.submitCallback()
                 if (onSubmit != null) {
                     onSubmit(config.token, score, comment)
                 } else {
@@ -449,6 +465,14 @@ class NpsDialogFragment : BottomSheetDialogFragment() {
                     // below still shows, so log it rather than letting it pass in silence.
                     Log.w(TAG, "NPS submit reached with no onSubmit callback registered; feedback was not sent")
                 }
+            } catch (e: CancellationException) {
+                // onDestroyView's scope.cancel() resumes a suspended onSubmit with this. Let
+                // it propagate: the coroutine machinery treats a CancellationException on an
+                // already-cancelled job as normal shutdown, not a crash, but only if it is
+                // rethrown rather than swallowed here. Falling through to showThankYouStep
+                // below on a fragment mid-detach would call requireContext() on one with no
+                // host and crash instead.
+                throw e
             } catch (_: Exception) {
                 // Submission failures are silent per spec
             }

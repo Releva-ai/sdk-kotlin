@@ -13,6 +13,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.TextView
 import androidx.fragment.app.FragmentActivity
+import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -192,9 +193,12 @@ class NpsDialogFragmentTest {
      * [ai.releva.sdk.types.response.NpsAppearance.defaults] right back in. `triggers` is a
      * `List<Map<String, Any?>>`, the one shape here that depends on `org.json`'s `wrap()`
      * recursing into collection *elements*, not just into maps — and it is the shape the
-     * server actually sends, per `NpsManagerService.initialize`. This asserts on the
-     * restored [NpsConfig] itself, via [NpsDialogFragment.configFromArguments], because
-     * neither field is rendered anywhere in the dialog's UI.
+     * server actually sends, per `NpsManagerService.initialize`. This asserts the restored
+     * [NpsConfig] equals the original outright — a strictly stronger check than comparing
+     * `triggers` and `appearance` individually, since [NpsConfig] is a data class and this
+     * also covers every other field the same generic `org.json` path carries, via
+     * [NpsDialogFragment.configFromArguments] because none of it is rendered in the dialog's
+     * UI.
      */
     @Test
     fun `triggers and a non-default appearance survive a configuration change`() {
@@ -213,9 +217,7 @@ class NpsDialogFragmentTest {
 
         val recreated = rotate(controller, original)
 
-        val restored = recreated.configFromArguments()
-        assertEquals(cfg.triggers, restored?.triggers)
-        assertEquals(cfg.appearance, restored?.appearance)
+        assertEquals(cfg, recreated.configFromArguments())
     }
 
     /**
@@ -252,33 +254,103 @@ class NpsDialogFragmentTest {
     }
 
     /**
+     * The other interrupted-submission test above rotates before `onSubmit` has been
+     * dispatched at all, so `submitScore`'s `try` is never entered. On a device the more
+     * likely window is a rotation while the coroutine is genuinely suspended *inside*
+     * `onSubmit` — e.g. waiting on network IO — which is what this pins: `onDestroyView`'s
+     * `scope.cancel()` resumes that suspension with a `CancellationException`, and if that
+     * were swallowed by the generic `catch` instead of rethrown, execution would fall through
+     * to `showThankYouStep` on a fragment already mid-detach, whose `requireContext()` throws
+     * `IllegalStateException` — an app crash. `idle()` after tapping submit lets the body
+     * start and park inside the callback before rotating; `idle()` again after rotating is
+     * what actually runs the posted cancellation resumption, since `Dispatchers.Main` here is
+     * a paused Robolectric looper.
+     *
+     * The crash this pins does not surface as a thrown exception `idle()` propagates:
+     * kotlinx.coroutines hands an exception that escapes a coroutine with no
+     * `CoroutineExceptionHandler` straight to `Thread.currentThread().uncaughtExceptionHandler`
+     * — a direct call, not a throw — which is also exactly why it is a real app crash rather
+     * than something a `try`/`catch` around `idle()` could ever have caught. A default handler
+     * is installed for the duration of the test to catch that call and turn it back into a
+     * assertion failure.
+     */
+    @Test
+    fun `a submission cancelled while suspended in the callback does not crash the recreated dialog`() {
+        val uncaught = mutableListOf<Throwable>()
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { _, e -> uncaught.add(e) }
+        try {
+            val gate = CompletableDeferred<Unit>()
+            NpsDisplayManager.setOnSubmit { _, _, _ -> gate.await() }
+            val (controller, original) = showSurvey(config(followUp = null))
+            findViewWithText(original, "9")!!.performClick()
+            shadowOf(Looper.getMainLooper()).idle()
+
+            val recreated = rotate(controller, original)
+            shadowOf(Looper.getMainLooper()).idle()
+
+            assertNotNull(findViewWithText(recreated, QUESTION))
+            assertNotNull(findViewWithText(recreated, "9"))
+            assertTrue(submissions.isEmpty())
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previousHandler)
+        }
+        assertTrue("submitScore must not crash the main thread when cancelled mid-callback, got: $uncaught", uncaught.isEmpty())
+    }
+
+    /**
      * [NpsDialogFragment.newInstance] with two callback arguments is deprecated but retained
      * for a caller who built the dialog directly instead of going through
      * [NpsDisplayManager.attach]; nothing else in this class calls it, so without this test
-     * it ships unexercised. It also pins the semantic change the deprecation note describes:
-     * the callbacks it takes are not scoped to this one dialog — they replace whatever is on
-     * [NpsDisplayManager] process-wide, which is why [submissions], registered in [setUp],
-     * receives nothing once this runs.
+     * it ships unexercised. It also pins the scoping the deprecation note describes: the
+     * callback it takes is kept on the returned instance only, so it does not replace
+     * whatever [NpsDisplayManager] holds — [submissions], registered in [setUp], stays empty
+     * because this survey never reaches [NpsDisplayManager]'s callback at all while the
+     * original instance is still alive.
      */
     @Suppress("DEPRECATION")
     @Test
-    fun `the deprecated three-argument newInstance still reaches its own callback across a configuration change`() {
+    fun `the deprecated three-argument newInstance uses its own callback and does not touch NpsDisplayManager`() {
         val deprecatedSubmissions = mutableListOf<Triple<String, Int, String?>>()
         val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
         NpsDialogFragment.newInstance(
-            config(),
+            config(followUp = null),
             onSubmit = { token, score, comment -> deprecatedSubmissions.add(Triple(token, score, comment)) }
         ).show(controller.get().supportFragmentManager, TAG)
         controller.get().supportFragmentManager.executePendingTransactions()
         val original = shownFragment(controller)
         findViewWithText(original, "9")!!.performClick()
-
-        val recreated = rotate(controller, original)
-        findViewWithText(recreated, SUBMIT_LABEL)!!.performClick()
         shadowOf(Looper.getMainLooper()).idle()
 
         assertEquals(listOf(Triple(TOKEN, 9, null)), deprecatedSubmissions)
-        assertTrue("the callback registered in setUp() should have been replaced process-wide", submissions.isEmpty())
+        assertTrue("NpsDisplayManager's callback, registered in setUp(), must not fire for a scoped call", submissions.isEmpty())
+    }
+
+    /**
+     * The trade the deprecation note names: an instance field cannot survive a configuration
+     * change, so a dialog built through the deprecated overload and then recreated falls back
+     * to [NpsDisplayManager]'s callback rather than the one this call was given — worse than
+     * the callback surviving, but confined to the path the deprecation is steering callers off
+     * of, and not worse than master, where the whole dialog was dismissed on recreation.
+     */
+    @Suppress("DEPRECATION")
+    @Test
+    fun `the deprecated three-argument newInstance falls back to NpsDisplayManager after a configuration change`() {
+        val deprecatedSubmissions = mutableListOf<Triple<String, Int, String?>>()
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        NpsDialogFragment.newInstance(
+            config(followUp = null),
+            onSubmit = { token, score, comment -> deprecatedSubmissions.add(Triple(token, score, comment)) }
+        ).show(controller.get().supportFragmentManager, TAG)
+        controller.get().supportFragmentManager.executePendingTransactions()
+        val original = shownFragment(controller)
+
+        val recreated = rotate(controller, original)
+        findViewWithText(recreated, "9")!!.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertTrue("the deprecated call's own callback cannot survive recreation", deprecatedSubmissions.isEmpty())
+        assertEquals(listOf(Triple(TOKEN, 9, null)), submissions)
     }
 
     private fun config(
