@@ -95,6 +95,22 @@ rather than in the section above.
   `enableInAppMessaging` and `enableAnalytics` are still read by nothing on either SDK and are
   deliberately left alone.
 
+### Documentation
+
+- **README: a "Data safety (Google Play)" section.** The SDK shipped no privacy documentation
+  at all, so an integrator filling in Play's Data safety form had nothing to go on — and unlike
+  Apple's `PrivacyInfo.xcprivacy`, which the Swift SDK ships and Apple aggregates, Play's form is
+  declared per app in Play Console with nothing in the AAR feeding it, so documentation is the
+  only deliverable here. The new section lists each collected data type against the call site
+  that sends it, the purposes to declare (with the NPS free-text comment kept narrower than the
+  behavioural types), the collected-versus-shared line and the caveat that conversion forwarding
+  is Releva-side configuration rather than a call site here, encryption in transit, the absence
+  of any deletion API, and what remains the integrator's own. It also flags the advertising-ID
+  trap: this SDK declares only `INTERNET` and `ACCESS_NETWORK_STATE` and keeps
+  `firebase-messaging` `compileOnly`, but Firebase Analytics — which most apps that set up FCM
+  also add — merges `AD_ID` into the release manifest, as observed in the example app, and Play
+  flags a release whose permissions contradict its Data safety answers.
+
 ## 1.4.0
 
 Everything here came out of a device pass against a real domain, replicating the
