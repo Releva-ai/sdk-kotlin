@@ -176,7 +176,7 @@ After releasing, verify the build succeeded:
 Update the example app to use the new version:
 
 ```bash
-cd ../shopping-android-app
+cd ../example-app   # the integration example checked out alongside this repo
 
 # Update build.gradle.kts
 sed -i 's/com.github.Releva-ai:sdk-kotlin:[0-9.]*/com.github.Releva-ai:sdk-kotlin:1.0.1/' app/build.gradle.kts

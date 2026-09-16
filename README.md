@@ -306,10 +306,6 @@ storyManager.onScrollPercentageReached(percentage)
 
 `immediately` and `delaySeconds` triggers fire on their own once `initialize()` is called; the other three need the matching method called from your own cart/wishlist/scroll code. `leaveIntent` is not supported on mobile. Call `storyManager.dispose()` when you are done with it to cancel any pending `delaySeconds` timers.
 
-## Example Projects
-
-See the `shopping-android-app` directory for a complete integration example.
-
 ## Technology Stack
 
 - **Storage**: SharedPreferences
@@ -321,6 +317,72 @@ See the `shopping-android-app` directory for a complete integration example.
 ## Distribution
 
 This SDK is distributed via [JitPack](https://jitpack.io/#Releva-ai/sdk-kotlin). View all versions at https://jitpack.io/#Releva-ai/sdk-kotlin
+
+## Data safety (Google Play)
+
+Play's Data safety form is declared per app in Play Console; nothing shipped in the AAR feeds it, and Apple's `PrivacyInfo.xcprivacy` has no Android equivalent. This section exists so you can transcribe what this SDK sends on your behalf into your own form. It covers this SDK only — your app and every other SDK in it are still yours to declare.
+
+### What the SDK collects
+
+| Play data type | What it is |
+| --- | --- |
+| Personal info → User IDs | the `profileId` you set with `setProfileId(...)` |
+| Device or other IDs | the `deviceId` you set with `setDeviceId(...)`, the FCM push token passed to `registerPushToken(...)`, and the SDK's own session id (a fresh UUID per session) |
+| App activity → App interactions | screen and product views, cart and wishlist contents, custom events, banner and story impressions and clicks, inbox reads/deletions/taps, notification taps, the NPS score from `submitNpsResponse(...)`, and the per-device session and view counters |
+| App activity → In-app search history | the `query` passed to `trackSearchView(...)`, sent as `page.query` |
+| Financial info → Purchase history | the order id, product ids, quantities and prices of the `Cart` passed to `trackCheckoutSuccess(...)` |
+| App activity → Other user-generated content | the optional free-text comment on `submitNpsResponse(...)` |
+
+**Purposes**: for everything except the NPS comment, declare **App functionality, Personalization** and **Analytics**, plus Advertising or marketing — see below. For the NPS comment, **App functionality only**: it is read individually by a marketer rather than aggregated into an audience measure.
+
+**Linked to an identity**: every request the SDK composes carries the `profileId`, and the tracking payload carries the `deviceId` alongside it — so declare all of the above linked to a user, not anonymous. (Two narrower cases: the inbox requests send only the `profileId`, and notification-tap tracking sends neither id, just the push payload's own callback URL.)
+
+**Not collected**: the SDK has no profile-attribute API. No request it builds carries a name, email address, phone number or postal address field; a user is identified solely by the `profileId` you set. Anything beyond the table reaches Releva only if you put it in a custom field or custom event yourself.
+
+### Advertising or marketing
+
+Play's "Advertising or marketing" purpose covers displaying or targeting advertising *or marketing communications*. Push campaigns and personalised banners are marketing communications, so expect to tick it for the behavioural types above. Confirm it against how you actually use Releva rather than taking it as settled here.
+
+### The advertising ID
+
+This SDK adds no advertising-ID permission:
+
+- `releva-sdk/src/main/AndroidManifest.xml` declares `android.permission.INTERNET` and `android.permission.ACCESS_NETWORK_STATE`, and no other permission. (It also merges a broadcast receiver and two activities into your app for notification handling and the story viewer — harmless for this section, but you will see them if you inspect your merged manifest.)
+- `firebase-messaging` is `compileOnly` in `releva-sdk/build.gradle.kts`, so the SDK pulls no Firebase artifact into your build at all.
+
+Firebase Analytics does, though, and most apps that set up FCM also add it. Adding `com.google.firebase:firebase-analytics` merges two more permissions into your release manifest:
+
+```
+app/build/intermediates/merged_manifests/release/processReleaseManifest/AndroidManifest.xml
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_AD_ID" />
+```
+
+Both come from `com.google.android.gms:play-services-measurement-api`, which `firebase-analytics` pulls in — your manifest merger report will name it.
+
+This matters because Play cross-checks the Data safety answers against the permissions in the uploaded artifact: declaring that the app collects no advertising ID while shipping `AD_ID` gets the release flagged. Check your own merged manifest at `app/build/intermediates/merged_manifests/<variant>/.../AndroidManifest.xml`. If you do not use the advertising ID, remove it rather than declaring it — with `xmlns:tools="http://schemas.android.com/tools"` on your `<manifest>` tag:
+
+```xml
+<uses-permission
+    android:name="com.google.android.gms.permission.AD_ID"
+    tools:node="remove" />
+```
+
+### Collected vs shared
+
+Data the SDK sends to Releva's endpoint is **collection**. Play does not treat a transfer to a service provider processing on the developer's behalf as **sharing**. Whether a given Releva account then forwards conversions on to advertising networks is configuration on Releva's infrastructure, not a call site in this SDK — so the answer can change with no release here. Confirm it for your integration, and re-confirm it at each submission.
+
+### Encryption in transit, and deletion
+
+- Every request the SDK builds goes to `https://<realm>.releva.ai`, or `https://releva.ai` when the realm is empty, so it is encrypted in transit. A few things can change that, all server-controlled rather than SDK-controlled: `setEndpointOverride(...)` only logs a warning for a non-`https://` URL, it does not refuse it; notification-tap tracking fetches the callback URL carried in the push payload; and banner/story images and a notification's big-picture image are fetched from URLs the server supplies. None of these carry collected data upward — they only affect what scheme the SDK ends up fetching from.
+- The SDK exposes no delete, erase or forget call. `clearCartStorage()` clears local cart state and `inbox.deleteMessage(...)` removes a single inbox message; neither is a data-deletion request. If you answer that users can request deletion of their data, that route has to exist on Releva's side — it is not an in-app button.
+
+### What you still have to do yourself
+
+1. **The Play Console form itself.** Play derives it from nothing in this repository.
+2. **Your custom fields and custom events.** `trackCustomEvent(...)`, and the `custom` maps on viewed, cart and wishlist products, send whatever you put in them. The SDK cannot describe data it does not choose; anything sensitive passed through one is yours to declare.
+3. **Firebase.** Push goes through `firebase-messaging`, which you add to your own build and which carries its own disclosures.
+4. **Every other SDK in your app.**
 
 ## Support
 
