@@ -1,11 +1,62 @@
 steps:
-  # Install Android SDK, run tests, and build
+  # Kept first, and deliberately dependency-free, so it fails in seconds instead of after
+  # the Android SDK install below. Uses the same image as the build step so the pull is
+  # shared rather than doubled.
+  #
+  # The published artifact's version and the VERSION constant have to agree, because the
+  # constant is sent as options.client.version and sdkVersion on every push. When they
+  # drift, the field names a release that is not the one running, and nothing about that is
+  # visible from either file alone — it can only be seen by reading both. The PR template
+  # asks for both to be bumped together; this is what checks it.
+  - id: version-consistency
+    name: gradle:8.9-jdk17
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -e
+
+        # `| head -1` pins each substitution to its first match, so a second `version = "`
+        # at the same indentation (a commented-out line, a second publication) cannot turn
+        # $$published into two lines and fail the comparison with a confusing message. It
+        # also always exits 0, so a failed grep reaches the -z check below — which is
+        # exactly the "has either declaration moved?" case this check exists to diagnose —
+        # rather than aborting the script under `set -e`.
+        #
+        # `\K` rather than a lookbehind: PCRE lookbehinds must be fixed length and the
+        # indentation before `version = "` is not, so `(?<=^\s*version = ")` fails to
+        # compile (exit 2) and this step fails red on every run. `\K` resets the match
+        # start instead of asserting backwards, so it allows the variable-length prefix.
+        published=$$(grep -oP '^\s*version = "\K[^"]+' releva-sdk/build.gradle.kts | head -1)
+        constant=$$(grep -oP 'private const val VERSION = "\K[^"]+' \
+          releva-sdk/src/main/kotlin/ai/releva/sdk/client/RelevaClient.kt | head -1)
+
+        echo "build.gradle.kts : $$published"
+        echo "RelevaClient.kt  : $$constant"
+
+        if [ -z "$$published" ] || [ -z "$$constant" ]; then
+          echo "ERROR: could not read one of the versions — has either declaration moved?"
+          exit 1
+        fi
+        if [ "$$constant" != "$${published}-kotlin" ]; then
+          echo "ERROR: VERSION is '$$constant' but the published version is '$$published'."
+          echo "       Expected '$${published}-kotlin'. Bump both together."
+          exit 1
+        fi
+        echo "consistent"
+
+  # Install the Android SDK, then build and check the library.
   - id: build-and-test
     name: gradle:8.9-jdk17
     entrypoint: sh
     args:
       - -c
       - |
+        # Without this the step's exit code is the trailing echo's, so a failing gradle
+        # invocation reported success and this check gated nothing. The `|| true` on the
+        # licence line below is what makes that line — and only that line — non-fatal.
+        set -e
+
         echo "=== Installing Android SDK ==="
         apt-get update -qq
         apt-get install -y wget unzip
@@ -28,11 +79,13 @@ steps:
 
         cd /workspace
 
-        echo "=== Running tests ==="
-        ./gradlew :releva-sdk:test
-
-        echo "=== Building SDK ==="
-        ./gradlew :releva-sdk:build
+        # One :releva-sdk:build is assemble + both unit test variants + Android Lint, so the
+        # separate :releva-sdk:test that used to run first added nothing but a second
+        # up-to-date invocation. --stacktrace because Cloud Build keeps no artifacts: the
+        # console output is the only record of a failure, the HTML/XML reports under
+        # releva-sdk/build/reports are discarded with the worker.
+        echo "=== Building and checking the SDK ==="
+        ./gradlew :releva-sdk:build --console=plain --stacktrace
 
         echo "=== Build and test completed successfully ==="
 
