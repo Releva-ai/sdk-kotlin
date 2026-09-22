@@ -25,23 +25,24 @@ deprecates no public API.
 
   What is deliberately unchanged is the once-per-session guarantee 1.5.1 added (row
   "BAN-13"): the hand-off is written only when the host reports `isChangingConfigurations`,
-  so a genuine destroy — navigating away — retains nothing, and the slot is emptied by the
-  first attach that follows whether it matched or not, so nothing can be sitting there to be
-  restored onto a screen the user reaches later. A banner is still shown once per session and
-  is still not re-shown on navigating away and back. The hand-off's single slot also now
-  guards against two hosts writing at (near) the same time. Two live instances of the same
-  host class relaunched together (the same Activity opened twice, say) write under the same
-  key, and the next attach cannot tell the two instances apart either — so a same-key
-  collision drops **both** sides, and neither instance restores, rather than risking the
-  slot being handed to the wrong one. A collision between two different keys (unrelated
-  managers writing at once) is safe to resolve as first-writer-wins instead, since a
-  mismatched key can never be misattributed. The slot's two fields are also `@Volatile` now,
-  since the slot is cleared not only from the main thread but also from
-  `SessionService.startNewSession()`, which can run on a background dispatcher — without it,
-  that clear was not guaranteed to be visible to the next attach. The slot is also cleared
-  when a new session starts, alongside the shown-token set, so a hand-off pending across an
-  unusually slow relaunch cannot outlive the session boundary and restore a banner whose
-  once-shown mark was just reset.
+  so a genuine destroy — navigating away — retains nothing, and the hand-off is emptied by
+  the first attach that follows whether it matched or not, so nothing can be sitting there to
+  be restored onto a screen the user reaches later. A banner is still shown once per session
+  and is still not re-shown on navigating away and back.
+
+  One configuration change destroys every live screen, so the hand-off keeps one entry per
+  screen — the host class plus the selector the manager was built for. Screens destroyed
+  together therefore neither take each other's banners nor discard each other's entries; an
+  attach only ever gets back what was stored for the screen it serves. The one case a
+  per-screen key cannot resolve is two *live* instances of the same class with the same
+  selector — the same Activity opened twice, say — which share a key, and the attach that
+  follows cannot tell the two instances apart either. A second hand-off under an
+  already-claimed key therefore empties it, so neither instance restores, rather than risking
+  the banner coming back on the wrong one. The hand-off is also cleared when a new session
+  starts, alongside the shown-token set, so one pending across an unusually slow relaunch
+  cannot outlive the session boundary and restore a banner whose once-shown mark was just
+  reset; it is a `ConcurrentHashMap` because that session clear can run on a background
+  dispatcher while the screens read it on the main thread.
 
 ## 1.5.1
 

@@ -160,7 +160,7 @@ class BannerDisplayManagerConfigChangeTest {
 
     /**
      * The other reachability bound: the banner is handed back to the screen it was retained
-     * for, and a screen that is not that one both fails to get it and empties the slot, so it
+     * for, and a screen that is not that one both fails to get it and empties the store, so it
      * cannot be picked up later either.
      */
     @Test
@@ -176,10 +176,44 @@ class BannerDisplayManagerConfigChangeTest {
         attachManager(recreated, targetSelector = "#other")
         assertNull(findBanner(recreated, staticBanner))
 
-        // And the slot is empty now, so the screen it was retained for does not get it late.
+        // And the store is empty now, so the screen it was retained for does not get it late.
         val late = buildHost().setup().get()
         attachManager(late)
         assertNull(findBanner(late, staticBanner))
+    }
+
+    /**
+     * One configuration change destroys every live host, so every attached manager detaches and
+     * hands over what it has — including the managers with nothing on screen. A screen that hands
+     * over nothing must not discard another screen's hand-off: the two are separate entries,
+     * keyed by screen. Otherwise the fix stops applying as soon as an app has a second manager,
+     * which the per-screen `targetSelector` in `README.md` is exactly the shape of.
+     *
+     * Differential: with a single shared slot that an empty hand-off emptied regardless of whose
+     * it was, the last assertion here fails.
+     */
+    @Test
+    fun `a screen with no banner does not discard another screen's retained one`() {
+        val controllerA = buildHost()
+        val hostA = controllerA.setup().get()
+        attachManager(hostA)
+        display(staticBanner)
+        assertNotNull("fixture never displayed the banner", findBanner(hostA, staticBanner))
+
+        // A second screen is live with its own selector and nothing on screen.
+        val controllerB = buildHost()
+        val hostB = controllerB.setup().get()
+        attachManager(hostB, targetSelector = "#other")
+
+        // One configuration change destroys both, before either recreation attaches. B is
+        // rotated to the opposite orientation because Robolectric's Configuration is
+        // process-wide, so rotating to landscape again after A already did would be a no-op
+        // diff and B would never be recreated at all.
+        val recreatedA = rotate(controllerA, hostA)
+        rotate(controllerB, hostB, Configuration.ORIENTATION_PORTRAIT)
+
+        attachManager(recreatedA)
+        assertNotNull(findBanner(recreatedA, staticBanner))
     }
 
     /**
@@ -188,7 +222,7 @@ class BannerDisplayManagerConfigChangeTest {
      * a banner, then the device rotates. Both instances are relaunched, so both `detach()`
      * calls see `isChangingConfigurations == true` and both try to retain under the same key.
      * `take()` matches on that same key too, so whichever recreation attaches first cannot be
-     * handed the slot safely — it might be either instance. `retain` resolves this by dropping
+     * handed that entry safely — it might be either instance. `retain` resolves this by dropping
      * **both** sides on a same-key collision: neither recreation gets its banner back, which is
      * the safe direction (a banner not restored is pre-1.5.2 behaviour; a banner restored onto
      * the wrong instance is a regression this test guards against).
@@ -214,8 +248,8 @@ class BannerDisplayManagerConfigChangeTest {
         assertNotNull("fixture never displayed banner B", findBanner(hostB, bannerB))
 
         // Both instances are live and in the foreground stack when the configuration change
-        // hits. A detaches (and retains) first, then B's retain attempt finds the slot already
-        // held under the same key and clears it — dropping A's entry too. B is rotated to the
+        // hits. A detaches (and retains) first, then B's retain attempt finds the key already
+        // claimed and empties it — dropping A's banners too. B is rotated to the
         // opposite orientation — Robolectric's Configuration is process-wide, so rotating it to
         // landscape again after A already did would be a no-op diff; the direction doesn't
         // matter to what this test exercises, only that both hosts go through a genuine
@@ -225,7 +259,7 @@ class BannerDisplayManagerConfigChangeTest {
         val recreatedA = rotate(controllerA, hostA)
         val recreatedB = rotate(controllerB, hostB, Configuration.ORIENTATION_PORTRAIT)
 
-        // The slot was already cleared by the same-key collision at retain time, before either
+        // The entry was already emptied by the same-key collision at retain time, before either
         // recreation attaches — so neither gets a banner back, regardless of attach order.
         attachManager(recreatedA)
         assertNull(findBanner(recreatedA, bannerA))

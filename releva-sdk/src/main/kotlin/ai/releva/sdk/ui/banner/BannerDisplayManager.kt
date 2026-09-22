@@ -260,6 +260,10 @@ class BannerDisplayManager(
         // bar and static views to its view tree. Hand the banners that are on screen to the
         // instance that is about to replace them, before dismissAll's dismiss listeners empty
         // displayedBanners. On a genuine destroy this does not run and nothing is retained.
+        //
+        // Called even when there is nothing on screen: an empty hand-off claims this host's key
+        // so that a second live instance sharing it is seen as the collision it is, whichever of
+        // the two had a banner up. See BannerRetentionStore.
         val key = hostKey
         if (key != null && activity?.isChangingConfigurations == true) {
             BannerRetentionStore.retain(key, displayedBanners.values.toList())
@@ -289,7 +293,7 @@ class BannerDisplayManager(
             // show*Banner is about to early-return: activity is null, or wrapChildren() never
             // built the wrapper this display type needs (e.g. a Fragment whose view isn't a
             // ViewGroup). That is a pre-existing failure mode either way, but a caller that
-            // drained displayedBanners or BannerRetentionStore's slot for this banner — restore
+            // drained displayedBanners or BannerRetentionStore's entry for this banner — restore
             // included — would otherwise treat it as shown with no signal that it never rendered.
             Log.w(TAG, "Cannot render banner ${banner.token} (${banner.displayType}): host view not ready")
         }
