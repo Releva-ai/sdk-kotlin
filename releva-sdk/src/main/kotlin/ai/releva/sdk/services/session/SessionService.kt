@@ -1,5 +1,6 @@
 package ai.releva.sdk.services.session
 
+import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.services.nps.NpsManagerService
 import ai.releva.sdk.services.storage.StorageService
 import android.os.Handler
@@ -101,6 +102,9 @@ class SessionService private constructor() : DefaultLifecycleObserver {
         storage.setSessionTimestamp(now)
 
         npsManager?.startNewSession()
+        // BannerManagerService is created by the host app, so there is no instance to notify —
+        // the shown-token set it consults is session-scoped and lives in BannerSessionStore.
+        BannerSessionStore.startNewSession()
 
         Log.d(TAG, "New session $count, id=$sessionId")
     }

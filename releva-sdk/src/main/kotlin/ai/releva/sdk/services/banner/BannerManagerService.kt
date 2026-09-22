@@ -8,10 +8,19 @@ import kotlinx.coroutines.*
 /**
  * Manages banner trigger logic and lifecycle.
  * Handles trigger types: immediately, delaySeconds, scrollPercentage, cartChanged, wishlistChanged.
+ *
+ * Which banners have already been displayed is kept in [BannerSessionStore], not here, so a
+ * banner shows once per session rather than once per push response. This class only decides
+ * when to *emit* a banner into [BannerDisplayController]; it does not mark a token as shown.
+ * Emitting is not the same as displaying — there may be no attached collector, the display
+ * buffer may be full, or the attached [ai.releva.sdk.ui.banner.BannerDisplayManager] may filter
+ * the banner out (wrong `cssSelector`, `displayType == "custom"`, no `design`). Marking happens
+ * on the display side, in `BannerDisplayManager.showBanner`, which is the only place that knows
+ * a banner actually rendered — so a banner that was emitted but never shown is retried on the
+ * next trigger instead of being suppressed for the rest of the session.
  */
 class BannerManagerService {
     private val banners = mutableListOf<BannerResponse>()
-    private val displayedBanners = mutableSetOf<String>()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var scrollPercentageProvider: (() -> Int)? = null
     private var cartChangeCallback: (() -> Unit)? = null
@@ -23,7 +32,9 @@ class BannerManagerService {
 
     /**
      * Initialize with banners from a push response.
-     * Clears previous state and sets up triggers for each banner.
+     * Replaces the banner list, cancels the previous response's timers and sets up triggers
+     * for each banner. The set of already displayed banners is session-scoped and survives
+     * this call.
      */
     fun initialize(
         newBanners: List<BannerResponse>,
@@ -35,9 +46,6 @@ class BannerManagerService {
         banners.clear()
         banners.addAll(newBanners)
         this.scrollPercentageProvider = scrollPercentageProvider
-
-        Log.d(TAG, "Clearing displayedBanners (had ${displayedBanners.size} entries)")
-        displayedBanners.clear()
 
         setupTriggers()
     }
@@ -83,12 +91,16 @@ class BannerManagerService {
     private fun setupScrollTrigger(banner: BannerResponse) {
         val provider = scrollPercentageProvider ?: return
         val threshold = banner.scrollPercentage ?: return
+        if (BannerSessionStore.isShown(banner.token)) {
+            Log.d(TAG, "Scroll banner ${banner.token} already shown this session, not polling")
+            return
+        }
 
         scope.launch {
             while (isActive) {
                 delay(500) // Poll every 500ms
-                val currentPercent = provider()
-                if (currentPercent >= threshold && !displayedBanners.contains(banner.token)) {
+                if (BannerSessionStore.isShown(banner.token)) break
+                if (provider() >= threshold) {
                     triggerBanner(banner)
                     break
                 }
@@ -116,12 +128,16 @@ class BannerManagerService {
 
     private fun triggerBanner(banner: BannerResponse) {
         Log.d(TAG, "triggerBanner called for banner: ${banner.token}, trigger: ${banner.trigger}")
-        if (!displayedBanners.contains(banner.token)) {
-            Log.d(TAG, "Banner not in displayedBanners, showing it")
-            displayedBanners.add(banner.token)
+        if (!BannerSessionStore.isShown(banner.token)) {
+            Log.d(TAG, "Banner not shown yet this session, emitting it for display")
+            // Do not mark shown here: emitting into BannerDisplayController is not the same as
+            // displaying it (no attached collector, a full buffer, or the display side's own
+            // filtering can all drop it silently). The display side marks it once it actually
+            // renders, so a banner that was dropped rather than shown is retried the next time
+            // this is called instead of being suppressed for the rest of the session.
             BannerDisplayController.showBanner(banner)
         } else {
-            Log.d(TAG, "Banner already in displayedBanners, skipping")
+            Log.d(TAG, "Banner already shown this session, skipping")
         }
     }
 

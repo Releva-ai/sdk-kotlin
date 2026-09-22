@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.5.1
+
+Not yet released. 1.5.0 is tagged and published, so this lands under its own version
+rather than in the section above.
+
+### Fixed
+
+- **A one-time banner showed again every time the user came back to the screen.**
+  `BannerManagerService.initialize()` cleared its own set of already-displayed banner
+  tokens, and the host app calls `initialize(response.banners, …)` on every push response
+  that carries banners — that is, on every screen view. The set therefore deduplicated only
+  within a single response and nothing remembered that a banner had already been shown, so
+  navigating away and back displayed it a second time. Found on the React Native SDK, whose
+  banner path has the same shape; on Android the same code is reached by any navigation that
+  tracks a screen view. The shown tokens now live in a session-scoped store that
+  `initialize()` leaves alone and `SessionService` clears when a new session starts — a cold
+  start, or a return to the foreground after more than 30 minutes in the background.
+  `initialize()` still replaces the banner list and cancels the previous response's delay and
+  scroll timers. Server-side suppression is unchanged: it is keyed on a banner *click*, so a
+  banner that was shown and not clicked is still re-delivered in the next response — the SDK
+  is now what stops it from being displayed twice. A banner is marked shown once
+  `BannerDisplayManager` actually renders it, not when `BannerManagerService` merely emits it
+  for display — a banner that was emitted with no collector attached, dropped by a full
+  display buffer, or filtered out on the display side (no design, a custom `displayType`, or a
+  static banner whose `cssSelector` doesn't match) is retried on the next trigger instead of
+  being suppressed for the rest of the session with nothing ever having been shown.
+
 ## 1.5.0
 
 Released 16 September 2026. MINOR rather than the PATCH originally planned: the NPS fix

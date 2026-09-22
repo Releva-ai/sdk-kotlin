@@ -1,5 +1,6 @@
 package ai.releva.sdk.services.session
 
+import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.services.nps.NpsManagerService
 import ai.releva.sdk.services.storage.StorageService
 import android.content.Context
@@ -135,6 +136,18 @@ class SessionServiceTest {
         }
 
         assertEquals(4, storage.getDeviceSessionCount())
+    }
+
+    @Test
+    fun `foreground after more than 30min clears the shown banner tokens`() {
+        service.initialize(storage, npsManager)
+        BannerSessionStore.markShown("banner-token")
+
+        service.onStop(stubOwner)
+        backdateLastPause(1_900_000L)
+        service.onStart(stubOwner)
+
+        assertFalse(BannerSessionStore.isShown("banner-token"))
     }
 
     // ── Foreground After Short Background (<30 min) ────────────────────────────────
