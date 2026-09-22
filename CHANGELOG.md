@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.5.2
+
+Not yet released. PATCH: the fix below changes behaviour but adds and deprecates no public
+API. 1.5.1 is tagged and published, so this lands under its own version rather than in the
+section below.
+
+### Fixed
+
+- **A banner on screen was destroyed by a configuration change and never came back.** A
+  rotation, a dark-mode toggle, a font- or display-size change, a locale change or a
+  multi-window resize destroys the host, and `BannerDisplayManager`'s lifecycle observer
+  responds to `ON_DESTROY` by dismissing everything it is showing. The recreated host
+  re-attached with nothing on screen, and nothing put the banner back: the banner flow the
+  manager collects has no replay, so a fresh collector sees only what is emitted after it
+  subscribes, and the 1.5.1 session store has already recorded the banner as shown, so the
+  next screen view will not re-emit it either. The user lost the banner for the rest of the
+  session. What the outgoing host has on screen is now handed to the host instance that
+  replaces it through a `ViewModel` in the host's own `ViewModelStore` — the platform's own
+  mechanism for state that outlives a configuration change and nothing else. A host that is
+  really finished has its store cleared, so its banners go with it and cannot reappear
+  anywhere; two live instances of the same Activity class have stores of their own and
+  restore only their own banners; and a host that attaches two managers watching different
+  `targetSelector`s keeps a hand-off for each. The hand-off is written from the host
+  *activity's* `ON_DESTROY`, which is what separates a recreation from a navigation for a
+  fragment-hosted manager: a fragment loses its view to both, but only the activity going
+  away means the screen and everything on it is being rebuilt. A fragment put on the back
+  stack hands nothing over, and detaching removes the observer, so a configuration change
+  while the user is on another screen has nothing to hand over either — the 1.5.1
+  once-per-session behaviour is unchanged, and a restore is reachable only by the owner
+  being recreated. A restored banner is put back exactly as it went up, whatever its
+  `displayType`; it is not re-displayed, so it is neither marked shown a second time nor
+  counted as a second impression. A rotation is the same impression of the same banner.
+
 ## 1.5.1
 
 Released 22 September 2026. PATCH: the fix below changes behaviour but adds and deprecates

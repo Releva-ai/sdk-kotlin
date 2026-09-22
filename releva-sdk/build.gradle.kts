@@ -61,6 +61,10 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
     implementation("androidx.lifecycle:lifecycle-process:2.6.2")
+    // BannerDisplayManager uses ViewModelProvider directly, so this is declared rather than
+    // taken from appcompat's and fragment's transitive edge on it. Same version as the
+    // lifecycle artifacts above; it was already on the compile classpath.
+    implementation("androidx.lifecycle:lifecycle-viewmodel:2.6.2")
     implementation("androidx.fragment:fragment-ktx:1.6.2")
     implementation("com.google.android.material:material:1.11.0")
 
@@ -87,7 +91,7 @@ publishing {
         create<MavenPublication>("release") {
             groupId = "ai.releva"
             artifactId = "releva-sdk"
-            version = "1.5.1"
+            version = "1.5.2"
 
             afterEvaluate {
                 from(components["release"])

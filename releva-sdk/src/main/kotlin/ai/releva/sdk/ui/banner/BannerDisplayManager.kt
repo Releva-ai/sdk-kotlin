@@ -18,6 +18,8 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +50,13 @@ class BannerDisplayManager(
     private var activity: AppCompatActivity? = null
     private var scope: CoroutineScope? = null
 
+    // Retention across a host recreation: the ViewModel lives in the host's own store, and for
+    // a Fragment host the observer below is what decides that a teardown is the host going away
+    // rather than a navigation. Both are dropped in detach().
+    private var retention: BannerRetentionViewModel? = null
+    private var handOffLifecycle: Lifecycle? = null
+    private var handOffObserver: LifecycleEventObserver? = null
+
     // View wrapping for static banners and bar overlays
     private var rootView: ViewGroup? = null              // The fragment/activity root view (untouched)
     private var outerWrapper: FrameLayout? = null        // FrameLayout for bar overlays (inside root)
@@ -57,6 +66,7 @@ class BannerDisplayManager(
     companion object {
         private const val TAG = "BannerDisplayManager"
         private const val BANNER_TAG_PREFIX = "releva_banner_"
+        private const val RETENTION_KEY_PREFIX = "ai.releva.sdk.bannerRetention:"
     }
 
     /**
@@ -67,6 +77,7 @@ class BannerDisplayManager(
         scope = fragment.viewLifecycleOwner.lifecycleScope
         activity = fragment.activity as? AppCompatActivity
         rootView = fragment.view as? ViewGroup
+        retention = retentionFor(fragment)
 
         viewLifecycleOwner.lifecycle.addObserver(LifecycleEventObserver { _, event ->
             when (event) {
@@ -76,8 +87,10 @@ class BannerDisplayManager(
                 else -> {}
             }
         })
+        activity?.let { handOverWhenHostIsDestroyed(it) }
 
         wrapChildren()
+        restoreRetainedBanners()
     }
 
     /**
@@ -87,17 +100,70 @@ class BannerDisplayManager(
         this.activity = activity
         scope = activity.lifecycleScope
         rootView = activity.window.decorView.findViewById(android.R.id.content)
+        retention = retentionFor(activity)
 
         activity.lifecycle.addObserver(LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> startCollecting()
                 Lifecycle.Event.ON_PAUSE -> stopCollecting()
-                Lifecycle.Event.ON_DESTROY -> detach()
+                // The host itself is going away, so hand the banners over before detach()
+                // takes them off the screen. A destroy that is a real finish rather than a
+                // recreation clears the store, and the hand-off goes with it.
+                Lifecycle.Event.ON_DESTROY -> {
+                    handOver()
+                    detach()
+                }
                 else -> {}
             }
         })
 
         wrapChildren()
+        restoreRetainedBanners()
+    }
+
+    private fun retentionFor(owner: ViewModelStoreOwner): BannerRetentionViewModel =
+        ViewModelProvider(owner)[
+            RETENTION_KEY_PREFIX + targetSelector,
+            BannerRetentionViewModel::class.java
+        ]
+
+    /**
+     * Hands the banners over on the host *activity's* `ON_DESTROY` rather than on the fragment's
+     * view lifecycle, which is the difference between a recreation and a navigation: a fragment
+     * loses its view to both, but only the activity being destroyed means the host is going away
+     * and taking everything on screen with it. A fragment put on the back stack detaches without
+     * handing anything over, and [detach] takes this observer off with it, so a later
+     * configuration change while the user is on another screen has nothing to hand over either.
+     *
+     * The activity's `ON_DESTROY` is dispatched before its FragmentManager tears the fragments
+     * down, so the banners are still on screen — and still in [displayedBanners] — when it runs.
+     */
+    private fun handOverWhenHostIsDestroyed(host: AppCompatActivity) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_DESTROY) handOver()
+        }
+        handOffLifecycle = host.lifecycle
+        handOffObserver = observer
+        host.lifecycle.addObserver(observer)
+    }
+
+    private fun handOver() {
+        retention?.retain(displayedBanners.values.toList())
+    }
+
+    /**
+     * Puts back what the host instance this one replaces had on screen. Deliberately not a new
+     * display: the banner was marked shown and its impression tracked when it first rendered,
+     * and a rotation is the same impression of the same banner, not a second one.
+     */
+    private fun restoreRetainedBanners() {
+        val retained = retention?.take().orEmpty()
+        if (retained.isEmpty()) return
+        Log.d(TAG, "Restoring ${retained.size} banner(s) onto the recreated host")
+        for (banner in retained) {
+            displayedBanners[banner.token] = banner
+            renderBanner(banner)
+        }
     }
 
     /**
@@ -212,6 +278,10 @@ class BannerDisplayManager(
     }
 
     private fun detach() {
+        handOffObserver?.let { handOffLifecycle?.removeObserver(it) }
+        handOffObserver = null
+        handOffLifecycle = null
+        retention = null
         stopCollecting()
         dismissAll()
         displayedBanners.clear()
@@ -230,13 +300,7 @@ class BannerDisplayManager(
 
     private fun showBanner(banner: BannerResponse) {
         Log.d(TAG, "Showing banner: ${banner.token}, type: ${banner.displayType}")
-        when (banner.displayType) {
-            "popup" -> showPopupBanner(banner)
-            "bar" -> showBarBanner(banner)
-            "flyout" -> showFlyoutBanner(banner)
-            "static" -> showStaticBanner(banner)
-            else -> showStaticBanner(banner)
-        }
+        renderBanner(banner)
         // This is the only place in the banner pipeline that knows a banner actually rendered,
         // as opposed to merely being emitted into BannerDisplayController — shouldDisplayBanner
         // above may have already filtered it out (no design, a custom displayType, or a static
@@ -246,6 +310,21 @@ class BannerDisplayManager(
         // on the next trigger instead of being suppressed for the rest of the session.
         BannerSessionStore.markShown(banner.token)
         trackImpression(banner)
+    }
+
+    /**
+     * Builds the banner and puts it on screen. Shared by the first display and by a restore onto
+     * a recreated host, so no display type can come back from a recreation differently from the
+     * way it went up.
+     */
+    private fun renderBanner(banner: BannerResponse) {
+        when (banner.displayType) {
+            "popup" -> showPopupBanner(banner)
+            "bar" -> showBarBanner(banner)
+            "flyout" -> showFlyoutBanner(banner)
+            "static" -> showStaticBanner(banner)
+            else -> showStaticBanner(banner)
+        }
     }
 
     @Suppress("UNCHECKED_CAST")
