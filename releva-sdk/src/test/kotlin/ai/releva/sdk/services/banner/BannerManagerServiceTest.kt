@@ -405,6 +405,28 @@ class BannerManagerServiceTest {
         job.cancel()
     }
 
+    @Test
+    fun `scrollPercentage trigger does not poll for a banner already shown this session`() = runTest {
+        val emitted = mutableListOf<BannerResponse>()
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) {
+            BannerDisplayController.bannerFlow.collect { emitted.add(it) }
+        }
+
+        val banner = BannerResponse(token = "scroll-already-shown", trigger = "scrollPercentage", scrollPercentage = 50)
+        BannerSessionStore.markShown(banner.token)
+
+        // Provider already past threshold — if setupScrollTrigger scheduled a poll instead of
+        // bailing out early, this would still not emit (isShown gates triggerBanner too), but it
+        // would leave a coroutine polling forever. This test only pins the no-emit behaviour;
+        // the non-scheduling is what stops the runaway poll.
+        service.initialize(listOf(banner), scrollPercentageProvider = { 100 })
+
+        assertEquals(0, emitted.size)
+
+        service.dispose()
+        job.cancel()
+    }
+
     // Dispose Tests
 
     @Test

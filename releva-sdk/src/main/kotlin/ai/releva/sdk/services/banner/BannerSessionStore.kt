@@ -14,7 +14,12 @@ import android.util.Log
 internal object BannerSessionStore {
     private const val TAG = "BannerSessionStore"
 
-    private val shownTokens = mutableSetOf<String>()
+    // ConcurrentHashMap-backed: SessionService.startNewSession() can clear this from an IO
+    // dispatcher (RelevaClient.ensureSessionTracking() runs inside withContext(Dispatchers.IO))
+    // while markShown()/isShown() run on the main dispatcher via BannerManagerService. A plain
+    // mutableSetOf() has no happens-before edge across that, so a clear() on IO would not be
+    // guaranteed visible on main.
+    private val shownTokens: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     fun isShown(token: String): Boolean = shownTokens.contains(token)
 

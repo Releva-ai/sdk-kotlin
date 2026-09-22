@@ -84,12 +84,16 @@ class BannerManagerService {
     private fun setupScrollTrigger(banner: BannerResponse) {
         val provider = scrollPercentageProvider ?: return
         val threshold = banner.scrollPercentage ?: return
+        if (BannerSessionStore.isShown(banner.token)) {
+            Log.d(TAG, "Scroll banner ${banner.token} already shown this session, not polling")
+            return
+        }
 
         scope.launch {
             while (isActive) {
                 delay(500) // Poll every 500ms
-                val currentPercent = provider()
-                if (currentPercent >= threshold && !BannerSessionStore.isShown(banner.token)) {
+                if (BannerSessionStore.isShown(banner.token)) break
+                if (provider() >= threshold) {
                     triggerBanner(banner)
                     break
                 }
