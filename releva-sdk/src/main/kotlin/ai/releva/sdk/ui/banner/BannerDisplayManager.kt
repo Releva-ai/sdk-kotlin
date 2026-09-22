@@ -2,6 +2,7 @@ package ai.releva.sdk.ui.banner
 
 import ai.releva.sdk.client.RelevaClient
 import ai.releva.sdk.services.banner.BannerDisplayController
+import ai.releva.sdk.services.banner.BannerRetentionStore
 import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.types.response.BannerResponse
 import android.app.Dialog
@@ -47,6 +48,9 @@ class BannerDisplayManager(
     private var collectJob: Job? = null
     private var activity: AppCompatActivity? = null
     private var scope: CoroutineScope? = null
+    // Identifies the screen this manager serves, so banners retained across a configuration
+    // change are only handed back to the same screen. See BannerRetentionStore.
+    private var hostKey: String? = null
 
     // View wrapping for static banners and bar overlays
     private var rootView: ViewGroup? = null              // The fragment/activity root view (untouched)
@@ -67,6 +71,7 @@ class BannerDisplayManager(
         scope = fragment.viewLifecycleOwner.lifecycleScope
         activity = fragment.activity as? AppCompatActivity
         rootView = fragment.view as? ViewGroup
+        hostKey = hostKey(fragment)
 
         viewLifecycleOwner.lifecycle.addObserver(LifecycleEventObserver { _, event ->
             when (event) {
@@ -78,6 +83,7 @@ class BannerDisplayManager(
         })
 
         wrapChildren()
+        restoreRetainedBanners()
     }
 
     /**
@@ -87,6 +93,7 @@ class BannerDisplayManager(
         this.activity = activity
         scope = activity.lifecycleScope
         rootView = activity.window.decorView.findViewById(android.R.id.content)
+        hostKey = hostKey(activity)
 
         activity.lifecycle.addObserver(LifecycleEventObserver { _, event ->
             when (event) {
@@ -98,6 +105,30 @@ class BannerDisplayManager(
         })
 
         wrapChildren()
+        restoreRetainedBanners()
+    }
+
+    /**
+     * Identifies the screen a manager serves: the host's class plus the selector it was built
+     * for. A recreated Activity or Fragment is a new instance of the same class attached by the
+     * same host code with the same selector, so the key matches across a configuration change
+     * and does not match a different screen.
+     */
+    private fun hostKey(host: Any): String = "${host.javaClass.name}#$targetSelector"
+
+    /**
+     * Puts back the banners that were on screen when this screen's previous instance was
+     * destroyed for a configuration change; see [BannerRetentionStore]. Deliberately not
+     * [showBanner]: these banners have already been marked shown and already had their
+     * impression tracked, and re-tracking would count one impression per rotation.
+     */
+    private fun restoreRetainedBanners() {
+        val key = hostKey ?: return
+        for (banner in BannerRetentionStore.take(key)) {
+            Log.d(TAG, "Restoring banner across recreation: ${banner.token}")
+            displayedBanners[banner.token] = banner
+            renderBanner(banner)
+        }
     }
 
     /**
@@ -212,6 +243,18 @@ class BannerDisplayManager(
     }
 
     private fun detach() {
+        // A configuration change — a rotation, a dark-mode toggle, a font- or display-size
+        // change, a locale change, a multi-window resize — destroys the host and brings it
+        // straight back, and raises ON_DESTROY exactly like a real teardown. Everything below
+        // is bound to the instance going away: the popup and flyout Dialogs to its window, the
+        // bar and static views to its view tree. Hand the banners that are on screen to the
+        // instance that is about to replace them, before dismissAll's dismiss listeners empty
+        // displayedBanners. On a genuine destroy this does not run and nothing is retained.
+        val key = hostKey
+        if (key != null && activity?.isChangingConfigurations == true) {
+            BannerRetentionStore.retain(key, displayedBanners.values.toList())
+        }
+
         stopCollecting()
         dismissAll()
         displayedBanners.clear()
@@ -219,6 +262,7 @@ class BannerDisplayManager(
         rootView = null
         activity = null
         scope = null
+        hostKey = null
     }
 
     private fun shouldDisplayBanner(banner: BannerResponse): Boolean {
@@ -228,7 +272,8 @@ class BannerDisplayManager(
         return true
     }
 
-    private fun showBanner(banner: BannerResponse) {
+    /** Puts [banner] on screen. Does not mark it shown or track it — see [showBanner]. */
+    private fun renderBanner(banner: BannerResponse) {
         Log.d(TAG, "Showing banner: ${banner.token}, type: ${banner.displayType}")
         when (banner.displayType) {
             "popup" -> showPopupBanner(banner)
@@ -237,6 +282,10 @@ class BannerDisplayManager(
             "static" -> showStaticBanner(banner)
             else -> showStaticBanner(banner)
         }
+    }
+
+    private fun showBanner(banner: BannerResponse) {
+        renderBanner(banner)
         // This is the only place in the banner pipeline that knows a banner actually rendered,
         // as opposed to merely being emitted into BannerDisplayController — shouldDisplayBanner
         // above may have already filtered it out (no design, a custom displayType, or a static

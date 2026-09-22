@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.5.2
+
+Not yet released. 1.5.1 is tagged and published, so this lands under its own version
+rather than in the section above. PATCH: the fix below changes behaviour but adds and
+deprecates no public API.
+
+### Fixed
+
+- **A banner on screen was destroyed when the device was rotated, and never came back.**
+  Everything `BannerDisplayManager` puts up is bound to the host instance it attached to:
+  popups and flyouts are `Dialog`s on the activity's window, bars and static banners are
+  views in its tree. A configuration change destroys that instance, which raises `ON_DESTROY`
+  exactly like a real teardown, so `detach` dismissed the dialogs and unwrapped the views —
+  and the recreated instance started empty. Since 1.5.1 marks a banner shown once it renders,
+  nothing emitted it again for the rest of the session, so the banner was gone until the next
+  cold start. Found on the Android device pass, row "BAN-16", with a popup banner; rotation is
+  the easiest trigger, but a dark-mode toggle, a font- or display-size change, a locale change
+  and a multi-window resize all take the same path. The banners that are on screen are now
+  handed to the instance that replaces them and put back when it attaches — all four display
+  types, since a static banner does not come back with the recreated layout either. The
+  restore does not re-mark the banner shown and does not track a second impression, so a
+  rotation still counts as the one display it is.
+
+  What is deliberately unchanged is the once-per-session guarantee 1.5.1 added (row
+  "BAN-13"): the hand-off is written only when the host reports `isChangingConfigurations`,
+  so a genuine destroy — navigating away — retains nothing, and the slot is emptied by the
+  first attach that follows whether it matched or not, so nothing can be sitting there to be
+  restored onto a screen the user reaches later. A banner is still shown once per session and
+  is still not re-shown on navigating away and back.
+
 ## 1.5.1
 
 Released 22 September 2026. PATCH: the fix below changes behaviour but adds and deprecates
