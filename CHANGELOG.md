@@ -2,9 +2,11 @@
 
 ## 1.5.2
 
-Not yet released. PATCH: the fix below changes behaviour but adds and deprecates no public
-API. 1.5.1 is tagged and published, so this lands under its own version rather than in the
-section below.
+Released 22 September 2026. PATCH: the fix below changes behaviour but adds and deprecates no
+public API. Verified on a physical Android device before tagging — the row it closes is
+"BAN-16 dark mode and rotation", whose banner vanished on rotation against 1.5.1 and survives
+against this; section J was re-run whole (16 pass, 0 fail) to confirm the once-per-session
+behaviour 1.5.1 introduced is unchanged, BAN-13, BAN-14 and BAN-15 included.
 
 ### Fixed
 
