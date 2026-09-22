@@ -22,6 +22,9 @@ class BannerManagerServiceTest {
     @Before
     fun setUp() {
         service = BannerManagerService()
+        // The shown-token set is session-scoped and shared by every instance, so tests that
+        // reuse a token need it reset first.
+        BannerSessionStore.startNewSession()
     }
 
     // Immediately Trigger Tests
@@ -244,19 +247,41 @@ class BannerManagerServiceTest {
     // Initialize / Reset Tests
 
     @Test
-    fun `reinitialize clears displayed banners and allows re-display`() = runTest {
+    fun `reinitialize does not re-display a banner already shown this session`() = runTest {
         val emitted = mutableListOf<BannerResponse>()
         val job = launch(UnconfinedTestDispatcher(testScheduler)) {
             BannerDisplayController.bannerFlow.collect { emitted.add(it) }
         }
 
         val banner = BannerResponse(token = "reset-1", trigger = "immediately")
+        // The host app calls initialize() on every push response carrying banners, so the
+        // same banner arrives again on the next screen view.
         service.initialize(listOf(banner))
         assertEquals(1, emitted.size)
 
-        // Re-initialize with same banner - should emit again
         service.initialize(listOf(banner))
+        assertEquals(1, emitted.size)
+
+        service.dispose()
+        job.cancel()
+    }
+
+    @Test
+    fun `new session allows a banner to display again`() = runTest {
+        val emitted = mutableListOf<BannerResponse>()
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) {
+            BannerDisplayController.bannerFlow.collect { emitted.add(it) }
+        }
+
+        val banner = BannerResponse(token = "session-1", trigger = "immediately")
+        service.initialize(listOf(banner))
+        assertEquals(1, emitted.size)
+
+        BannerSessionStore.startNewSession()
+        service.initialize(listOf(banner))
+
         assertEquals(2, emitted.size)
+        assertEquals("session-1", emitted[1].token)
 
         service.dispose()
         job.cancel()
