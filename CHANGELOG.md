@@ -2,8 +2,10 @@
 
 ## 1.5.1
 
-Not yet released. 1.5.0 is tagged and published, so this lands under its own version
-rather than in the section above.
+Released 22 September 2026. PATCH: the fix below changes behaviour but adds and deprecates
+no public API. Verified on a physical Android device before tagging — the row it closes is
+"BAN-13 a one-time banner is shown once per session", which failed against 1.5.0 and passes
+against this.
 
 ### Fixed
 
