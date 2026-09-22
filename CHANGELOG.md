@@ -20,7 +20,12 @@ rather than in the section above.
   `initialize()` still replaces the banner list and cancels the previous response's delay and
   scroll timers. Server-side suppression is unchanged: it is keyed on a banner *click*, so a
   banner that was shown and not clicked is still re-delivered in the next response — the SDK
-  is now what stops it from being displayed twice.
+  is now what stops it from being displayed twice. A banner is marked shown once
+  `BannerDisplayManager` actually renders it, not when `BannerManagerService` merely emits it
+  for display — a banner that was emitted with no collector attached, dropped by a full
+  display buffer, or filtered out on the display side (no design, a custom `displayType`, or a
+  static banner whose `cssSelector` doesn't match) is retried on the next trigger instead of
+  being suppressed for the rest of the session with nothing ever having been shown.
 
 ## 1.5.0
 

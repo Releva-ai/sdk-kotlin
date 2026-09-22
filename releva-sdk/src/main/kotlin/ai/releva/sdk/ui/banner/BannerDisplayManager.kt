@@ -2,6 +2,7 @@ package ai.releva.sdk.ui.banner
 
 import ai.releva.sdk.client.RelevaClient
 import ai.releva.sdk.services.banner.BannerDisplayController
+import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.types.response.BannerResponse
 import android.app.Dialog
 import android.graphics.Color
@@ -236,6 +237,14 @@ class BannerDisplayManager(
             "static" -> showStaticBanner(banner)
             else -> showStaticBanner(banner)
         }
+        // This is the only place in the banner pipeline that knows a banner actually rendered,
+        // as opposed to merely being emitted into BannerDisplayController — shouldDisplayBanner
+        // above may have already filtered it out (no design, a custom displayType, or a static
+        // banner whose cssSelector doesn't match this manager's targetSelector), and the emitter
+        // itself may have found no attached collector or a full buffer. Marking here, rather than
+        // at emission time, is what lets a banner that was dropped rather than shown be retried
+        // on the next trigger instead of being suppressed for the rest of the session.
+        BannerSessionStore.markShown(banner.token)
         trackImpression(banner)
     }
 

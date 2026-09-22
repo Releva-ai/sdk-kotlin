@@ -10,7 +10,14 @@ import kotlinx.coroutines.*
  * Handles trigger types: immediately, delaySeconds, scrollPercentage, cartChanged, wishlistChanged.
  *
  * Which banners have already been displayed is kept in [BannerSessionStore], not here, so a
- * banner shows once per session rather than once per push response.
+ * banner shows once per session rather than once per push response. This class only decides
+ * when to *emit* a banner into [BannerDisplayController]; it does not mark a token as shown.
+ * Emitting is not the same as displaying — there may be no attached collector, the display
+ * buffer may be full, or the attached [ai.releva.sdk.ui.banner.BannerDisplayManager] may filter
+ * the banner out (wrong `cssSelector`, `displayType == "custom"`, no `design`). Marking happens
+ * on the display side, in `BannerDisplayManager.showBanner`, which is the only place that knows
+ * a banner actually rendered — so a banner that was emitted but never shown is retried on the
+ * next trigger instead of being suppressed for the rest of the session.
  */
 class BannerManagerService {
     private val banners = mutableListOf<BannerResponse>()
@@ -122,8 +129,12 @@ class BannerManagerService {
     private fun triggerBanner(banner: BannerResponse) {
         Log.d(TAG, "triggerBanner called for banner: ${banner.token}, trigger: ${banner.trigger}")
         if (!BannerSessionStore.isShown(banner.token)) {
-            Log.d(TAG, "Banner not shown yet this session, showing it")
-            BannerSessionStore.markShown(banner.token)
+            Log.d(TAG, "Banner not shown yet this session, emitting it for display")
+            // Do not mark shown here: emitting into BannerDisplayController is not the same as
+            // displaying it (no attached collector, a full buffer, or the display side's own
+            // filtering can all drop it silently). The display side marks it once it actually
+            // renders, so a banner that was dropped rather than shown is retried the next time
+            // this is called instead of being suppressed for the rest of the session.
             BannerDisplayController.showBanner(banner)
         } else {
             Log.d(TAG, "Banner already shown this session, skipping")

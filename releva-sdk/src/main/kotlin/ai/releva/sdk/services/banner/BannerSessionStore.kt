@@ -10,6 +10,11 @@ import android.util.Log
  * this set: a screen view would wipe it and a one-time banner would show again. It lives here
  * instead, and [startNewSession] is called by
  * [ai.releva.sdk.services.session.SessionService] when a new session begins.
+ *
+ * [markShown] is called from `BannerDisplayManager.showBanner`
+ * (`ai.releva.sdk.ui.banner.BannerDisplayManager`), not from [BannerManagerService], because the
+ * display side is the only place that knows a banner actually rendered rather than merely being
+ * emitted into `BannerDisplayController`.
  */
 internal object BannerSessionStore {
     private const val TAG = "BannerSessionStore"

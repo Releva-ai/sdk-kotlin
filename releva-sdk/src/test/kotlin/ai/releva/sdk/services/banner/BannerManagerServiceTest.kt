@@ -113,7 +113,7 @@ class BannerManagerServiceTest {
     }
 
     @Test
-    fun `onCartChanged does not re-trigger already displayed banner`() = runTest {
+    fun `onCartChanged does not re-trigger a banner the display side already marked shown`() = runTest {
         val emitted = mutableListOf<BannerResponse>()
         val job = launch(UnconfinedTestDispatcher(testScheduler)) {
             BannerDisplayController.bannerFlow.collect { emitted.add(it) }
@@ -124,8 +124,11 @@ class BannerManagerServiceTest {
 
         service.onCartChanged()
         assertEquals(1, emitted.size)
+        // triggerBanner only emits; BannerDisplayManager.showBanner is what marks a token shown
+        // once it actually renders. Simulate that here.
+        BannerSessionStore.markShown(banner.token)
 
-        // Second cart change should not re-trigger
+        // Second cart change should not re-trigger a banner already marked shown
         service.onCartChanged()
         assertEquals(1, emitted.size)
 
@@ -155,7 +158,7 @@ class BannerManagerServiceTest {
     }
 
     @Test
-    fun `onWishlistChanged does not re-trigger already displayed banner`() = runTest {
+    fun `onWishlistChanged does not re-trigger a banner the display side already marked shown`() = runTest {
         val emitted = mutableListOf<BannerResponse>()
         val job = launch(UnconfinedTestDispatcher(testScheduler)) {
             BannerDisplayController.bannerFlow.collect { emitted.add(it) }
@@ -166,6 +169,9 @@ class BannerManagerServiceTest {
 
         service.onWishlistChanged()
         assertEquals(1, emitted.size)
+        // triggerBanner only emits; BannerDisplayManager.showBanner is what marks a token shown
+        // once it actually renders. Simulate that here.
+        BannerSessionStore.markShown(banner.token)
 
         service.onWishlistChanged()
         assertEquals(1, emitted.size)
@@ -247,7 +253,7 @@ class BannerManagerServiceTest {
     // Initialize / Reset Tests
 
     @Test
-    fun `reinitialize does not re-display a banner already shown this session`() = runTest {
+    fun `reinitialize does not re-display a banner the display side already marked shown`() = runTest {
         val emitted = mutableListOf<BannerResponse>()
         val job = launch(UnconfinedTestDispatcher(testScheduler)) {
             BannerDisplayController.bannerFlow.collect { emitted.add(it) }
@@ -258,9 +264,42 @@ class BannerManagerServiceTest {
         // same banner arrives again on the next screen view.
         service.initialize(listOf(banner))
         assertEquals(1, emitted.size)
+        // triggerBanner only emits; BannerDisplayManager.showBanner is what marks a token shown
+        // once it actually renders. Simulate that here.
+        BannerSessionStore.markShown(banner.token)
 
         service.initialize(listOf(banner))
         assertEquals(1, emitted.size)
+
+        service.dispose()
+        job.cancel()
+    }
+
+    @Test
+    fun `a banner emitted but never marked shown is retried on the next initialize`() = runTest {
+        // Regression test for the drop path: initialize() can emit into
+        // BannerDisplayController before any BannerDisplayManager has attached (cold start, or
+        // the ON_PAUSE/ON_RESUME gap on a rotation), a full display buffer can drop it, or the
+        // attached manager's own shouldDisplayBanner filter can discard it (no design, a custom
+        // displayType, or a static banner whose cssSelector doesn't match). None of those are
+        // "displayed", so triggerBanner must not have marked the token shown, and the same
+        // banner arriving in the next push response must be retried rather than suppressed for
+        // the rest of the session.
+        val banner = BannerResponse(token = "no-collector", trigger = "immediately")
+
+        // No collector attached yet — nothing marks this shown.
+        service.initialize(listOf(banner))
+        assertFalse(BannerSessionStore.isShown(banner.token))
+
+        // The next screen view calls initialize() again with the same banner, now with a
+        // collector attached (simulating a BannerDisplayManager on the new screen).
+        val emitted = mutableListOf<BannerResponse>()
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) {
+            BannerDisplayController.bannerFlow.collect { emitted.add(it) }
+        }
+        service.initialize(listOf(banner))
+        assertEquals(1, emitted.size)
+        assertEquals("no-collector", emitted[0].token)
 
         service.dispose()
         job.cancel()
@@ -276,6 +315,9 @@ class BannerManagerServiceTest {
         val banner = BannerResponse(token = "session-1", trigger = "immediately")
         service.initialize(listOf(banner))
         assertEquals(1, emitted.size)
+        // Simulate the display side actually rendering it — without this, the token would
+        // never be marked shown and startNewSession() below wouldn't be what re-enables it.
+        BannerSessionStore.markShown(banner.token)
 
         BannerSessionStore.startNewSession()
         service.initialize(listOf(banner))
@@ -425,6 +467,27 @@ class BannerManagerServiceTest {
 
         service.dispose()
         job.cancel()
+    }
+
+    @Test
+    fun `scrollPercentage trigger does not schedule a poll for a banner already shown`() {
+        // The test above passes identically whether or not setupScrollTrigger's early return
+        // exists, because triggerBanner's own isShown check would suppress the emission either
+        // way — it only pins the no-emit behaviour a caller sees, not the absence of a runaway
+        // poll. This one counts provider invocations and advances Robolectric's paused main
+        // looper past the poll's 500ms tick: if the early return were removed, the scheduled
+        // poll would call the provider once it fires and this would go red.
+        val banner = BannerResponse(token = "scroll-no-poll", trigger = "scrollPercentage", scrollPercentage = 50)
+        BannerSessionStore.markShown(banner.token)
+
+        var providerCalls = 0
+        service.initialize(listOf(banner), scrollPercentageProvider = { providerCalls++; 100 })
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+            .idleFor(java.time.Duration.ofMillis(600))
+
+        assertEquals(0, providerCalls)
+
+        service.dispose()
     }
 
     // Dispose Tests
