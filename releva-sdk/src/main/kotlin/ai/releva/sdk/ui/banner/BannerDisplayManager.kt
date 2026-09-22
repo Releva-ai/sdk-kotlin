@@ -113,6 +113,14 @@ class BannerDisplayManager(
      * for. A recreated Activity or Fragment is a new instance of the same class attached by the
      * same host code with the same selector, so the key matches across a configuration change
      * and does not match a different screen.
+     *
+     * The key cannot tell apart two *live* instances of the same class — a standard-launch-mode
+     * Activity opened twice, or the same Fragment class hosted twice, both get the same key. If
+     * both are relaunched together by a configuration change, both `detach()` calls see
+     * `isChangingConfigurations == true` and both try to retain under this key. That collision
+     * is resolved in [BannerRetentionStore.retain], which refuses to overwrite an already-held
+     * slot: the first instance to write wins and the second's banners are dropped rather than
+     * being handed to the wrong instance.
      */
     private fun hostKey(host: Any): String = "${host.javaClass.name}#$targetSelector"
 
@@ -275,12 +283,30 @@ class BannerDisplayManager(
     /** Puts [banner] on screen. Does not mark it shown or track it — see [showBanner]. */
     private fun renderBanner(banner: BannerResponse) {
         Log.d(TAG, "Showing banner: ${banner.token}, type: ${banner.displayType}")
+        if (!canRender(banner.displayType)) {
+            // show*Banner is about to early-return: activity is null, or wrapChildren() never
+            // built the wrapper this display type needs (e.g. a Fragment whose view isn't a
+            // ViewGroup). That is a pre-existing failure mode either way, but a caller that
+            // drained displayedBanners or BannerRetentionStore's slot for this banner — restore
+            // included — would otherwise treat it as shown with no signal that it never rendered.
+            Log.w(TAG, "Cannot render banner ${banner.token} (${banner.displayType}): host view not ready")
+        }
         when (banner.displayType) {
             "popup" -> showPopupBanner(banner)
             "bar" -> showBarBanner(banner)
             "flyout" -> showFlyoutBanner(banner)
             "static" -> showStaticBanner(banner)
             else -> showStaticBanner(banner)
+        }
+    }
+
+    /** Mirrors the early-return guards in the show*Banner functions, without side effects. */
+    private fun canRender(displayType: String?): Boolean {
+        if (activity == null) return false
+        return when (displayType) {
+            "bar" -> outerWrapper != null
+            "static" -> innerWrapper != null && contentHolder != null
+            else -> true
         }
     }
 

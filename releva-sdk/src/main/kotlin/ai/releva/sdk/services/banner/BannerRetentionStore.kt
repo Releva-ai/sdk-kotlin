@@ -16,10 +16,14 @@ import android.util.Log
  * Restoring a banner outside a recreation would re-show a banner that is already marked shown
  * in [BannerSessionStore], which is the once-per-session guarantee 1.5.1 exists to provide.
  *
- * The cost of the single slot is that two managers attached at once (two fragments in one
- * activity, say) retain over each other and at most one is restored. That direction is the
- * safe one: a banner that is not restored is the pre-1.5.2 behaviour, while a banner restored
- * onto the wrong screen is a regression.
+ * The single slot also means [retain] refuses to overwrite one that is already held — first
+ * writer wins, so two hosts writing at once (two managers in one host, or two live instances of
+ * the same host class relaunched together, see `BannerDisplayManager.hostKey`) leave the second
+ * write discarded rather than clobbering the first. The slot then goes to whichever attach
+ * happens to come first and is emptied for everyone else, so at most one of the contenders is
+ * ever restored — never zero-or-wrong, just zero-or-one. That direction is the safe one: a
+ * banner that is not restored is the pre-1.5.2 behaviour, while a banner restored onto the
+ * wrong screen is a regression.
  */
 internal object BannerRetentionStore {
     private const val TAG = "BannerRetentionStore"
@@ -27,10 +31,28 @@ internal object BannerRetentionStore {
     private var hostKey: String? = null
     private var banners: List<BannerResponse> = emptyList()
 
-    /** Stashes [banners] for [hostKey]'s next attach. An empty list just clears the slot. */
+    /**
+     * Stashes [banners] for [hostKey]'s next attach. An empty list just clears the slot.
+     *
+     * Refuses to overwrite an already-held slot — first writer wins. Without this, two hosts
+     * that write at (near) the same time, most notably two live instances of the same
+     * Activity/Fragment class relaunched together by a configuration change, would let the
+     * second write clobber the first, and the next matching attach could then be handed a
+     * banner that belongs to a different instance. Dropping the second write instead means
+     * that instance simply does not get its banner back — the same safe direction as the
+     * two-managers-in-one-host case below.
+     */
     fun retain(hostKey: String, banners: List<BannerResponse>) {
         if (banners.isEmpty()) {
             clear()
+            return
+        }
+        if (this.hostKey != null) {
+            Log.w(
+                TAG,
+                "Dropping ${banners.size} retained banner(s) for $hostKey: slot already held " +
+                    "for ${this.hostKey} (first writer wins)"
+            )
             return
         }
         Log.d(TAG, "Retaining ${banners.size} displayed banner(s) across recreation of $hostKey")

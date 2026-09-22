@@ -28,7 +28,13 @@ deprecates no public API.
   so a genuine destroy — navigating away — retains nothing, and the slot is emptied by the
   first attach that follows whether it matched or not, so nothing can be sitting there to be
   restored onto a screen the user reaches later. A banner is still shown once per session and
-  is still not re-shown on navigating away and back.
+  is still not re-shown on navigating away and back. The hand-off's single slot also now
+  refuses to be overwritten while already holding a pending hand-off, so two live instances of
+  the same host class relaunched together (the same Activity opened twice, say) cannot have
+  one handed the other's banners — the second write is dropped instead, and its instance
+  simply does not restore. The slot is also cleared when a new session starts, alongside the
+  shown-token set, so a hand-off pending across an unusually slow relaunch cannot outlive the
+  session boundary and restore a banner whose once-shown mark was just reset.
 
 ## 1.5.1
 

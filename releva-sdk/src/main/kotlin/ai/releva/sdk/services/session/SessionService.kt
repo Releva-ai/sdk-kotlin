@@ -1,5 +1,6 @@
 package ai.releva.sdk.services.session
 
+import ai.releva.sdk.services.banner.BannerRetentionStore
 import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.services.nps.NpsManagerService
 import ai.releva.sdk.services.storage.StorageService
@@ -105,6 +106,12 @@ class SessionService private constructor() : DefaultLifecycleObserver {
         // BannerManagerService is created by the host app, so there is no instance to notify —
         // the shown-token set it consults is session-scoped and lives in BannerSessionStore.
         BannerSessionStore.startNewSession()
+        // A configuration-change retention that is still pending when a new session starts
+        // (the window is normally milliseconds, but widens when a backgrounded activity's
+        // relaunch is deferred) would otherwise restore a banner whose token this just
+        // unmarked as shown, showing it a second time. Clearing both process-scoped banner
+        // stores together keeps that window closed.
+        BannerRetentionStore.clear()
 
         Log.d(TAG, "New session $count, id=$sessionId")
     }
