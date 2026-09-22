@@ -187,12 +187,14 @@ class BannerDisplayManagerConfigChangeTest {
      * instances of the same class — a standard-launch-mode Activity opened twice, both showing
      * a banner, then the device rotates. Both instances are relaunched, so both `detach()`
      * calls see `isChangingConfigurations == true` and both try to retain under the same key.
-     * `retain` refuses to overwrite an already-held slot, so the second write is dropped: the
-     * first instance's recreation gets its own banner back, and the second instance's
-     * recreation gets neither its own banner nor the first instance's.
+     * `take()` matches on that same key too, so whichever recreation attaches first cannot be
+     * handed the slot safely — it might be either instance. `retain` resolves this by dropping
+     * **both** sides on a same-key collision: neither recreation gets its banner back, which is
+     * the safe direction (a banner not restored is pre-1.5.2 behaviour; a banner restored onto
+     * the wrong instance is a regression this test guards against).
      */
     @Test
-    fun `two live instances of the same host class do not swap banners on rotation`() {
+    fun `two live instances of the same host class do not restore either banner on rotation`() {
         val controllerA = buildHost()
         val hostA = controllerA.setup().get()
         attachManager(hostA)
@@ -212,25 +214,68 @@ class BannerDisplayManagerConfigChangeTest {
         assertNotNull("fixture never displayed banner B", findBanner(hostB, bannerB))
 
         // Both instances are live and in the foreground stack when the configuration change
-        // hits. A detaches (and retains) first, so B's retain attempt finds the slot already
-        // held and is dropped. B is rotated to the opposite orientation — Robolectric's
-        // Configuration is process-wide, so rotating it to landscape again after A already did
-        // would be a no-op diff; the direction doesn't matter to what this test exercises,
-        // only that both hosts go through a genuine isChangingConfigurations recreate.
+        // hits. A detaches (and retains) first, then B's retain attempt finds the slot already
+        // held under the same key and clears it — dropping A's entry too. B is rotated to the
+        // opposite orientation — Robolectric's Configuration is process-wide, so rotating it to
+        // landscape again after A already did would be a no-op diff; the direction doesn't
+        // matter to what this test exercises, only that both hosts go through a genuine
+        // isChangingConfigurations recreate.
         controllerA.resume()
         shadowOf(Looper.getMainLooper()).idle()
         val recreatedA = rotate(controllerA, hostA)
         val recreatedB = rotate(controllerB, hostB, Configuration.ORIENTATION_PORTRAIT)
 
-        // First attacher takes the slot — A gets its own banner back.
+        // The slot was already cleared by the same-key collision at retain time, before either
+        // recreation attaches — so neither gets a banner back, regardless of attach order.
         attachManager(recreatedA)
-        assertNotNull(findBanner(recreatedA, bannerA))
+        assertNull(findBanner(recreatedA, bannerA))
+        assertNull(findBanner(recreatedA, bannerB))
 
-        // The slot is empty by the time B attaches: B gets nothing, and critically not A's
-        // banner either — the collision this test guards against.
         attachManager(recreatedB)
         assertNull(findBanner(recreatedB, bannerB))
         assertNull(findBanner(recreatedB, bannerA))
+    }
+
+    /**
+     * Same scenario as above, but with the two recreations attaching in the opposite order
+     * (B before A). The same-key collision is resolved at `retain()` time — when the second
+     * `detach()` writes under the already-held key — not at `attach()`/`take()` time, so which
+     * recreation attaches first must not change the outcome: neither should ever restore.
+     * Without the same-key clear in `BannerRetentionStore.retain` (i.e. with a plain
+     * first-writer-wins guard), this ordering is exactly what would hand B's recreation A's
+     * banner — the misattribution the fix closes.
+     */
+    @Test
+    fun `two live instances of the same host class do not restore either banner regardless of attach order`() {
+        val controllerA = buildHost()
+        val hostA = controllerA.setup().get()
+        attachManager(hostA)
+        val bannerA = staticBanner.copy(token = "rotate-static-a")
+        display(bannerA)
+        assertNotNull("fixture never displayed banner A", findBanner(hostA, bannerA))
+        controllerA.pause()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val controllerB = buildHost()
+        val hostB = controllerB.setup().get()
+        attachManager(hostB)
+        val bannerB = staticBanner.copy(token = "rotate-static-b")
+        display(bannerB)
+        assertNotNull("fixture never displayed banner B", findBanner(hostB, bannerB))
+
+        controllerA.resume()
+        shadowOf(Looper.getMainLooper()).idle()
+        val recreatedA = rotate(controllerA, hostA)
+        val recreatedB = rotate(controllerB, hostB, Configuration.ORIENTATION_PORTRAIT)
+
+        // Attach B's recreation first this time.
+        attachManager(recreatedB)
+        assertNull(findBanner(recreatedB, bannerB))
+        assertNull(findBanner(recreatedB, bannerA))
+
+        attachManager(recreatedA)
+        assertNull(findBanner(recreatedA, bannerA))
+        assertNull(findBanner(recreatedA, bannerB))
     }
 
     private val staticBanner = BannerResponse(

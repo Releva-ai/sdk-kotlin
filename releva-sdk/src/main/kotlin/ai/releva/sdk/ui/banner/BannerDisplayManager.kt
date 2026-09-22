@@ -117,10 +117,12 @@ class BannerDisplayManager(
      * The key cannot tell apart two *live* instances of the same class — a standard-launch-mode
      * Activity opened twice, or the same Fragment class hosted twice, both get the same key. If
      * both are relaunched together by a configuration change, both `detach()` calls see
-     * `isChangingConfigurations == true` and both try to retain under this key. That collision
-     * is resolved in [BannerRetentionStore.retain], which refuses to overwrite an already-held
-     * slot: the first instance to write wins and the second's banners are dropped rather than
-     * being handed to the wrong instance.
+     * `isChangingConfigurations == true` and both try to retain under this key, and `take()`
+     * would match either instance's recreation on the key alone. [BannerRetentionStore.retain]
+     * resolves that collision by dropping **both** sides when the keys match, so neither
+     * instance restores — keeping one and handing it to whichever recreation attaches first
+     * would risk restoring it onto the wrong instance, since attach order is not guaranteed to
+     * match detach order.
      */
     private fun hostKey(host: Any): String = "${host.javaClass.name}#$targetSelector"
 
@@ -305,8 +307,10 @@ class BannerDisplayManager(
         if (activity == null) return false
         return when (displayType) {
             "bar" -> outerWrapper != null
-            "static" -> innerWrapper != null && contentHolder != null
-            else -> true
+            "popup", "flyout" -> true
+            // Mirrors renderBanner's own default branch: an unrecognised or null displayType
+            // falls through to showStaticBanner there too, so it needs the same wrapper checks.
+            else -> innerWrapper != null && contentHolder != null
         }
     }
 

@@ -29,12 +29,19 @@ deprecates no public API.
   first attach that follows whether it matched or not, so nothing can be sitting there to be
   restored onto a screen the user reaches later. A banner is still shown once per session and
   is still not re-shown on navigating away and back. The hand-off's single slot also now
-  refuses to be overwritten while already holding a pending hand-off, so two live instances of
-  the same host class relaunched together (the same Activity opened twice, say) cannot have
-  one handed the other's banners — the second write is dropped instead, and its instance
-  simply does not restore. The slot is also cleared when a new session starts, alongside the
-  shown-token set, so a hand-off pending across an unusually slow relaunch cannot outlive the
-  session boundary and restore a banner whose once-shown mark was just reset.
+  guards against two hosts writing at (near) the same time. Two live instances of the same
+  host class relaunched together (the same Activity opened twice, say) write under the same
+  key, and the next attach cannot tell the two instances apart either — so a same-key
+  collision drops **both** sides, and neither instance restores, rather than risking the
+  slot being handed to the wrong one. A collision between two different keys (unrelated
+  managers writing at once) is safe to resolve as first-writer-wins instead, since a
+  mismatched key can never be misattributed. The slot's two fields are also `@Volatile` now,
+  since the slot is cleared not only from the main thread but also from
+  `SessionService.startNewSession()`, which can run on a background dispatcher — without it,
+  that clear was not guaranteed to be visible to the next attach. The slot is also cleared
+  when a new session starts, alongside the shown-token set, so a hand-off pending across an
+  unusually slow relaunch cannot outlive the session boundary and restore a banner whose
+  once-shown mark was just reset.
 
 ## 1.5.1
 
