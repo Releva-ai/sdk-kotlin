@@ -61,6 +61,9 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
     implementation("androidx.lifecycle:lifecycle-process:2.6.2")
+    // Already on the compile classpath transitively via appcompat; declared because
+    // BannerDisplayManager uses ViewModelProvider directly (BannerRetentionViewModel).
+    implementation("androidx.lifecycle:lifecycle-viewmodel:2.6.2")
     implementation("androidx.fragment:fragment-ktx:1.6.2")
     implementation("com.google.android.material:material:1.11.0")
 

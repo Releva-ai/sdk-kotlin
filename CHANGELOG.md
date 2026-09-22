@@ -23,26 +23,25 @@ deprecates no public API.
   restore does not re-mark the banner shown and does not track a second impression, so a
   rotation still counts as the one display it is.
 
-  What is deliberately unchanged is the once-per-session guarantee 1.5.1 added (row
-  "BAN-13"): the hand-off is written only when the host reports `isChangingConfigurations`,
-  so a genuine destroy — navigating away — retains nothing, and the hand-off is emptied by
-  the first attach that follows whether it matched or not, so nothing can be sitting there to
-  be restored onto a screen the user reaches later. A banner is still shown once per session
-  and is still not re-shown on navigating away and back.
+  The hand-off is held in the host's own `ViewModelStore`, which is the platform's answer to
+  state that outlives a configuration change and nothing else: a configuration change hands
+  the store to the instance that replaces the one being destroyed, and a genuine destroy
+  clears it. The SDK adds one gate on top, writing the hand-off only when the host reports
+  `isChangingConfigurations`, which is what covers a Fragment whose view is destroyed by a
+  navigation while the Fragment itself stays on the back stack — there the store survives but
+  the teardown is not a recreation.
 
-  One configuration change destroys every live screen, so the hand-off keeps one entry per
-  screen — the host class plus the selector the manager was built for. Screens destroyed
-  together therefore neither take each other's banners nor discard each other's entries; an
-  attach only ever gets back what was stored for the screen it serves. The one case a
-  per-screen key cannot resolve is two *live* instances of the same class with the same
-  selector — the same Activity opened twice, say — which share a key, and the attach that
-  follows cannot tell the two instances apart either. A second hand-off under an
-  already-claimed key therefore empties it, so neither instance restores, rather than risking
-  the banner coming back on the wrong one. The hand-off is also cleared when a new session
-  starts, alongside the shown-token set, so one pending across an unusually slow relaunch
-  cannot outlive the session boundary and restore a banner whose once-shown mark was just
-  reset; the store's three entry points are `@Synchronized`, because that session clear can run
-  on a background dispatcher while the screens read and write it on the main thread.
+  What is deliberately unchanged is the once-per-session guarantee 1.5.1 added (row
+  "BAN-13"). A banner is still shown once per session and is still not re-shown on navigating
+  away and back: the screen a user navigates to is a different host instance with a store of
+  its own, so a retained banner is not reachable from it at all.
+
+  One configuration change destroys every live screen at once, and every one of them is
+  restored — a hand-off lives in the store of the host that wrote it, keyed by the selector
+  its manager was built for, so two fragments in one activity, two managers with different
+  selectors, and two live instances of the same Activity class each have their own. None of
+  them can take or discard another's, and the order the recreations happen to attach in does
+  not change any outcome.
 
 ## 1.5.1
 

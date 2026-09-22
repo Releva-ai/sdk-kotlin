@@ -2,7 +2,6 @@ package ai.releva.sdk.ui.banner
 
 import ai.releva.sdk.client.RelevaClient
 import ai.releva.sdk.services.banner.BannerDisplayController
-import ai.releva.sdk.services.banner.BannerRetentionStore
 import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.types.response.BannerResponse
 import android.app.Dialog
@@ -19,6 +18,8 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,9 +49,9 @@ class BannerDisplayManager(
     private var collectJob: Job? = null
     private var activity: AppCompatActivity? = null
     private var scope: CoroutineScope? = null
-    // Identifies the screen this manager serves, so banners retained across a configuration
-    // change are only handed back to the same screen. See BannerRetentionStore.
-    private var hostKey: String? = null
+    // This screen's hand-off slot for a configuration change, held in the host's own
+    // ViewModelStore. See BannerRetentionViewModel.
+    private var retention: BannerRetentionViewModel? = null
 
     // View wrapping for static banners and bar overlays
     private var rootView: ViewGroup? = null              // The fragment/activity root view (untouched)
@@ -61,6 +62,8 @@ class BannerDisplayManager(
     companion object {
         private const val TAG = "BannerDisplayManager"
         private const val BANNER_TAG_PREFIX = "releva_banner_"
+        // Namespaced, because the host's ViewModelStore is shared with the app's own ViewModels.
+        private const val RETENTION_KEY = "ai.releva.sdk.banner-retention:"
     }
 
     /**
@@ -71,7 +74,7 @@ class BannerDisplayManager(
         scope = fragment.viewLifecycleOwner.lifecycleScope
         activity = fragment.activity as? AppCompatActivity
         rootView = fragment.view as? ViewGroup
-        hostKey = hostKey(fragment)
+        retention = retentionFor(fragment)
 
         viewLifecycleOwner.lifecycle.addObserver(LifecycleEventObserver { _, event ->
             when (event) {
@@ -93,7 +96,7 @@ class BannerDisplayManager(
         this.activity = activity
         scope = activity.lifecycleScope
         rootView = activity.window.decorView.findViewById(android.R.id.content)
-        hostKey = hostKey(activity)
+        retention = retentionFor(activity)
 
         activity.lifecycle.addObserver(LifecycleEventObserver { _, event ->
             when (event) {
@@ -109,32 +112,24 @@ class BannerDisplayManager(
     }
 
     /**
-     * Identifies the screen a manager serves: the host's class plus the selector it was built
-     * for. A recreated Activity or Fragment is a new instance of the same class attached by the
-     * same host code with the same selector, so the key matches across a configuration change
-     * and does not match a different screen.
+     * This screen's hand-off slot, stored in the host's own [androidx.lifecycle.ViewModelStore]
+     * — the one thing the platform carries across a configuration change and clears on a
+     * genuine destroy, which is exactly the lifetime a retained banner needs.
      *
-     * The key cannot tell apart two *live* instances of the same class — a standard-launch-mode
-     * Activity opened twice, or the same Fragment class hosted twice, both get the same key. If
-     * both are relaunched together by a configuration change, both `detach()` calls see
-     * `isChangingConfigurations == true` and both try to retain under this key, and `take()`
-     * would match either instance's recreation on the key alone. [BannerRetentionStore.retain]
-     * resolves that collision by dropping **both** sides when the keys match, so neither
-     * instance restores — keeping one and handing it to whichever recreation attaches first
-     * would risk restoring it onto the wrong instance, since attach order is not guaranteed to
-     * match detach order.
+     * Keyed by [targetSelector] so that two managers attached to the same host for different
+     * screen areas get one slot each rather than sharing one.
      */
-    private fun hostKey(host: Any): String = "${host.javaClass.name}#$targetSelector"
+    private fun retentionFor(owner: ViewModelStoreOwner): BannerRetentionViewModel =
+        ViewModelProvider(owner)[RETENTION_KEY + targetSelector, BannerRetentionViewModel::class.java]
 
     /**
      * Puts back the banners that were on screen when this screen's previous instance was
-     * destroyed for a configuration change; see [BannerRetentionStore]. Deliberately not
+     * destroyed for a configuration change; see [BannerRetentionViewModel]. Deliberately not
      * [showBanner]: these banners have already been marked shown and already had their
      * impression tracked, and re-tracking would count one impression per rotation.
      */
     private fun restoreRetainedBanners() {
-        val key = hostKey ?: return
-        for (banner in BannerRetentionStore.take(key)) {
+        for (banner in retention?.take().orEmpty()) {
             Log.d(TAG, "Restoring banner across recreation: ${banner.token}")
             displayedBanners[banner.token] = banner
             renderBanner(banner)
@@ -259,14 +254,12 @@ class BannerDisplayManager(
         // is bound to the instance going away: the popup and flyout Dialogs to its window, the
         // bar and static views to its view tree. Hand the banners that are on screen to the
         // instance that is about to replace them, before dismissAll's dismiss listeners empty
-        // displayedBanners. On a genuine destroy this does not run and nothing is retained.
-        //
-        // Called even when there is nothing on screen: an empty hand-off claims this host's key
-        // so that a second live instance sharing it is seen as the collision it is, whichever of
-        // the two had a banner up. See BannerRetentionStore.
-        val key = hostKey
-        if (key != null && activity?.isChangingConfigurations == true) {
-            BannerRetentionStore.retain(key, displayedBanners.values.toList())
+        // displayedBanners. On a genuine destroy this does not run, and the store the hand-off
+        // would have gone into is cleared by the platform anyway.
+        if (activity?.isChangingConfigurations == true) {
+            val banners = displayedBanners.values.toList()
+            Log.d(TAG, "Retaining ${banners.size} displayed banner(s) across recreation")
+            retention?.retain(banners)
         }
 
         stopCollecting()
@@ -276,7 +269,7 @@ class BannerDisplayManager(
         rootView = null
         activity = null
         scope = null
-        hostKey = null
+        retention = null
     }
 
     private fun shouldDisplayBanner(banner: BannerResponse): Boolean {
@@ -289,32 +282,12 @@ class BannerDisplayManager(
     /** Puts [banner] on screen. Does not mark it shown or track it — see [showBanner]. */
     private fun renderBanner(banner: BannerResponse) {
         Log.d(TAG, "Showing banner: ${banner.token}, type: ${banner.displayType}")
-        if (!canRender(banner.displayType)) {
-            // show*Banner is about to early-return: activity is null, or wrapChildren() never
-            // built the wrapper this display type needs (e.g. a Fragment whose view isn't a
-            // ViewGroup). That is a pre-existing failure mode either way, but a caller that
-            // drained displayedBanners or BannerRetentionStore's entry for this banner — restore
-            // included — would otherwise treat it as shown with no signal that it never rendered.
-            Log.w(TAG, "Cannot render banner ${banner.token} (${banner.displayType}): host view not ready")
-        }
         when (banner.displayType) {
             "popup" -> showPopupBanner(banner)
             "bar" -> showBarBanner(banner)
             "flyout" -> showFlyoutBanner(banner)
             "static" -> showStaticBanner(banner)
             else -> showStaticBanner(banner)
-        }
-    }
-
-    /** Mirrors the early-return guards in the show*Banner functions, without side effects. */
-    private fun canRender(displayType: String?): Boolean {
-        if (activity == null) return false
-        return when (displayType) {
-            "bar" -> outerWrapper != null
-            "popup", "flyout" -> true
-            // Mirrors renderBanner's own default branch: an unrecognised or null displayType
-            // falls through to showStaticBanner there too, so it needs the same wrapper checks.
-            else -> innerWrapper != null && contentHolder != null
         }
     }
 

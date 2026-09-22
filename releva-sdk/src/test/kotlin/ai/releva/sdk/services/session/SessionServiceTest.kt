@@ -1,10 +1,8 @@
 package ai.releva.sdk.services.session
 
-import ai.releva.sdk.services.banner.BannerRetentionStore
 import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.services.nps.NpsManagerService
 import ai.releva.sdk.services.storage.StorageService
-import ai.releva.sdk.types.response.BannerResponse
 import android.content.Context
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -50,8 +48,6 @@ class SessionServiceTest {
     fun tearDown() {
         service.dispose()
         storage.clear()
-        // Process-scoped singleton shared by every test in this JVM.
-        BannerRetentionStore.clear()
     }
 
     // ── Cold Start ──────────────────────────────────────────────────────────────
@@ -152,27 +148,6 @@ class SessionServiceTest {
         service.onStart(stubOwner)
 
         assertFalse(BannerSessionStore.isShown("banner-token"))
-    }
-
-    /**
-     * A configuration-change retention pending when a new session starts must not survive
-     * into it — the pending banner's token is about to be unmarked as shown above, and a
-     * retention store that outlived the boundary would let the restore path hand it back
-     * without the once-per-session guard `BannerSessionStore` just reset.
-     */
-    @Test
-    fun `foreground after more than 30min clears any pending banner retention`() {
-        service.initialize(storage, npsManager)
-        BannerRetentionStore.retain(
-            "host-key",
-            listOf(BannerResponse(token = "banner-token", displayType = "static"))
-        )
-
-        service.onStop(stubOwner)
-        backdateLastPause(1_900_000L)
-        service.onStart(stubOwner)
-
-        assertTrue(BannerRetentionStore.take("host-key").isEmpty())
     }
 
     // ── Foreground After Short Background (<30 min) ────────────────────────────────
