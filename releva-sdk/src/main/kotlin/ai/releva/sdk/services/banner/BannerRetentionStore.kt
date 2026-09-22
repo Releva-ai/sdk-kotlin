@@ -2,7 +2,6 @@ package ai.releva.sdk.services.banner
 
 import ai.releva.sdk.types.response.BannerResponse
 import android.util.Log
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Process-scoped hand-off of the banners that were on screen when a host was destroyed for a
@@ -30,31 +29,31 @@ import java.util.concurrent.ConcurrentHashMap
  * Because the emptying rule above is "first take wins", at most one host is restored per
  * configuration change, and never a wrong one.
  *
- * Backed by a [ConcurrentHashMap] for the same reason as [BannerSessionStore]'s token set:
- * [clear] is also reachable from `SessionService.startNewSession()`, which can run on
- * `Dispatchers.IO` (see the comment there), while [retain] and [take] run on the main thread.
- * [retain]'s claim-or-drop decision is a single atomic `compute`, so a concurrent [clear] cannot
- * interleave into it.
+ * [retain], [take] and [clear] are `@Synchronized`. They normally all run on the main thread
+ * from `BannerDisplayManager`, but [clear] is also reachable from
+ * `SessionService.startNewSession()`, which can run on `Dispatchers.IO` — see the comment
+ * there. The monitor gives that cross-thread [clear] both the happens-before edge the next
+ * [take] needs and mutual exclusion against a [retain]'s read-then-write, which a `@Volatile`
+ * field alone would not. The critical sections are a lookup or a clear of a map with an entry
+ * or two in it, on a path that runs once per screen teardown or attach.
  */
 internal object BannerRetentionStore {
     private const val TAG = "BannerRetentionStore"
 
-    private val retained = ConcurrentHashMap<String, List<BannerResponse>>()
+    private val retained = mutableMapOf<String, List<BannerResponse>>()
 
     /**
      * Stashes [banners] for [hostKey]'s next attach. An empty list claims the key with nothing
      * to restore, which is what makes the same-key collision described above resolve the same
      * way whichever of the two instances happened to have a banner up.
      */
+    @Synchronized
     fun retain(hostKey: String, banners: List<BannerResponse>) {
-        var collided = false
-        retained.compute(hostKey) { _, alreadyClaimed ->
-            collided = alreadyClaimed != null
+        val alreadyClaimed = retained.put(hostKey, banners) != null
+        if (alreadyClaimed) {
             // A second writer under the *same* key cannot be told apart from the first by
             // take(), so keeping either one risks handing it to the wrong instance. Drop both.
-            if (alreadyClaimed == null) banners else emptyList()
-        }
-        if (collided) {
+            retained[hostKey] = emptyList()
             Log.w(
                 TAG,
                 "Dropping ${banners.size} retained banner(s): $hostKey was already claimed by " +
@@ -71,12 +70,14 @@ internal object BannerRetentionStore {
      * Returns the banners retained for [hostKey], if any, and empties the store — every entry,
      * not only this key, so that nothing outlives the first attach after a recreation.
      */
+    @Synchronized
     fun take(hostKey: String): List<BannerResponse> {
         val retainedForHost = retained[hostKey] ?: emptyList()
-        clear()
+        retained.clear()
         return retainedForHost
     }
 
+    @Synchronized
     fun clear() {
         retained.clear()
     }

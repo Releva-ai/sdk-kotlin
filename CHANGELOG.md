@@ -41,8 +41,8 @@ deprecates no public API.
   the banner coming back on the wrong one. The hand-off is also cleared when a new session
   starts, alongside the shown-token set, so one pending across an unusually slow relaunch
   cannot outlive the session boundary and restore a banner whose once-shown mark was just
-  reset; it is a `ConcurrentHashMap` because that session clear can run on a background
-  dispatcher while the screens read it on the main thread.
+  reset; the store's three entry points are `@Synchronized`, because that session clear can run
+  on a background dispatcher while the screens read and write it on the main thread.
 
 ## 1.5.1
 
