@@ -386,28 +386,20 @@ class BannerDisplayManager(
         val bgImageUrl = bgImageMap?.get("url") as? String ?: ""
         val hasBgImage = bgImageUrl.isNotEmpty()
 
-        // Full-screen unless the author gave the card a size of its own. All of this is computed
+        // Full-screen unless the author gave the card a size of its own. The size is resolved
         // before the render call below, not after: the design's own `contentWidth` is coerced
         // against `maxWidthPx`, so that argument has to be the card's real width — the card sits
         // under a ScrollView that does not scroll sideways, and anything wider is clipped away
-        // with no way to reach it.
+        // with no way to reach it. The offsets do not enter into it; they translate the card
+        // without changing how wide it is.
         val screenWidth = ctx.resources.displayMetrics.widthPixels
         val screenHeight = ctx.resources.displayMetrics.heightPixels
         val cardWidth = chrome.widthPx(screenWidth)
         val cardHeight = chrome.heightPx(screenHeight)
-        val offsetVertical = chrome.offsetVerticalPx(screenHeight)
-        val offsetHorizontal = chrome.offsetHorizontalPx(screenWidth)
-        // The card's real width, whichever key produced it: an authored `cardWidth` is exact
-        // (`FrameLayout.getChildMeasureSpec` ignores margins for a fixed-width child), while a
-        // card left to span the window is narrowed by the margins an authored
-        // `cardOffsetHorizontal` puts on both edges — so the offset has to come off here too,
-        // not only be applied as a margin below.
-        val renderWidth = (cardWidth ?: (screenWidth - (offsetHorizontal ?: 0) * 2))
-            .coerceIn(0, screenWidth)
 
         val contentView = DesignRenderer.render(
             ctx, banner.design!!,
-            maxWidthPx = renderWidth,
+            maxWidthPx = cardWidth ?: screenWidth,
             transparentBody = hasBgImage
         ) { url ->
             Log.d(TAG, "Banner link tapped in popup: $url")
@@ -521,18 +513,13 @@ class BannerDisplayManager(
             // Inert while the card fills the window, which is what makes it safe at the default:
             // a card can only move once the author has given it a size.
             verticalGravity or horizontalGravity
-        ).apply {
-            // Set on both edges of the axis, which reads correctly in each of the three cases
-            // the axis can be in: a card that still spans it is inset from both edges (and so
-            // `renderWidth` above subtracts both); a card anchored to one edge takes that
-            // edge's margin and FrameLayout ignores the opposite one; and a sized card that is
-            // centred has no anchored edge to inset from, so the two cancel and it does not move.
-            offsetVertical?.let { topMargin = it; bottomMargin = it }
-            offsetHorizontal?.let { leftMargin = it; rightMargin = it }
-        }
+        )
         // No overlay — full-screen popup replaces the screen
         val rootLayout = FrameLayout(ctx)
         rootLayout.addView(popupContainer, popupParams)
+        // Displaces the card from wherever the gravity above put it. The close button is not a
+        // child of the card, so it deliberately stays where the window's insets put it.
+        chrome.applyOffsets(popupContainer, verticalGravity, horizontalGravity, screenWidth, screenHeight)
         // Added after the card, so it draws above it — and on the window, so it is reachable
         // whatever the author did to the card's size.
         rootLayout.addView(closeButton, closeParams)
@@ -571,16 +558,18 @@ class BannerDisplayManager(
         // the chrome's lookup so that an authored key can override it and an unexpected value
         // cannot fall through an implicit else. This is the SDK's one vertical `displayPosition`.
         val verticalGravity = chrome.verticalGravity(chrome.verticalFromDisplayPosition(Gravity.TOP))
+        // The bar has never read `displayPosition` on this axis, so this half is only ever an
+        // authored key, and it is inert while the bar spans the width as it does by default.
+        val horizontalGravity = chrome.horizontalGravity(Gravity.CENTER_HORIZONTAL)
         val cardWidth = chrome.widthPx(screenWidth)
         val barWidth = cardWidth ?: screenWidth
-        val verticalPadding = chrome.offsetVerticalPx(screenHeight) ?: (12 * dp).toInt()
-        val horizontalPadding = chrome.offsetHorizontalPx(screenWidth) ?: (16 * dp).toInt()
-        // Bounded at both ends before it reaches `DesignRenderer.render`'s `maxWidthPx`: a small
-        // `cardWidth` or a large `cardOffsetHorizontal` would take it below zero, where Android
-        // reads -1/-2 as MATCH_PARENT/WRAP_CONTENT rather than as "no width at all", and a
-        // negative `cardOffsetHorizontal` — which the contract allows — would inflate it past the
-        // card's own width and let the design be sized wider than the card holding it.
-        val availableWidth = (barWidth - horizontalPadding * 2).coerceIn(0, barWidth)
+        val verticalPadding = (12 * dp).toInt()
+        val horizontalPadding = (16 * dp).toInt()
+        // Floored before it reaches `DesignRenderer.render`'s `maxWidthPx`: on master the bar was
+        // always the screen's width so this could not go negative, and a small authored `cardWidth`
+        // now can — where Android reads -1/-2 as MATCH_PARENT/WRAP_CONTENT rather than as "no width
+        // at all".
+        val availableWidth = (barWidth - horizontalPadding * 2).coerceAtLeast(0)
 
         val contentView = DesignRenderer.render(ctx, banner.design!!, maxWidthPx = availableWidth) { url ->
             trackClick(banner)
@@ -622,11 +611,7 @@ class BannerDisplayManager(
         ).apply {
             // statusBarPad is zero anywhere but the top, which is the only place it was ever added.
             topMargin = statusBarPad + verticalPadding - closeOverlap
-            // The overlap only ever came out of a padding that was a fixed 16dp, so it could not
-            // go past the bar's edge. An authored `cardOffsetHorizontal` of `0` or a negative one
-            // can, which would put part of the button outside the bar — clamped, so the overlap
-            // shrinks to nothing instead.
-            rightMargin = (horizontalPadding - closeOverlap).coerceAtLeast(0)
+            rightMargin = horizontalPadding - closeOverlap
         })
         barLayout.clipChildren = false
         barLayout.clipToPadding = false
@@ -635,10 +620,13 @@ class BannerDisplayManager(
         root.addView(barLayout, FrameLayout.LayoutParams(
             cardWidth ?: ViewGroup.LayoutParams.MATCH_PARENT,
             chrome.heightPx(screenHeight) ?: ViewGroup.LayoutParams.WRAP_CONTENT,
-            // The horizontal half is inert while the bar spans the width, as it does by default,
-            // and takes no `displayPosition`: the bar has never read the column on this axis.
-            verticalGravity or chrome.horizontalGravity(Gravity.CENTER_HORIZONTAL)
+            verticalGravity or horizontalGravity
         ))
+        // The card moves; the paddings above stay what they have always been. Padding the content
+        // instead would shrink the area `availableWidth` just rendered the design to fit, and a
+        // negative offset — which the contract allows — would give the wrapper a negative padding
+        // and, with `clipChildren` off, draw the design outside the bar altogether.
+        chrome.applyOffsets(barLayout, verticalGravity, horizontalGravity, screenWidth, screenHeight)
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -651,6 +639,9 @@ class BannerDisplayManager(
         // else. This is the SDK's one horizontal `displayPosition`.
         val horizontalGravity = chrome.horizontalGravity(chrome.horizontalFromDisplayPosition(Gravity.END))
         val isLeft = horizontalGravity == Gravity.START
+        // The flyout has never read `displayPosition` on this axis, so this half is only ever an
+        // authored key, and it is inert while the card spans the height as it does by default.
+        val verticalGravity = chrome.verticalGravity(Gravity.TOP)
 
         val dialog = Dialog(ctx, android.R.style.Theme_Translucent_NoTitleBar)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -689,13 +680,9 @@ class BannerDisplayManager(
             orientation = LinearLayout.VERTICAL
             elevation = 10 * dp
             isClickable = true
-            // Vertical only: this axis keeps today's real padding (the status-bar pad an
-            // authored `cardOffsetVertical` replaces), and the card spans the full height so
-            // only the top edge is ever reachable. The horizontal axis has no padding to
-            // preserve on master, and gets its inset as a margin below instead, so an authored
-            // `cardOffsetHorizontal` moves the card away from its anchored edge rather than
-            // shrinking the content it was just rendered to fit.
-            setPadding(0, chrome.offsetVerticalPx(screenHeight) ?: getStatusBarHeight(ctx), 0, 0)
+            // Unchanged from master: this is the flyout's status-bar clearance, and it is not
+            // where the offsets go — those translate the card below.
+            setPadding(0, getStatusBarHeight(ctx), 0, 0)
         }
         // Applied here only without a background image: with one, bgWrapper below is the view
         // that is actually the card, and the chrome has to go there instead.
@@ -773,18 +760,11 @@ class BannerDisplayManager(
         overlayLayout.addView(flyoutView, FrameLayout.LayoutParams(
             flyoutWidth,
             chrome.heightPx(screenHeight) ?: ViewGroup.LayoutParams.MATCH_PARENT,
-            // The vertical half is inert while the flyout spans the height, as it does by default,
-            // and takes no `displayPosition`: the flyout has never read the column on this axis.
-            horizontalGravity or chrome.verticalGravity(Gravity.TOP)
-        ).apply {
-            // Inset the card from the edge it's anchored to. Only the anchored edge's margin
-            // does anything — the card doesn't span the full width, so the far edge is inert —
-            // and a margin moves the card itself rather than padding its content, which is what
-            // keeps `flyoutWidth` (what the content above was just rendered to fit) equal to the
-            // card's actual width instead of leaving it wider than the space left for it.
-            val sideInset = chrome.offsetHorizontalPx(screenWidth) ?: 0
-            if (isLeft) leftMargin = sideInset else rightMargin = sideInset
-        })
+            horizontalGravity or verticalGravity
+        ))
+        // flyoutView, not flyoutContainer: with a background image the card is the wrapper around
+        // both, and translating the inner one would slide the content off its own image.
+        chrome.applyOffsets(flyoutView, verticalGravity, horizontalGravity, screenWidth, screenHeight)
 
         dialog.setContentView(overlayLayout, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,

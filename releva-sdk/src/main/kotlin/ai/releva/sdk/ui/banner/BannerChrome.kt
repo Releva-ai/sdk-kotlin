@@ -52,9 +52,45 @@ internal class BannerChrome(
 
     fun heightPx(availableHeight: Int): Int? = size(CARD_HEIGHT, availableHeight)
 
-    fun offsetVerticalPx(availableHeight: Int): Int? = offset(CARD_OFFSET_VERTICAL, availableHeight)
-
-    fun offsetHorizontalPx(availableWidth: Int): Int? = offset(CARD_OFFSET_HORIZONTAL, availableWidth)
+    /**
+     * Displaces [view] by the authored offsets, from wherever its gravity and layout params have
+     * already put it — a translation, not a margin and not a padding.
+     *
+     * That is the whole of what this method decides, and it is the one displacement that means the
+     * same thing in all three of the states an axis can be in here: the card spans it, the card is
+     * pinned to one of its edges, or the card is centred on it. A margin does not. `FrameLayout`
+     * centres a child's *margin box*, so its `childTop = … + topMargin - bottomMargin` cancels an
+     * equal pair exactly: an author who centres a card and asks for `cardOffsetVertical: '40px'`
+     * gets nothing at all. Nor does a padding, which eats the card's own content area instead of
+     * moving the card, leaving the design — already rendered to the card's width — no longer
+     * fitting it. The other three mobile SDKs translate for the same reason, and hit the same wall
+     * first: SwiftUI's `.offset(x:y:)`, React Native's `transform: translate`,
+     * Flutter's `Transform.translate`.
+     *
+     * Sign, matching them: a positive offset moves the card *away from the edge it is anchored
+     * to*, so it is negated on a `bottom` or `end` anchor and applied as-is everywhere else — on a
+     * `top` or `start` anchor, and on a centred axis, where it moves the card down and right.
+     *
+     * [availableWidth] and [availableHeight] are what a `%` offset resolves against, as for a size.
+     */
+    fun applyOffsets(
+        view: View,
+        verticalGravity: Int,
+        horizontalGravity: Int,
+        availableWidth: Int,
+        availableHeight: Int
+    ) {
+        offset(CARD_OFFSET_VERTICAL, availableHeight)?.let {
+            val awayIsUp = (verticalGravity and Gravity.VERTICAL_GRAVITY_MASK) == Gravity.BOTTOM
+            view.translationY = (if (awayIsUp) -it else it).toFloat()
+        }
+        offset(CARD_OFFSET_HORIZONTAL, availableWidth)?.let {
+            // `Gravity.START`/`END` carry a relative-direction bit above the absolute ones, so the
+            // mask has to be the pair itself; these two tables never emit `LEFT`/`RIGHT`.
+            val awayIsLeft = (horizontalGravity and (Gravity.START or Gravity.END)) == Gravity.END
+            view.translationX = (if (awayIsLeft) -it else it).toFloat()
+        }
+    }
 
     /**
      * Vertical placement of the card: the authored key, else [fallback] — whatever the calling
@@ -137,12 +173,15 @@ internal class BannerChrome(
      * A length in the closed vocabulary the SDKs agree on: a number followed by `px` — a CSS pixel,
      * scaled to this display's density — or by `%` of [availablePx], the axis the value applies to.
      * Nothing else is accepted server-side, so no `vw`, `rem` or `calc()` has to parse here; they
-     * return null and the caller keeps its default. Offsets may also be a bare `0` and may be
-     * negative; sizes may be neither.
+     * return null and the caller keeps its default.
+     *
+     * Offsets may be negative and sizes may not, which is what [allowNegative] gates. The other
+     * difference the vocabulary draws between them — that an offset may also be a unitless `0` —
+     * needs no code: that arm would return a zero displacement, and a null returned instead leaves
+     * the caller applying no displacement at all, which is the same card in the same place.
      */
     private fun lengthPx(value: String, availablePx: Int, allowNegative: Boolean): Int? {
         val text = value.lowercase()
-        if (allowNegative && text == "0") return 0
         val px = when {
             text.endsWith("px") -> text.dropLast(2).toFloatOrNull()?.times(density)
             text.endsWith("%") -> text.dropLast(1).toFloatOrNull()?.div(100f)?.times(availablePx)
@@ -152,9 +191,9 @@ internal class BannerChrome(
         // A size of zero or less is server-legal but would render an invisible card that has
         // already fired its impression — reject it here rather than let it reach a layout call.
         // Tested after rounding, not before: `0.1px` is a positive float that still becomes a
-        // zero layout dimension, which is the same invisible card by a different route. An
-        // offset of zero is meaningful (the bare "0" above already accepts it) and a negative
-        // one insets from the far edge, so only a size (`allowNegative == false`) is held to it.
+        // zero layout dimension, which is the same invisible card by a different route. Only a
+        // size (`allowNegative == false`) is held to it; a negative offset is a displacement
+        // toward the other edge and means something.
         return if (!allowNegative && rounded <= 0) null else rounded
     }
 

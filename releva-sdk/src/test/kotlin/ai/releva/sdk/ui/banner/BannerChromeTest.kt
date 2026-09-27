@@ -59,6 +59,7 @@ class BannerChromeTest {
     private val metrics get() = RuntimeEnvironment.getApplication().resources.displayMetrics
     private val density get() = metrics.density
     private val screenWidth get() = metrics.widthPixels
+    private val screenHeight get() = metrics.heightPixels
 
     /** Read the way `BannerDisplayManager` reads it, since that value is part of what is pinned. */
     private val statusBarHeight: Int
@@ -121,6 +122,8 @@ class BannerChromeTest {
         assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, card.params.height)
         assertEquals(0, card.params.topMargin)
         assertEquals(0, card.params.leftMargin)
+        assertEquals(0f, card.view.translationX, 0.01f)
+        assertEquals(0f, card.view.translationY, 0.01f)
         assertEquals(Color.WHITE, card.color)
     }
 
@@ -272,22 +275,100 @@ class BannerChromeTest {
         assertEquals(false, bgWrapper.clipToOutline)
     }
 
+    // ---- the offsets, which are a translation --------------------------------------------------
+
     /**
-     * `cardOffsetHorizontal` insets the flyout from the edge it is anchored to — a margin on that
-     * edge — rather than padding the card's own content area, which would shrink it below the
-     * width the content was just rendered to fit (`flyoutWidth`) and clip the overflow.
+     * The case the offsets exist as a translation for, and the one a symmetric margin gets wrong.
+     * Both of the popup's axes are centred, and `FrameLayout` centres a child's *margin box* —
+     * `childTop = … + topMargin - bottomMargin` — so equal margins on the two edges of an axis
+     * cancel exactly and an author who centres a card and asks for `cardOffsetVertical: '40px'`
+     * gets nothing at all. Read after a real measure and layout pass, because that cancellation is
+     * invisible in the `LayoutParams` themselves: the margins are there, they just do not move it.
      */
     @Test
-    fun `cardOffsetHorizontal moves a flyout's card instead of shrinking its content area`() {
-        val card = showFlyout(
-            cssStyles = mapOf("cardOffsetHorizontal" to "10px"),
-            displayPosition = "right"
+    fun `an offset displaces a centred card instead of cancelling out`() {
+        val sized = mapOf<String, Any?>("cardWidth" to "50%", "cardHeight" to "50%")
+        val baseline = showPopup(cssStyles = sized)
+        layoutDialog()
+        val baseX = baseline.view.x
+        val baseY = baseline.view.y
+
+        val moved = showPopup(cssStyles = sized + mapOf(
+            "cardOffsetVertical" to "40px",
+            "cardOffsetHorizontal" to "40px"
+        ))
+        layoutDialog()
+
+        // On a centred axis a positive offset moves the card down and right, by the offset scaled
+        // to this fixture's 3x density.
+        assertEquals(baseY + 120f, moved.view.y, 0.01f)
+        assertEquals(baseX + 120f, moved.view.x, 0.01f)
+    }
+
+    /**
+     * And the sign on an axis that is anchored rather than centred: a positive offset moves the
+     * card *away from* the edge it is pinned to, which is the convention the other three mobile
+     * SDKs already use. Moving the card rather than padding it is also what keeps its width equal
+     * to `flyoutWidth`, the width its design was just rendered to fit.
+     */
+    @Test
+    fun `an offset moves an anchored card away from its edge`() {
+        val pinnedRight = showFlyout(emptyMap(), displayPosition = "right")
+        layoutDialog()
+        val baseX = pinnedRight.view.x
+
+        val movedRight = showFlyout(mapOf("cardOffsetHorizontal" to "10px"), displayPosition = "right")
+        layoutDialog()
+        assertEquals("a right-anchored card moves left", baseX - 30f, movedRight.view.x, 0.01f)
+        assertEquals((screenWidth * 0.8).toInt(), movedRight.params.width)
+        assertEquals(0, movedRight.view.paddingLeft)
+        assertEquals(0, movedRight.view.paddingRight)
+
+        val movedLeft = showFlyout(mapOf("cardOffsetHorizontal" to "10px"), displayPosition = "left")
+        layoutDialog()
+        assertEquals("a left-anchored card moves right", 30f, movedLeft.view.x, 0.01f)
+    }
+
+    /**
+     * A translated card keeps its full width, so nothing about `cardOffsetHorizontal` changes how
+     * much room the design has and the offset must not come off `maxWidthPx`. An implementation
+     * that narrowed the card with margins had to subtract it; subtracting it now would render the
+     * design into less room than the card actually has and leave a gap down one side.
+     */
+    @Test
+    fun `an offset does not narrow the design inside the card`() {
+        val card = showPopup(
+            cssStyles = mapOf("cardOffsetHorizontal" to "40px"),
+            bodyValues = mapOf("contentWidth" to "5000px")
+        )
+        val innerLayout = (card.content as ViewGroup).getChildAt(0)
+
+        assertEquals(0, card.params.leftMargin)
+        assertEquals(0, card.params.rightMargin)
+        assertEquals(120f, card.view.translationX, 0.01f)
+        assertEquals(screenWidth, innerLayout.layoutParams.width)
+    }
+
+    /**
+     * The bar's own paddings are not where its offsets go, and stay exactly what they were before
+     * these keys existed. Putting the offsets there instead would shrink the content area the
+     * design was just rendered to fit, and a negative offset — which the contract allows — would
+     * give the wrapper a negative padding and, with the bar's `clipChildren` off, draw the design
+     * outside the card altogether.
+     */
+    @Test
+    fun `an offset moves the bar's card and leaves its paddings alone`() {
+        val card = showBar(
+            cssStyles = mapOf("cardOffsetVertical" to "20px", "cardOffsetHorizontal" to "10px"),
+            displayPosition = "bottom"
         )
 
-        assertEquals(30, card.params.rightMargin)
-        assertEquals(0, card.params.leftMargin)
-        assertEquals(0, card.view.paddingLeft)
-        assertEquals(0, card.view.paddingRight)
+        assertEquals("a bottom-anchored card moves up", -60f, card.view.translationY, 0.01f)
+        assertEquals("a centred axis moves right", 30f, card.view.translationX, 0.01f)
+        assertEquals((16 * density).toInt(), card.content.paddingLeft)
+        assertEquals((16 * density).toInt(), card.content.paddingRight)
+        assertEquals((12 * density).toInt(), card.content.paddingTop)
+        assertEquals((12 * density).toInt(), card.content.paddingBottom)
     }
 
     // ---- the popup's window chrome, which an authored card size must not take away -------------
@@ -355,27 +436,6 @@ class BannerChromeTest {
         closeButton.performClick()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(false, ShadowDialog.getLatestDialog().isShowing)
-    }
-
-    /**
-     * `cardOffsetHorizontal` is a margin on a card that still spans the window, and
-     * `FrameLayout.measureChildWithMargins` subtracts both margins from such a child's width — so
-     * the card really is narrower than the screen, and the design's own `contentWidth` has to be
-     * coerced against *that*. Coerced against the screen instead, the design is laid out wider
-     * than the card, centred, and clipped on both sides under a `ScrollView` that does not scroll
-     * sideways.
-     */
-    @Test
-    fun `an authored cardOffsetHorizontal reaches the design's own contentWidth ceiling`() {
-        val card = showPopup(
-            cssStyles = mapOf("cardOffsetHorizontal" to "40px"),
-            bodyValues = mapOf("contentWidth" to "5000px")
-        )
-        val innerLayout = (card.content as ViewGroup).getChildAt(0)
-
-        assertEquals(120, card.params.leftMargin)
-        assertEquals(120, card.params.rightMargin)
-        assertEquals(screenWidth - 240, innerLayout.layoutParams.width)
     }
 
     // ---- contentVerticalAlign -----------------------------------------------------------------
@@ -459,45 +519,30 @@ class BannerChromeTest {
     }
 
     @Test
-    fun `cardOffsetVertical and cardOffsetHorizontal replace the bar's paddings`() {
-        val card = showBar(
-            cssStyles = mapOf("cardOffsetVertical" to "20px", "cardOffsetHorizontal" to "10px")
-        )
-
-        assertEquals(30, card.content.paddingLeft)
-        assertEquals(30, card.content.paddingRight)
-        assertEquals(statusBarHeight + 60, card.content.paddingTop)
-        assertEquals(60, card.content.paddingBottom)
-    }
-
-    @Test
     fun `an offset may be negative and a size may not`() {
         val offset = showPopup(cssStyles = mapOf("cardOffsetVertical" to "-10px"))
-        assertEquals(-30, offset.params.topMargin)
+        assertEquals(-30f, offset.view.translationY, 0.01f)
 
         val size = showBar(cssStyles = mapOf("cardWidth" to "-50px"))
         assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, size.params.width)
     }
 
-    @Test
-    fun `a bare zero is an offset but not a size`() {
-        val offset = showBar(cssStyles = mapOf("cardOffsetHorizontal" to "0"))
-        assertEquals(0, offset.content.paddingLeft)
-
-        val size = showBar(cssStyles = mapOf("cardWidth" to "0"))
-        assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, size.params.width)
-    }
-
     /**
-     * And neither is a size that only rounds away to nothing: `0.1px` is a positive length that
-     * still becomes a zero layout dimension, which is the same invisible card — already counted
-     * as an impression, never seen — that a literal zero is rejected to avoid.
+     * However it is spelled. A zero-width card is an invisible one that has already counted as an
+     * impression, and `0.1px` reaches it by a different route: a positive length that still rounds
+     * to a zero layout dimension. An offset has no matching case — a zero displacement is exactly
+     * what an absent offset already does — so the vocabulary's bare `0` needs no special handling
+     * on either side.
      */
     @Test
-    fun `a size that rounds away to nothing is not a size`() {
-        val card = showBar(cssStyles = mapOf("cardWidth" to "0.1px"))
-
-        assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, card.params.width)
+    fun `a size may not be zero`() {
+        for (value in listOf("0", "0px", "0%", "0.1px")) {
+            assertEquals(
+                "cardWidth=$value should have changed nothing",
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                showBar(cssStyles = mapOf("cardWidth" to value)).params.width
+            )
+        }
     }
 
     // ---- values that must never reach a layout call --------------------------------------------
@@ -617,6 +662,7 @@ class BannerChromeTest {
         fun snapshot() = listOf(
             params.width, params.height, params.gravity,
             params.leftMargin, params.topMargin, params.rightMargin, params.bottomMargin,
+            view.translationX, view.translationY,
             color, view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom,
             content.paddingLeft, content.paddingTop, content.paddingRight, content.paddingBottom,
             (content.layoutParams as FrameLayout.LayoutParams).gravity
@@ -719,6 +765,22 @@ class BannerChromeTest {
     }
 
     private fun dialogCard(): ViewGroup = dialogRoot().getChildAt(0) as ViewGroup
+
+    /**
+     * Drives a real measure and layout pass over the latest dialog's root, at screen size, so that
+     * where a card actually lands can be read from `View.getX()`/`getY()` rather than inferred
+     * from its `LayoutParams`. For the offsets that distinction is the whole point: a symmetric
+     * margin and a translation both show up on a `LayoutParams`, and only one of them moves a
+     * centred card.
+     */
+    private fun layoutDialog() {
+        val root = dialogRoot()
+        root.measure(
+            View.MeasureSpec.makeMeasureSpec(screenWidth, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(screenHeight, View.MeasureSpec.EXACTLY)
+        )
+        root.layout(0, 0, screenWidth, screenHeight)
+    }
 
     /**
      * The popup's close button: a sibling of the card on the dialog's root, added after it so it

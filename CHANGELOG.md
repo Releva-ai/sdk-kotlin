@@ -15,7 +15,10 @@ PATCH: the change below changes behaviour but adds and deprecates no public API.
   changes nothing, so a banner whose author never opened these controls — every banner in
   production before this release — renders exactly as it did in 1.5.2. `displayPosition` keeps
   the role it has today: it is what `cardPositionVertical`/`cardPositionHorizontal` fall back to
-  on the bar's vertical axis and the flyout's horizontal one, and on no other.
+  on the bar's vertical axis and the flyout's horizontal one, and on no other. The two offsets
+  translate the card rather than inset or pad it, so a positive value moves it away from the edge
+  it is anchored to and down or right on an axis where it is centred — the same displacement, and
+  the same sign, as the Swift, React Native and Flutter SDKs.
 - **The popup's close button is now attached to the dialog window rather than to the card.** The
   popup dialog is deliberately not dismissable any other way, and a card the author has given a
   `cardWidth` to can be narrower than the button, which would leave part of it outside the card
