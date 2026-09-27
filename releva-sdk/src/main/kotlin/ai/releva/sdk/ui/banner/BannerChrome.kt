@@ -57,23 +57,39 @@ internal class BannerChrome(
     fun offsetHorizontalPx(availableWidth: Int): Int? = offset(CARD_OFFSET_HORIZONTAL, availableWidth)
 
     /**
-     * Vertical placement of the card: the authored key, else [displayPosition] as this SDK reads it
-     * today, else [fallback] — the gravity the calling banner type lays out with now.
-     *
-     * `displayPosition` goes through a lookup of its four frozen values rather than an inline
-     * comparison, so a value from the other axis, an unexpected one or null misses the table and
-     * lands on [fallback] instead of falling through an implicit else.
+     * Vertical placement of the card: the authored key, else [fallback] — whatever the calling
+     * banner type places the card with on this axis today.
      */
     fun verticalGravity(fallback: Int): Int =
         authored(CARD_POSITION_VERTICAL, AUTO)?.let { VERTICAL_ALIGNMENTS[it.lowercase()] }
-            ?: displayPosition?.let { VERTICAL_FROM_DISPLAY_POSITION[it] }
             ?: fallback
 
     /** The horizontal counterpart of [verticalGravity]. */
     fun horizontalGravity(fallback: Int): Int =
         authored(CARD_POSITION_HORIZONTAL, AUTO)?.let { HORIZONTAL_ALIGNMENTS[it.lowercase()] }
-            ?: displayPosition?.let { HORIZONTAL_FROM_DISPLAY_POSITION[it] }
             ?: fallback
+
+    /**
+     * The vertical placement [displayPosition] asks for, else [fallback] — the *bar's* fallback to
+     * [verticalGravity], and nobody else's. This is the `displayPosition == "bottom"` the bar
+     * branches on today, and the bar's vertical axis is the only vertical axis in this SDK that
+     * has ever read the column: the popup and the flyout pass a constant here, because `auto`
+     * means "what this SDK does today" and for them that is not `displayPosition`.
+     *
+     * The lookup replaces the inline comparison so that a value from the other axis, an unexpected
+     * one, or null misses the table and lands on [fallback] instead of falling through an implicit
+     * else. The vocabulary stays exactly as wide as it is today.
+     */
+    fun verticalFromDisplayPosition(fallback: Int): Int =
+        VERTICAL_FROM_DISPLAY_POSITION[displayPosition] ?: fallback
+
+    /**
+     * The horizontal counterpart of [verticalFromDisplayPosition], read by the *flyout* alone: it
+     * is the `displayPosition == "left"` that type branches on today. The popup and the bar pass a
+     * constant on this axis, as they do now.
+     */
+    fun horizontalFromDisplayPosition(fallback: Int): Int =
+        HORIZONTAL_FROM_DISPLAY_POSITION[displayPosition] ?: fallback
 
     /**
      * Paints the card [color], which stays a flat background — exactly what the call sites set
@@ -174,7 +190,9 @@ internal class BannerChrome(
 
         // `displayPosition`'s vocabulary, kept exactly as wide as it is today — the four values are
         // validated server-side and no fifth will be added, and these tables are deliberately not
-        // the ones above: the card keys understand `center`, `displayPosition` never will.
+        // the ones above: the card keys understand `center`, `displayPosition` never will. Each is
+        // read on the one axis of the one banner type that reads the column today (the bar's
+        // vertical, the flyout's horizontal), so adopting these keys does not widen its role.
         private val VERTICAL_FROM_DISPLAY_POSITION = mapOf(
             "top" to Gravity.TOP,
             "bottom" to Gravity.BOTTOM

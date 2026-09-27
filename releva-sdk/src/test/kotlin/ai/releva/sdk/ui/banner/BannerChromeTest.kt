@@ -492,6 +492,51 @@ class BannerChromeTest {
         assertEquals(Gravity.START, showFlyout(emptyMap(), displayPosition = "left").horizontalGravity)
     }
 
+    /**
+     * `displayPosition` drives exactly two axes in this SDK — the bar's vertical (`isBottom`) and
+     * the flyout's horizontal (`isLeft`) — and `auto` means "what this SDK does today", so
+     * adopting `cardPositionVertical`/`Horizontal` must not start reading the column anywhere it
+     * was not read before. The popup is the whole of the third type: it has never consulted
+     * `displayPosition` on either axis, and a row carrying a stale one must still centre.
+     *
+     * Each case authors the size that makes gravity observable at all, since that is the only way
+     * a widened fallback could ever be seen.
+     */
+    @Test
+    fun `a popup places its card without ever reading displayPosition`() {
+        for (position in listOf("left", "right", "top", "bottom")) {
+            val card = showPopup(
+                cssStyles = mapOf("cardWidth" to "50%", "cardHeight" to "50%"),
+                displayPosition = position
+            )
+
+            assertEquals("$position must not move a popup", Gravity.CENTER_VERTICAL, card.verticalGravity)
+            assertEquals(
+                "$position must not move a popup",
+                Gravity.CENTER_HORIZONTAL,
+                card.horizontalGravity
+            )
+        }
+    }
+
+    /** The bar reads `displayPosition` on its vertical axis only; its horizontal stays centred. */
+    @Test
+    fun `a bar places its card horizontally without reading displayPosition`() {
+        val card = showBar(mapOf("cardWidth" to "50%"), displayPosition = "left")
+
+        assertEquals(Gravity.CENTER_HORIZONTAL, card.horizontalGravity)
+        assertEquals(Gravity.TOP, card.verticalGravity)
+    }
+
+    /** And the flyout reads it on its horizontal axis only; its vertical stays at the top. */
+    @Test
+    fun `a flyout places its card vertically without reading displayPosition`() {
+        val card = showFlyout(mapOf("cardHeight" to "50%"), displayPosition = "bottom")
+
+        assertEquals(Gravity.TOP, card.verticalGravity)
+        assertEquals(Gravity.END, card.horizontalGravity)
+    }
+
     @Test
     fun `an unparseable length falls back to the default`() {
         for (value in listOf("80vw", "calc(100% - 20px)", "", "px", "wide")) {
@@ -566,9 +611,10 @@ class BannerChromeTest {
     /** The popup's card: the first child of the dialog's root layout, holding a scrolled design. */
     private fun showPopup(
         cssStyles: Map<String, Any?>,
-        bodyValues: Map<String, Any?> = emptyMap()
+        bodyValues: Map<String, Any?> = emptyMap(),
+        displayPosition: String? = null
     ): Card {
-        show(banner("popup", cssStyles, displayPosition = null, bodyValues = bodyValues))
+        show(banner("popup", cssStyles, displayPosition, bodyValues = bodyValues))
         val popup = dialogCard()
         return Card(popup, (popup.getChildAt(0) as ScrollView).getChildAt(0))
     }

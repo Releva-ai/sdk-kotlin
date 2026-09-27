@@ -435,12 +435,15 @@ class BannerDisplayManager(
             ))
         }
 
+        // Centred on both axes, as this type has always been. The popup has never read
+        // `displayPosition` — `auto` means "what this SDK does today", which here is centred —
+        // so only an authored `cardPosition*` moves the card.
         val verticalGravity = chrome.verticalGravity(Gravity.CENTER_VERTICAL)
         val horizontalGravity = chrome.horizontalGravity(Gravity.CENTER_HORIZONTAL)
-        // Which window edges the card actually reaches, and so which system-bar insets its content
-        // has to be held clear of. An axis the author left at `auto` spans the window, so the card
-        // reaches both of that axis's edges; a card sized on an axis reaches only the edge it is
-        // anchored to, and neither edge when it is centred.
+        // Which system-bar insets the card's content has to be held clear of, decided per edge by
+        // the two authored keys that can take the card off it: an axis left unsized spans the
+        // window, so the card reaches both of that axis's edges, and a sized card reaches only the
+        // edge it is anchored to — neither, when it is centred.
         val insetTop = cardHeight == null || verticalGravity == Gravity.TOP
         val insetBottom = cardHeight == null || verticalGravity == Gravity.BOTTOM
         val insetLeft = cardWidth == null || horizontalGravity == Gravity.START
@@ -558,8 +561,8 @@ class BannerDisplayManager(
         val screenHeight = ctx.resources.displayMetrics.heightPixels
         // Where the bar sits: `displayPosition == "bottom"` as it always has, now reached through
         // the chrome's lookup so that an authored key can override it and an unexpected value
-        // cannot fall through an implicit else.
-        val verticalGravity = chrome.verticalGravity(Gravity.TOP)
+        // cannot fall through an implicit else. This is the SDK's one vertical `displayPosition`.
+        val verticalGravity = chrome.verticalGravity(chrome.verticalFromDisplayPosition(Gravity.TOP))
         val cardWidth = chrome.widthPx(screenWidth)
         val barWidth = cardWidth ?: screenWidth
         val verticalPadding = chrome.offsetVerticalPx(screenHeight) ?: (12 * dp).toInt()
@@ -620,7 +623,8 @@ class BannerDisplayManager(
         root.addView(barLayout, FrameLayout.LayoutParams(
             cardWidth ?: ViewGroup.LayoutParams.MATCH_PARENT,
             chrome.heightPx(screenHeight) ?: ViewGroup.LayoutParams.WRAP_CONTENT,
-            // The horizontal half is inert while the bar spans the width, as it does by default.
+            // The horizontal half is inert while the bar spans the width, as it does by default,
+            // and takes no `displayPosition`: the bar has never read the column on this axis.
             verticalGravity or chrome.horizontalGravity(Gravity.CENTER_HORIZONTAL)
         ))
     }
@@ -631,8 +635,9 @@ class BannerDisplayManager(
         val overlayColor = getOverlayColor(banner)
         val chrome = BannerChrome.of(banner, ctx)
         // `displayPosition == "left"` as it always has, now through the chrome's lookup so that an
-        // authored key can override it and an unexpected value cannot fall through an implicit else.
-        val horizontalGravity = chrome.horizontalGravity(Gravity.END)
+        // authored key can override it and an unexpected value cannot fall through an implicit
+        // else. This is the SDK's one horizontal `displayPosition`.
+        val horizontalGravity = chrome.horizontalGravity(chrome.horizontalFromDisplayPosition(Gravity.END))
         val isLeft = horizontalGravity == Gravity.START
 
         val dialog = Dialog(ctx, android.R.style.Theme_Translucent_NoTitleBar)
@@ -756,7 +761,8 @@ class BannerDisplayManager(
         overlayLayout.addView(flyoutView, FrameLayout.LayoutParams(
             flyoutWidth,
             chrome.heightPx(screenHeight) ?: ViewGroup.LayoutParams.MATCH_PARENT,
-            // The vertical half is inert while the flyout spans the height, as it does by default.
+            // The vertical half is inert while the flyout spans the height, as it does by default,
+            // and takes no `displayPosition`: the flyout has never read the column on this axis.
             horizontalGravity or chrome.verticalGravity(Gravity.TOP)
         ).apply {
             // Inset the card from the edge it's anchored to. Only the anchored edge's margin

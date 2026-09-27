@@ -10,10 +10,12 @@ PATCH: the change below changes behaviour but adds and deprecates no public API.
 - **Honoured nine `cssStyles` chrome and position keys the API already serves**
   (`cardBackgroundColor`, `cardWidth`, `cardHeight`, `cardBorderRadius`, `contentVerticalAlign`,
   `cardPositionVertical`, `cardPositionHorizontal`, `cardOffsetVertical`,
-  `cardOffsetHorizontal`), which this SDK previously ignored on all three dialog-based display
-  types (`popup`, `bar`, `flyout`). A value equal to its documented default changes nothing, so a
-  banner whose author never opened these controls — every banner in production before this
-  release — renders exactly as it did in 1.5.2.
+  `cardOffsetHorizontal`), which this SDK previously ignored on the three display types that
+  draw a card of their own (`popup`, `bar`, `flyout`). A value equal to its documented default
+  changes nothing, so a banner whose author never opened these controls — every banner in
+  production before this release — renders exactly as it did in 1.5.2. `displayPosition` keeps
+  the role it has today: it is what `cardPositionVertical`/`cardPositionHorizontal` fall back to
+  on the bar's vertical axis and the flyout's horizontal one, and on no other.
 - **The popup card no longer takes its background colour from the Unlayer design's
   `popupBackgroundColor`.** That key was always an editor default (our editor never shows the
   Popup Builder that would let an author set it), not authored intent, and `cardBackgroundColor`
