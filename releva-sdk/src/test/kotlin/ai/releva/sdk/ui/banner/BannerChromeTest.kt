@@ -223,6 +223,72 @@ class BannerChromeTest {
         assertEquals(false, card.view.clipToOutline)
     }
 
+    /**
+     * `DesignRenderer.render`'s `maxWidthPx` has to be the card's own width, not the screen's — a
+     * design's `contentWidth` is coerced against it, and a card narrower than the screen otherwise
+     * lets the design ask for more room than the card actually has, overflowing and clipping under
+     * a `ScrollView` that does not scroll horizontally. `cardWidth` is computed before the render
+     * call precisely so it can be threaded through as `maxWidthPx`.
+     */
+    @Test
+    fun `an authored cardWidth reaches the design's own contentWidth ceiling`() {
+        val card = showPopup(
+            cssStyles = mapOf("cardWidth" to "50%"),
+            bodyValues = mapOf("contentWidth" to "5000px")
+        )
+        val innerLayout = (card.content as ViewGroup).getChildAt(0)
+
+        assertEquals(screenWidth / 2, innerLayout.layoutParams.width)
+    }
+
+    /**
+     * The `GradientDrawable`/`clipToOutline` chrome has to land on `bgWrapper`, not the inner
+     * `flyoutContainer`: with a body background image, `bgWrapper` is the view that is actually
+     * the card (the image and `flyoutContainer` are siblings inside it), so an authored
+     * `cardBorderRadius` only clips visibly if it clips the image along with the close button and
+     * scroll content, not just the latter two.
+     */
+    @Test
+    fun `cardBorderRadius clips a flyout's background image to the rounded corners`() {
+        show(banner(
+            "flyout", mapOf("cardBorderRadius" to "12"), displayPosition = "right",
+            bodyValues = mapOf("backgroundImage" to mapOf("url" to "https://example.invalid/bg.png"))
+        ))
+        val bgWrapper = dialogCard()
+
+        assertEquals(true, bgWrapper.clipToOutline)
+        assertEquals(36f, (bgWrapper.background as GradientDrawable).cornerRadius, 0.01f)
+    }
+
+    @Test
+    fun `no cardBorderRadius leaves a flyout's background image clipToOutline off`() {
+        show(banner(
+            "flyout", emptyMap(), displayPosition = "right",
+            bodyValues = mapOf("backgroundImage" to mapOf("url" to "https://example.invalid/bg.png"))
+        ))
+        val bgWrapper = dialogCard()
+
+        assertEquals(false, bgWrapper.clipToOutline)
+    }
+
+    /**
+     * `cardOffsetHorizontal` insets the flyout from the edge it is anchored to — a margin on that
+     * edge — rather than padding the card's own content area, which would shrink it below the
+     * width the content was just rendered to fit (`flyoutWidth`) and clip the overflow.
+     */
+    @Test
+    fun `cardOffsetHorizontal moves a flyout's card instead of shrinking its content area`() {
+        val card = showFlyout(
+            cssStyles = mapOf("cardOffsetHorizontal" to "10px"),
+            displayPosition = "right"
+        )
+
+        assertEquals(30, card.params.rightMargin)
+        assertEquals(0, card.params.leftMargin)
+        assertEquals(0, card.view.paddingLeft)
+        assertEquals(0, card.view.paddingRight)
+    }
+
     // ---- popup safe-area insets on a partially sized card -------------------------------------
 
     /**

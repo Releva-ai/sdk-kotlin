@@ -357,8 +357,18 @@ class BannerDisplayManager(
         val bgImageUrl = bgImageMap?.get("url") as? String ?: ""
         val hasBgImage = bgImageUrl.isNotEmpty()
 
+        // Full-screen unless the author gave the card a size of its own. Computed before the
+        // render call below, not after: an authored `cardWidth` has to reach `maxWidthPx` so the
+        // design's own `contentWidth` is coerced against the card it will actually sit in, not
+        // against the full screen it no longer spans.
+        val screenWidth = ctx.resources.displayMetrics.widthPixels
+        val screenHeight = ctx.resources.displayMetrics.heightPixels
+        val cardWidth = chrome.widthPx(screenWidth)
+        val cardHeight = chrome.heightPx(screenHeight)
+
         val contentView = DesignRenderer.render(
             ctx, banner.design!!,
+            maxWidthPx = cardWidth ?: screenWidth,
             transparentBody = hasBgImage
         ) { url ->
             Log.d(TAG, "Banner link tapped in popup: $url")
@@ -366,12 +376,6 @@ class BannerDisplayManager(
             trackClick(banner)
             onLinkTap(url)
         }
-
-        // Full-screen unless the author gave the card a size of its own.
-        val screenWidth = ctx.resources.displayMetrics.widthPixels
-        val screenHeight = ctx.resources.displayMetrics.heightPixels
-        val cardWidth = chrome.widthPx(screenWidth)
-        val cardHeight = chrome.heightPx(screenHeight)
 
         // Popup card
         val popupContainer = FrameLayout(ctx)
@@ -633,14 +637,23 @@ class BannerDisplayManager(
             }
         }
 
-        val sideInset = chrome.offsetHorizontalPx(screenWidth) ?: 0
         val flyoutContainer = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             elevation = 10 * dp
             isClickable = true
-            setPadding(sideInset, chrome.offsetVerticalPx(screenHeight) ?: getStatusBarHeight(ctx), sideInset, 0)
+            // Vertical only: this axis keeps today's real padding (the status-bar pad an
+            // authored `cardOffsetVertical` replaces), and the card spans the full height so
+            // only the top edge is ever reachable. The horizontal axis has no padding to
+            // preserve on master, and gets its inset as a margin below instead, so an authored
+            // `cardOffsetHorizontal` moves the card away from its anchored edge rather than
+            // shrinking the content it was just rendered to fit.
+            setPadding(0, chrome.offsetVerticalPx(screenHeight) ?: getStatusBarHeight(ctx), 0, 0)
         }
-        chrome.applyCardBackground(flyoutContainer, chrome.backgroundColor ?: Color.WHITE)
+        // Applied here only without a background image: with one, bgWrapper below is the view
+        // that is actually the card, and the chrome has to go there instead.
+        if (!hasBgImage) {
+            chrome.applyCardBackground(flyoutContainer, chrome.backgroundColor ?: Color.WHITE)
+        }
 
         // Close button on the outer edge: left flyout → close on right, right flyout → close on left
         val closeButton = buildCloseButton(ctx, banner) {
@@ -681,6 +694,13 @@ class BannerDisplayManager(
                 isClickable = true
                 elevation = 10 * dp
             }
+            // bgWrapper, not flyoutContainer, is the view that is actually the card on this path:
+            // flyoutContainer only stacks the close button and scrollable content on top of the
+            // image, which is bgWrapper's other, sibling child. Painting the chrome here is what
+            // makes an authored cardBorderRadius clip the image along with them, instead of
+            // clipping only its own descendants while the image paints the full square rect
+            // underneath, unclipped, and the radius silently does nothing.
+            chrome.applyCardBackground(bgWrapper, Color.TRANSPARENT)
             val bgImageView = ImageView(ctx).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 layoutParams = FrameLayout.LayoutParams(
@@ -694,12 +714,6 @@ class BannerDisplayManager(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             ))
-            // Make flyout container background transparent so bg image shows through. Colouring
-            // the existing drawable rather than replacing it, since a rounded `GradientDrawable`
-            // (an authored `cardBorderRadius`) would otherwise be discarded along with its corner
-            // radius and `clipToOutline`.
-            (flyoutContainer.background as? GradientDrawable)?.setColor(Color.TRANSPARENT)
-                ?: flyoutContainer.setBackgroundColor(Color.TRANSPARENT)
             bgWrapper
         } else {
             flyoutContainer
@@ -710,7 +724,15 @@ class BannerDisplayManager(
             chrome.heightPx(screenHeight) ?: ViewGroup.LayoutParams.MATCH_PARENT,
             // The vertical half is inert while the flyout spans the height, as it does by default.
             horizontalGravity or chrome.verticalGravity(Gravity.TOP)
-        ))
+        ).apply {
+            // Inset the card from the edge it's anchored to. Only the anchored edge's margin
+            // does anything — the card doesn't span the full width, so the far edge is inert —
+            // and a margin moves the card itself rather than padding its content, which is what
+            // keeps `flyoutWidth` (what the content above was just rendered to fit) equal to the
+            // card's actual width instead of leaving it wider than the space left for it.
+            val sideInset = chrome.offsetHorizontalPx(screenWidth) ?: 0
+            if (isLeft) leftMargin = sideInset else rightMargin = sideInset
+        })
 
         dialog.setContentView(overlayLayout, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
