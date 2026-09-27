@@ -23,6 +23,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -365,6 +366,8 @@ class BannerChromeTest {
         assertEquals((8 * density).toInt(), lp.rightMargin)
     }
 
+    // ---- contentVerticalAlign -----------------------------------------------------------------
+
     @Test
     fun `contentVerticalAlign places the content inside the bar card`() {
         val aligned = showBar(cssStyles = mapOf("contentVerticalAlign" to "bottom"))
@@ -372,6 +375,61 @@ class BannerChromeTest {
 
         val default = showBar(cssStyles = emptyMap())
         assertEquals(Gravity.TOP, default.contentVerticalGravity)
+    }
+
+    /**
+     * The contract's whole statement about this key: it is observable only when the card is taller
+     * than its content. Laid out in a viewport three times the design's own height, `center` puts
+     * the design halfway down and `top` — the default — leaves it where it has always been.
+     */
+    @Test
+    fun `contentVerticalAlign centres a design shorter than the popup card`() {
+        val scroller = popupScroller(cssStyles = mapOf("contentVerticalAlign" to "center"))
+        val naturalHeight = scroller.measureContentHeight()
+
+        scroller.layoutAt(height = naturalHeight * 3)
+
+        assertEquals(naturalHeight, scroller.design.height)
+        assertEquals(naturalHeight, scroller.designTop)
+
+        val atDefault = popupScroller(cssStyles = emptyMap())
+        atDefault.layoutAt(height = atDefault.measureContentHeight() * 3)
+        assertEquals(0, atDefault.designTop)
+    }
+
+    /**
+     * And the other side of "only when the card is taller than its content": with a design taller
+     * than the card, every alignment has to leave it exactly where `top` puts it. Giving the
+     * design the gravity directly would lay it out at a negative top, and
+     * `ScrollView.getScrollRange()` is derived from its child's height alone and never its offset
+     * — so everything above y = 0 would be content that no scroll position could reach.
+     */
+    @Test
+    fun `contentVerticalAlign never lifts a design taller than the popup card above the scroll range`() {
+        for (align in listOf("center", "bottom")) {
+            val scroller = popupScroller(cssStyles = mapOf("contentVerticalAlign" to align))
+            val naturalHeight = scroller.measureContentHeight()
+            assertTrue("the fixture design must have a height of its own", naturalHeight > 1)
+
+            // One pixel of card: any design at all is taller than that.
+            scroller.layoutAt(height = 1)
+
+            assertEquals("$align must not lift the design above the top", 0, scroller.designTop)
+            assertEquals("$align must not shorten the design", naturalHeight, scroller.design.height)
+        }
+    }
+
+    /** The same, for the flyout, whose scroll view fills its viewport only once aligned. */
+    @Test
+    fun `contentVerticalAlign never lifts a design taller than the flyout card above the scroll range`() {
+        val scroller = flyoutScroller(cssStyles = mapOf("contentVerticalAlign" to "center"))
+        val naturalHeight = scroller.measureContentHeight()
+        assertTrue("the fixture design must have a height of its own", naturalHeight > 1)
+
+        scroller.layoutAt(height = 1)
+
+        assertEquals(0, scroller.designTop)
+        assertEquals(naturalHeight, scroller.design.height)
     }
 
     @Test
@@ -520,6 +578,57 @@ class BannerChromeTest {
         show(banner("flyout", cssStyles, displayPosition))
         val flyout = dialogCard()
         return Card(flyout, (flyout.getChildAt(1) as ScrollView).getChildAt(0))
+    }
+
+    /**
+     * A banner's scroll view, driven through a real measure and layout pass so that where the
+     * design actually lands can be read rather than inferred from `LayoutParams`. An authored
+     * `contentVerticalAlign` puts an alignment wrapper between the scroller and the design, which
+     * is what [aligned] says; without one the design is the scroller's own child, as on master.
+     */
+    private class Scroller(val view: ScrollView, val width: Int, private val aligned: Boolean) {
+        val design: View
+            get() = if (aligned) (view.getChildAt(0) as ViewGroup).getChildAt(0)
+            else view.getChildAt(0)
+
+        /** The design's top in the scroller's own content space, wrapper offset included. */
+        val designTop: Int
+            get() = design.top + if (aligned) view.getChildAt(0).top else 0
+
+        /** The height the design asks for when nothing constrains it — what a ScrollView gives it. */
+        fun measureContentHeight(): Int {
+            view.measure(
+                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            )
+            return design.measuredHeight
+        }
+
+        fun layoutAt(height: Int) {
+            view.measure(
+                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY)
+            )
+            view.layout(0, 0, width, height)
+        }
+    }
+
+    private fun popupScroller(cssStyles: Map<String, Any?>): Scroller {
+        show(banner("popup", cssStyles, displayPosition = null))
+        return Scroller(
+            dialogCard().getChildAt(0) as ScrollView,
+            screenWidth,
+            aligned = cssStyles.containsKey("contentVerticalAlign")
+        )
+    }
+
+    private fun flyoutScroller(cssStyles: Map<String, Any?>): Scroller {
+        show(banner("flyout", cssStyles, displayPosition = "right"))
+        return Scroller(
+            dialogCard().getChildAt(1) as ScrollView,
+            (screenWidth * 0.8).toInt(),
+            aligned = cssStyles.containsKey("contentVerticalAlign")
+        )
     }
 
     /**

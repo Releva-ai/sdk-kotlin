@@ -2,7 +2,6 @@ package ai.releva.sdk.ui.banner
 
 import ai.releva.sdk.types.response.BannerResponse
 import android.content.Context
-import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View

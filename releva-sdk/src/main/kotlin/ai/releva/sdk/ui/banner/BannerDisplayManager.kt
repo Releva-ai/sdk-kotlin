@@ -68,9 +68,10 @@ class BannerDisplayManager(
         private const val BANNER_TAG_PREFIX = "releva_banner_"
         private const val RETENTION_KEY_PREFIX = "ai.releva.sdk.bannerRetention:"
 
-        // What FrameLayout falls back to for a child whose LayoutParams leave gravity unspecified,
-        // which is how the content views below were added before `contentVerticalAlign` could
-        // place them. Naming it keeps the default path identical rather than merely equivalent.
+        // What FrameLayout.layoutChildren substitutes for a child whose LayoutParams leave gravity
+        // unspecified, which is how the bar's content wrapper was added before
+        // `contentVerticalAlign` could place it. Naming it keeps the default path identical rather
+        // than merely equivalent.
         private const val DEFAULT_CHILD_GRAVITY = Gravity.TOP or Gravity.START
     }
 
@@ -332,6 +333,34 @@ class BannerDisplayManager(
         }
     }
 
+    /**
+     * [contentView] as a [ScrollView]'s single child, wrapped so that an authored
+     * `contentVerticalAlign` [gravity] can place it inside the card — and returned untouched when
+     * there is none, which is how the scroll views below were built before these keys existed.
+     *
+     * The wrapper is what holds the key to what the contract says it is: observable only when the
+     * card is taller than its content. `ScrollView.isFillViewport` stretches a child *shorter*
+     * than the viewport to fill it, so the wrapper is exactly the card's height while there is
+     * room to move the content, and exactly the content's height once there is not — and at that
+     * size every gravity lands the content in the same place.
+     *
+     * Giving [contentView] the gravity directly instead would place a design taller than the card
+     * at a negative top: `ScrollView` measures its child with an UNSPECIFIED height spec and then
+     * derives `getScrollRange()` from that child's height alone, never its offset, so the top of
+     * the design would sit above the scroll range with no scroll position able to reach it.
+     */
+    private fun alignedContent(
+        ctx: android.content.Context,
+        contentView: View,
+        gravity: Int?
+    ): View = if (gravity == null) contentView else FrameLayout(ctx).apply {
+        addView(contentView, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            gravity
+        ))
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun showPopupBanner(banner: BannerResponse) {
         val ctx = activity ?: return
@@ -382,16 +411,11 @@ class BannerDisplayManager(
         chrome.applyCardBackground(popupContainer, if (hasBgImage) Color.TRANSPARENT else popupBgColor)
 
         // Scrollable content
-        val contentGravity = chrome.contentGravity
         val scrollView = ScrollView(ctx).apply {
-            // Filling the viewport stretches the content to the card's height, which is what makes
-            // an alignment unobservable — and is today's behaviour, so it stays on at the default.
-            // An authored alignment needs the content at its own height to have room to move.
-            isFillViewport = contentGravity == null
-            addView(contentView, FrameLayout.LayoutParams(
+            isFillViewport = true
+            addView(alignedContent(ctx, contentView, chrome.contentGravity), ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                contentGravity ?: DEFAULT_CHILD_GRAVITY
+                ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
 
@@ -411,6 +435,17 @@ class BannerDisplayManager(
             ))
         }
 
+        val verticalGravity = chrome.verticalGravity(Gravity.CENTER_VERTICAL)
+        val horizontalGravity = chrome.horizontalGravity(Gravity.CENTER_HORIZONTAL)
+        // Which window edges the card actually reaches, and so which system-bar insets its content
+        // has to be held clear of. An axis the author left at `auto` spans the window, so the card
+        // reaches both of that axis's edges; a card sized on an axis reaches only the edge it is
+        // anchored to, and neither edge when it is centred.
+        val insetTop = cardHeight == null || verticalGravity == Gravity.TOP
+        val insetBottom = cardHeight == null || verticalGravity == Gravity.BOTTOM
+        val insetLeft = cardWidth == null || horizontalGravity == Gravity.START
+        val insetRight = cardWidth == null || horizontalGravity == Gravity.END
+
         // Close button — added last so it's on top of everything
         val statusBarHeight = getStatusBarHeight(ctx)
         val closeButton = buildCloseButton(ctx, banner) {
@@ -421,11 +456,9 @@ class BannerDisplayManager(
             (32 * dp).toInt(), (32 * dp).toInt(),
             Gravity.TOP or Gravity.END
         ).apply {
-            // Only a card still reaching the top edge (unsized height) needs to clear the status
-            // bar; a card the author gave a height to is not necessarily anywhere near it. The
-            // listener below overwrites this once real insets are available, but the initial
+            // The listener below overwrites this once real insets are available, but the initial
             // value has to already be right for the first layout pass.
-            topMargin = (if (cardHeight == null) statusBarHeight else 0) + (8 * dp).toInt()
+            topMargin = (if (insetTop) statusBarHeight else 0) + (8 * dp).toInt()
             rightMargin = (8 * dp).toInt()
         })
 
@@ -446,36 +479,32 @@ class BannerDisplayManager(
         // reads geometry.safeAreaInsets and hands them to the chrome, which ignores the
         // safe area for its background only.
         //
-        // All of which is the edge-to-edge card's problem, and it is a per-axis problem: a card
-        // the author sized on one axis no longer reaches *that* axis's edges, but an axis still
-        // left at `auto` still does. `cardWidth: "90%"` alone, the single most natural authored
-        // value of the nine, still runs the card the full height of the window — only the width
-        // axis stops needing an inset. So the listener is skipped only when both axes are sized
-        // (nothing reaches any edge, and insetting it would double up); each axis's inset inside
-        // the listener is applied only while that axis is still unsized.
-        if (cardWidth == null || cardHeight == null) {
-            ViewCompat.setOnApplyWindowInsetsListener(popupContainer) { _, windowInsets ->
-                val bars = windowInsets.getInsets(
-                    WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
-                )
-                // Floored at statusBarHeight, not just bars.top: a window that reports zero
-                // system-bar insets (observed on some OEM skins even with the status bar drawn
-                // and opaque) would otherwise zero out the content padding and drop the close
-                // button to 8dp — under the status bar rather than below it. bars.top still wins
-                // wherever it exceeds the resource estimate (a taller cutout, a landscape bar),
-                // since the resource is only ever a floor, not the true value.
-                val top = if (cardHeight == null) maxOf(bars.top, statusBarHeight) else 0
-                val bottom = if (cardHeight == null) bars.bottom else 0
-                val left = if (cardWidth == null) bars.left else 0
-                val right = if (cardWidth == null) bars.right else 0
-                scrollView.setPadding(left, top, right, bottom)
-                (closeButton.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
-                    lp.topMargin = top + (8 * dp).toInt()
-                    lp.rightMargin = right + (8 * dp).toInt()
-                    closeButton.layoutParams = lp
-                }
-                windowInsets
+        // All of which is the edge-to-edge card's problem, and so each edge's inset is applied
+        // only while the card actually reaches that edge — the four flags above. A card the
+        // author sized and centred reaches none of them and ends up with the zeroes it started
+        // with; `cardWidth: "90%"` alone, the most natural authored value of the nine, still runs
+        // the card the full height of the window and keeps its top and bottom insets.
+        ViewCompat.setOnApplyWindowInsetsListener(popupContainer) { _, windowInsets ->
+            val bars = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            // Floored at statusBarHeight, not just bars.top: a window that reports zero
+            // system-bar insets (observed on some OEM skins even with the status bar drawn
+            // and opaque) would otherwise zero out the content padding and drop the close
+            // button to 8dp — under the status bar rather than below it. bars.top still wins
+            // wherever it exceeds the resource estimate (a taller cutout, a landscape bar),
+            // since the resource is only ever a floor, not the true value.
+            val top = if (insetTop) maxOf(bars.top, statusBarHeight) else 0
+            val bottom = if (insetBottom) bars.bottom else 0
+            val left = if (insetLeft) bars.left else 0
+            val right = if (insetRight) bars.right else 0
+            scrollView.setPadding(left, top, right, bottom)
+            (closeButton.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+                lp.topMargin = top + (8 * dp).toInt()
+                lp.rightMargin = right + (8 * dp).toInt()
+                closeButton.layoutParams = lp
             }
+            windowInsets
         }
 
         // Ensure close button is visible above content
@@ -486,8 +515,7 @@ class BannerDisplayManager(
             cardHeight ?: WindowManager.LayoutParams.MATCH_PARENT,
             // Inert while the card fills the window, which is what makes it safe at the default:
             // a card can only move once the author has given it a size.
-            chrome.verticalGravity(Gravity.CENTER_VERTICAL) or
-                chrome.horizontalGravity(Gravity.CENTER_HORIZONTAL)
+            verticalGravity or horizontalGravity
         ).apply {
             // Set on both edges of the axis: for a card anchored to one of them the other is
             // inert, and for a card that still spans the axis the pair reads as an inset.
@@ -533,12 +561,15 @@ class BannerDisplayManager(
         // cannot fall through an implicit else.
         val verticalGravity = chrome.verticalGravity(Gravity.TOP)
         val cardWidth = chrome.widthPx(screenWidth)
+        val barWidth = cardWidth ?: screenWidth
         val verticalPadding = chrome.offsetVerticalPx(screenHeight) ?: (12 * dp).toInt()
         val horizontalPadding = chrome.offsetHorizontalPx(screenWidth) ?: (16 * dp).toInt()
-        // Floored at zero: an absurd authored `cardOffsetHorizontal` or small `cardWidth` could
-        // otherwise go negative and reach `DesignRenderer.render`'s `maxWidthPx`, where Android
-        // reads -1/-2 as MATCH_PARENT/WRAP_CONTENT rather than as "no width at all".
-        val availableWidth = ((cardWidth ?: screenWidth) - horizontalPadding * 2).coerceAtLeast(0)
+        // Bounded at both ends before it reaches `DesignRenderer.render`'s `maxWidthPx`: a small
+        // `cardWidth` or a large `cardOffsetHorizontal` would take it below zero, where Android
+        // reads -1/-2 as MATCH_PARENT/WRAP_CONTENT rather than as "no width at all", and a
+        // negative `cardOffsetHorizontal` — which the contract allows — would inflate it past the
+        // card's own width and let the design be sized wider than the card holding it.
+        val availableWidth = (barWidth - horizontalPadding * 2).coerceIn(0, barWidth)
 
         val contentView = DesignRenderer.render(ctx, banner.design!!, maxWidthPx = availableWidth) { url ->
             trackClick(banner)
@@ -677,11 +708,14 @@ class BannerDisplayManager(
         ))
 
         // Scrollable content below close button
+        val contentGravity = chrome.contentGravity
         val scrollView = ScrollView(ctx).apply {
-            addView(contentView, FrameLayout.LayoutParams(
+            // Off at the default, as on master. It is what stretches the wrapper below to the
+            // card's height, which is the condition that makes an alignment observable at all.
+            isFillViewport = contentGravity != null
+            addView(alignedContent(ctx, contentView, contentGravity), ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                chrome.contentGravity ?: DEFAULT_CHILD_GRAVITY
+                ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
         flyoutContainer.addView(scrollView, LinearLayout.LayoutParams(
