@@ -148,11 +148,14 @@ internal class BannerChrome(
             text.endsWith("%") -> text.dropLast(1).toFloatOrNull()?.div(100f)?.times(availablePx)
             else -> null
         } ?: return null
+        val rounded = px.roundToInt()
         // A size of zero or less is server-legal but would render an invisible card that has
         // already fired its impression — reject it here rather than let it reach a layout call.
-        // An offset of zero is meaningful (the bare "0" above already accepts it) and a negative
+        // Tested after rounding, not before: `0.1px` is a positive float that still becomes a
+        // zero layout dimension, which is the same invisible card by a different route. An
+        // offset of zero is meaningful (the bare "0" above already accepts it) and a negative
         // one insets from the far edge, so only a size (`allowNegative == false`) is held to it.
-        return if (!allowNegative && px <= 0f) null else px.roundToInt()
+        return if (!allowNegative && rounded <= 0) null else rounded
     }
 
     companion object {

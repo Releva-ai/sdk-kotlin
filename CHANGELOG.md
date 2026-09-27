@@ -16,6 +16,11 @@ PATCH: the change below changes behaviour but adds and deprecates no public API.
   production before this release — renders exactly as it did in 1.5.2. `displayPosition` keeps
   the role it has today: it is what `cardPositionVertical`/`cardPositionHorizontal` fall back to
   on the bar's vertical axis and the flyout's horizontal one, and on no other.
+- **The popup's close button is now attached to the dialog window rather than to the card.** The
+  popup dialog is deliberately not dismissable any other way, and a card the author has given a
+  `cardWidth` to can be narrower than the button, which would leave part of it outside the card
+  and untappable. At the default the card fills the window, so the button is laid out exactly
+  where it was in 1.5.2.
 - **The popup card no longer takes its background colour from the Unlayer design's
   `popupBackgroundColor`.** That key was always an editor default (our editor never shows the
   Popup Builder that would let an author set it), not authored intent, and `cardBackgroundColor`

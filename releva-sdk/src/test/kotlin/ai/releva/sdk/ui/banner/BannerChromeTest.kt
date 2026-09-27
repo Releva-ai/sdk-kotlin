@@ -290,80 +290,92 @@ class BannerChromeTest {
         assertEquals(0, card.view.paddingRight)
     }
 
-    // ---- popup safe-area insets on a partially sized card -------------------------------------
+    // ---- the popup's window chrome, which an authored card size must not take away -------------
 
     /**
-     * `cardWidth` alone is the single most natural authored value of the nine, and it still runs
-     * the card the full height of the window — so the top/bottom safe-area inset, and the close
-     * button's clearance, must still apply. Only the left/right inset drops out, since the card no
-     * longer reaches those edges.
+     * Holding the design clear of the status bar, the cutout and the gesture pill is the window's
+     * business, not the card's, and an authored size does not change that: the inset is applied
+     * the same way for every card, as it was before these keys existed. A card the author has
+     * sized and centred carries clearance it does not need, which costs it some empty space; the
+     * alternative — deciding per edge whether the card still reaches it — errs the other way, and
+     * that way lies content underneath a system bar.
      */
     // Per-type window insets (`WindowInsetsCompat.Builder.setInsets`) only round-trip faithfully
     // through a real platform `android.view.WindowInsets` from API 30 on, which is what backs
-    // these three tests' `dispatchInsets` call; below that, androidx's compat shim collapses
-    // everything back to one legacy `systemWindowInsets` value and the per-axis assertions below
-    // would not be exercising what they claim to.
+    // this test's `dispatchInsets` call; below that, androidx's compat shim collapses everything
+    // back to one legacy `systemWindowInsets` value and the per-axis assertions would not be
+    // exercising what they claim to.
     @Config(sdk = [30])
     @Test
-    fun `a popup sized only on width still clears the status bar top and bottom`() {
-        val card = showPopup(cssStyles = mapOf("cardWidth" to "50%"))
-        val popup = card.view as ViewGroup
-        val scrollView = popup.getChildAt(0) as ScrollView
-        val closeButton = popup.getChildAt(1)
+    fun `a popup holds its content clear of the system bars whatever size its card is`() {
+        for (cssStyles in listOf<Map<String, Any?>>(
+            emptyMap(),
+            mapOf("cardWidth" to "50%"),
+            mapOf("cardWidth" to "50%", "cardHeight" to "50%")
+        )) {
+            val card = showPopup(cssStyles = cssStyles)
+            val scrollView = (card.view as ViewGroup).getChildAt(0) as ScrollView
+            val closeButton = popupCloseButton()
 
-        dispatchInsets(card.view, top = 100, left = 20, right = 30, bottom = 40)
+            dispatchInsets(card.view, top = 100, left = 20, right = 30, bottom = 40)
 
-        val expectedTop = maxOf(100, statusBarHeight)
-        assertEquals(expectedTop, scrollView.paddingTop)
-        assertEquals(40, scrollView.paddingBottom)
-        assertEquals(0, scrollView.paddingLeft)
-        assertEquals(0, scrollView.paddingRight)
+            val expectedTop = maxOf(100, statusBarHeight)
+            assertEquals("$cssStyles", expectedTop, scrollView.paddingTop)
+            assertEquals("$cssStyles", 20, scrollView.paddingLeft)
+            assertEquals("$cssStyles", 30, scrollView.paddingRight)
+            assertEquals("$cssStyles", 40, scrollView.paddingBottom)
 
-        val lp = closeButton.layoutParams as FrameLayout.LayoutParams
-        assertEquals(expectedTop + (8 * density).toInt(), lp.topMargin)
-        assertEquals((8 * density).toInt(), lp.rightMargin)
+            val lp = closeButton.layoutParams as FrameLayout.LayoutParams
+            assertEquals("$cssStyles", expectedTop + (8 * density).toInt(), lp.topMargin)
+            assertEquals("$cssStyles", 30 + (8 * density).toInt(), lp.rightMargin)
+        }
     }
 
-    /** The mirror of the above: sized on height alone, the card still reaches the sides. */
-    @Config(sdk = [30])
+    /**
+     * The popup dialog is not cancelable and does not dismiss on a touch outside, so its close
+     * button is the only way out of it. That was safe while the card was always the whole window;
+     * it is not once `cardWidth` can make the card narrower than the button's own box, because
+     * `ViewGroup.dispatchTouchEvent` only forwards a pointer to a child the pointer falls inside,
+     * so the part of the button hanging outside the card would not be tappable — on a modal that
+     * blocks the screen and is re-shown after a rotation. Keeping the button on the window keeps
+     * it reachable at any card size.
+     */
     @Test
-    fun `a popup sized only on height still clears the left and right insets`() {
-        val card = showPopup(cssStyles = mapOf("cardHeight" to "50%"))
-        val popup = card.view as ViewGroup
-        val scrollView = popup.getChildAt(0) as ScrollView
-        val closeButton = popup.getChildAt(1)
+    fun `a popup's close button is on the window and not inside the card`() {
+        val card = showPopup(cssStyles = mapOf("cardWidth" to "10px", "cardHeight" to "10px"))
+        val closeButton = popupCloseButton()
 
-        dispatchInsets(card.view, top = 100, left = 20, right = 30, bottom = 40)
+        assertEquals("the card must be smaller than the button for this to mean anything", 30, card.params.width)
+        assertEquals(-1, (card.view as ViewGroup).indexOfChild(closeButton))
+        assertEquals(
+            Gravity.TOP or Gravity.END,
+            (closeButton.layoutParams as FrameLayout.LayoutParams).gravity
+        )
 
-        assertEquals(0, scrollView.paddingTop)
-        assertEquals(0, scrollView.paddingBottom)
-        assertEquals(20, scrollView.paddingLeft)
-        assertEquals(30, scrollView.paddingRight)
-
-        val lp = closeButton.layoutParams as FrameLayout.LayoutParams
-        assertEquals((8 * density).toInt(), lp.topMargin)
-        assertEquals(30 + (8 * density).toInt(), lp.rightMargin)
+        closeButton.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(false, ShadowDialog.getLatestDialog().isShowing)
     }
 
-    /** Sized on both axes, the card reaches no edge, so nothing insets it a second time. */
-    @Config(sdk = [30])
+    /**
+     * `cardOffsetHorizontal` is a margin on a card that still spans the window, and
+     * `FrameLayout.measureChildWithMargins` subtracts both margins from such a child's width — so
+     * the card really is narrower than the screen, and the design's own `contentWidth` has to be
+     * coerced against *that*. Coerced against the screen instead, the design is laid out wider
+     * than the card, centred, and clipped on both sides under a `ScrollView` that does not scroll
+     * sideways.
+     */
     @Test
-    fun `a popup sized on both axes is not inset by the safe area on either`() {
-        val card = showPopup(cssStyles = mapOf("cardWidth" to "50%", "cardHeight" to "50%"))
-        val popup = card.view as ViewGroup
-        val scrollView = popup.getChildAt(0) as ScrollView
-        val closeButton = popup.getChildAt(1)
+    fun `an authored cardOffsetHorizontal reaches the design's own contentWidth ceiling`() {
+        val card = showPopup(
+            cssStyles = mapOf("cardOffsetHorizontal" to "40px"),
+            bodyValues = mapOf("contentWidth" to "5000px")
+        )
+        val innerLayout = (card.content as ViewGroup).getChildAt(0)
 
-        dispatchInsets(card.view, top = 100, left = 20, right = 30, bottom = 40)
-
-        assertEquals(0, scrollView.paddingTop)
-        assertEquals(0, scrollView.paddingLeft)
-        assertEquals(0, scrollView.paddingRight)
-        assertEquals(0, scrollView.paddingBottom)
-
-        val lp = closeButton.layoutParams as FrameLayout.LayoutParams
-        assertEquals((8 * density).toInt(), lp.topMargin)
-        assertEquals((8 * density).toInt(), lp.rightMargin)
+        assertEquals(120, card.params.leftMargin)
+        assertEquals(120, card.params.rightMargin)
+        assertEquals(screenWidth - 240, innerLayout.layoutParams.width)
     }
 
     // ---- contentVerticalAlign -----------------------------------------------------------------
@@ -474,6 +486,18 @@ class BannerChromeTest {
 
         val size = showBar(cssStyles = mapOf("cardWidth" to "0"))
         assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, size.params.width)
+    }
+
+    /**
+     * And neither is a size that only rounds away to nothing: `0.1px` is a positive length that
+     * still becomes a zero layout dimension, which is the same invisible card — already counted
+     * as an impression, never seen — that a literal zero is rejected to avoid.
+     */
+    @Test
+    fun `a size that rounds away to nothing is not a size`() {
+        val card = showBar(cssStyles = mapOf("cardWidth" to "0.1px"))
+
+        assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, card.params.width)
     }
 
     // ---- values that must never reach a layout call --------------------------------------------
@@ -689,9 +713,21 @@ class BannerChromeTest {
         ViewCompat.dispatchApplyWindowInsets(view, insets)
     }
 
-    private fun dialogCard(): ViewGroup {
+    private fun dialogRoot(): ViewGroup {
         val content = ShadowDialog.getLatestDialog().findViewById<ViewGroup>(android.R.id.content)
-        return (content.getChildAt(0) as ViewGroup).getChildAt(0) as ViewGroup
+        return content.getChildAt(0) as ViewGroup
+    }
+
+    private fun dialogCard(): ViewGroup = dialogRoot().getChildAt(0) as ViewGroup
+
+    /**
+     * The popup's close button: a sibling of the card on the dialog's root, added after it so it
+     * still draws above everything, rather than a child of the card as it was when the card was
+     * unconditionally the whole window.
+     */
+    private fun popupCloseButton(): View {
+        val root = dialogRoot()
+        return root.getChildAt(root.childCount - 1)
     }
 
     /**

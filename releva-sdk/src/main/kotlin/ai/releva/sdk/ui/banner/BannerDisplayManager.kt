@@ -386,18 +386,28 @@ class BannerDisplayManager(
         val bgImageUrl = bgImageMap?.get("url") as? String ?: ""
         val hasBgImage = bgImageUrl.isNotEmpty()
 
-        // Full-screen unless the author gave the card a size of its own. Computed before the
-        // render call below, not after: an authored `cardWidth` has to reach `maxWidthPx` so the
-        // design's own `contentWidth` is coerced against the card it will actually sit in, not
-        // against the full screen it no longer spans.
+        // Full-screen unless the author gave the card a size of its own. All of this is computed
+        // before the render call below, not after: the design's own `contentWidth` is coerced
+        // against `maxWidthPx`, so that argument has to be the card's real width — the card sits
+        // under a ScrollView that does not scroll sideways, and anything wider is clipped away
+        // with no way to reach it.
         val screenWidth = ctx.resources.displayMetrics.widthPixels
         val screenHeight = ctx.resources.displayMetrics.heightPixels
         val cardWidth = chrome.widthPx(screenWidth)
         val cardHeight = chrome.heightPx(screenHeight)
+        val offsetVertical = chrome.offsetVerticalPx(screenHeight)
+        val offsetHorizontal = chrome.offsetHorizontalPx(screenWidth)
+        // The card's real width, whichever key produced it: an authored `cardWidth` is exact
+        // (`FrameLayout.getChildMeasureSpec` ignores margins for a fixed-width child), while a
+        // card left to span the window is narrowed by the margins an authored
+        // `cardOffsetHorizontal` puts on both edges — so the offset has to come off here too,
+        // not only be applied as a margin below.
+        val renderWidth = (cardWidth ?: (screenWidth - (offsetHorizontal ?: 0) * 2))
+            .coerceIn(0, screenWidth)
 
         val contentView = DesignRenderer.render(
             ctx, banner.design!!,
-            maxWidthPx = cardWidth ?: screenWidth,
+            maxWidthPx = renderWidth,
             transparentBody = hasBgImage
         ) { url ->
             Log.d(TAG, "Banner link tapped in popup: $url")
@@ -440,30 +450,28 @@ class BannerDisplayManager(
         // so only an authored `cardPosition*` moves the card.
         val verticalGravity = chrome.verticalGravity(Gravity.CENTER_VERTICAL)
         val horizontalGravity = chrome.horizontalGravity(Gravity.CENTER_HORIZONTAL)
-        // Which system-bar insets the card's content has to be held clear of, decided per edge by
-        // the two authored keys that can take the card off it: an axis left unsized spans the
-        // window, so the card reaches both of that axis's edges, and a sized card reaches only the
-        // edge it is anchored to — neither, when it is centred.
-        val insetTop = cardHeight == null || verticalGravity == Gravity.TOP
-        val insetBottom = cardHeight == null || verticalGravity == Gravity.BOTTOM
-        val insetLeft = cardWidth == null || horizontalGravity == Gravity.START
-        val insetRight = cardWidth == null || horizontalGravity == Gravity.END
 
-        // Close button — added last so it's on top of everything
+        // The close button, added to the window below rather than to the card. This dialog is
+        // deliberately not cancelable and does not dismiss on a touch outside (above), which was
+        // safe while the card was always the whole window. Once `cardWidth`/`cardHeight` can
+        // shrink the card, a button anchored inside it hangs outside its bounds — and
+        // `ViewGroup.dispatchTouchEvent` only forwards a pointer to a child it falls inside, so
+        // the one way out of a screen-blocking modal would stop responding. At the default the
+        // card fills the window, so the button is laid out exactly where it always was.
         val statusBarHeight = getStatusBarHeight(ctx)
         val closeButton = buildCloseButton(ctx, banner) {
             dialog.dismiss()
             closeBanner(banner)
         }
-        popupContainer.addView(closeButton, FrameLayout.LayoutParams(
+        val closeParams = FrameLayout.LayoutParams(
             (32 * dp).toInt(), (32 * dp).toInt(),
             Gravity.TOP or Gravity.END
         ).apply {
             // The listener below overwrites this once real insets are available, but the initial
             // value has to already be right for the first layout pass.
-            topMargin = (if (insetTop) statusBarHeight else 0) + (8 * dp).toInt()
+            topMargin = statusBarHeight + (8 * dp).toInt()
             rightMargin = (8 * dp).toInt()
-        })
+        }
 
         // A full-screen popup's *background* is meant to run edge to edge — that is what
         // makes it read as a takeover rather than a card. Its *content* is not: with the
@@ -482,11 +490,11 @@ class BannerDisplayManager(
         // reads geometry.safeAreaInsets and hands them to the chrome, which ignores the
         // safe area for its background only.
         //
-        // All of which is the edge-to-edge card's problem, and so each edge's inset is applied
-        // only while the card actually reaches that edge — the four flags above. A card the
-        // author sized and centred reaches none of them and ends up with the zeroes it started
-        // with; `cardWidth: "90%"` alone, the most natural authored value of the nine, still runs
-        // the card the full height of the window and keeps its top and bottom insets.
+        // Unconditional, exactly as before these keys existed: an authored card size does not
+        // make this conditional. A card the author sized and centred is nowhere near a system bar
+        // and carries the clearance anyway, costing it some empty space at the top — the
+        // alternative is a per-edge "does the card still reach this edge" predicate, and getting
+        // that wrong in the other direction puts content *under* a bar.
         ViewCompat.setOnApplyWindowInsetsListener(popupContainer) { _, windowInsets ->
             val bars = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
@@ -497,21 +505,15 @@ class BannerDisplayManager(
             // button to 8dp — under the status bar rather than below it. bars.top still wins
             // wherever it exceeds the resource estimate (a taller cutout, a landscape bar),
             // since the resource is only ever a floor, not the true value.
-            val top = if (insetTop) maxOf(bars.top, statusBarHeight) else 0
-            val bottom = if (insetBottom) bars.bottom else 0
-            val left = if (insetLeft) bars.left else 0
-            val right = if (insetRight) bars.right else 0
-            scrollView.setPadding(left, top, right, bottom)
+            val top = maxOf(bars.top, statusBarHeight)
+            scrollView.setPadding(bars.left, top, bars.right, bars.bottom)
             (closeButton.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
                 lp.topMargin = top + (8 * dp).toInt()
-                lp.rightMargin = right + (8 * dp).toInt()
+                lp.rightMargin = bars.right + (8 * dp).toInt()
                 closeButton.layoutParams = lp
             }
             windowInsets
         }
-
-        // Ensure close button is visible above content
-        closeButton.bringToFront()
 
         val popupParams = FrameLayout.LayoutParams(
             cardWidth ?: WindowManager.LayoutParams.MATCH_PARENT,
@@ -520,14 +522,20 @@ class BannerDisplayManager(
             // a card can only move once the author has given it a size.
             verticalGravity or horizontalGravity
         ).apply {
-            // Set on both edges of the axis: for a card anchored to one of them the other is
-            // inert, and for a card that still spans the axis the pair reads as an inset.
-            chrome.offsetVerticalPx(screenHeight)?.let { topMargin = it; bottomMargin = it }
-            chrome.offsetHorizontalPx(screenWidth)?.let { leftMargin = it; rightMargin = it }
+            // Set on both edges of the axis, which reads correctly in each of the three cases
+            // the axis can be in: a card that still spans it is inset from both edges (and so
+            // `renderWidth` above subtracts both); a card anchored to one edge takes that
+            // edge's margin and FrameLayout ignores the opposite one; and a sized card that is
+            // centred has no anchored edge to inset from, so the two cancel and it does not move.
+            offsetVertical?.let { topMargin = it; bottomMargin = it }
+            offsetHorizontal?.let { leftMargin = it; rightMargin = it }
         }
         // No overlay — full-screen popup replaces the screen
         val rootLayout = FrameLayout(ctx)
         rootLayout.addView(popupContainer, popupParams)
+        // Added after the card, so it draws above it — and on the window, so it is reachable
+        // whatever the author did to the card's size.
+        rootLayout.addView(closeButton, closeParams)
 
         dialog.setContentView(rootLayout, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -614,7 +622,11 @@ class BannerDisplayManager(
         ).apply {
             // statusBarPad is zero anywhere but the top, which is the only place it was ever added.
             topMargin = statusBarPad + verticalPadding - closeOverlap
-            rightMargin = horizontalPadding - closeOverlap
+            // The overlap only ever came out of a padding that was a fixed 16dp, so it could not
+            // go past the bar's edge. An authored `cardOffsetHorizontal` of `0` or a negative one
+            // can, which would put part of the button outside the bar — clamped, so the overlap
+            // shrinks to nothing instead.
+            rightMargin = (horizontalPadding - closeOverlap).coerceAtLeast(0)
         })
         barLayout.clipChildren = false
         barLayout.clipToPadding = false
