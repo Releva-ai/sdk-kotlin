@@ -67,6 +67,11 @@ class BannerDisplayManager(
         private const val TAG = "BannerDisplayManager"
         private const val BANNER_TAG_PREFIX = "releva_banner_"
         private const val RETENTION_KEY_PREFIX = "ai.releva.sdk.bannerRetention:"
+
+        // What FrameLayout falls back to for a child whose LayoutParams leave gravity unspecified,
+        // which is how the content views below were added before `contentVerticalAlign` could
+        // place them. Naming it keeps the default path identical rather than merely equivalent.
+        private const val DEFAULT_CHILD_GRAVITY = Gravity.TOP or Gravity.START
     }
 
     /**
@@ -331,7 +336,12 @@ class BannerDisplayManager(
     private fun showPopupBanner(banner: BannerResponse) {
         val ctx = activity ?: return
         val bodyValues = getDesignBodyValues(banner)
-        val popupBgColor = DesignRenderer.parseColor(bodyValues["popupBackgroundColor"]) ?: Color.WHITE
+        val chrome = BannerChrome.of(banner, ctx)
+        // `cardBackgroundColor` owns this now. The Unlayer `popupBackgroundColor` it replaces was
+        // never authored — our editor runs Unlayer in web display mode, which never shows the Popup
+        // Builder — so reading it was an editor default being treated as intent. White is what the
+        // absent key resolved to then and what the documented default resolves to now.
+        val popupBgColor = chrome.backgroundColor ?: Color.WHITE
         val overlayColor = getOverlayColor(banner)
 
         val dialog = Dialog(ctx, android.R.style.Theme_Translucent_NoTitleBar)
@@ -357,21 +367,27 @@ class BannerDisplayManager(
             onLinkTap(url)
         }
 
-        // Always full-screen
-        val popupWidth = WindowManager.LayoutParams.MATCH_PARENT
-        val popupHeight = WindowManager.LayoutParams.MATCH_PARENT
+        // Full-screen unless the author gave the card a size of its own.
+        val screenWidth = ctx.resources.displayMetrics.widthPixels
+        val screenHeight = ctx.resources.displayMetrics.heightPixels
+        val cardWidth = chrome.widthPx(screenWidth)
+        val cardHeight = chrome.heightPx(screenHeight)
 
-        // Full-screen popup container
-        val popupContainer = FrameLayout(ctx).apply {
-            setBackgroundColor(if (hasBgImage) Color.TRANSPARENT else popupBgColor)
-        }
+        // Popup card
+        val popupContainer = FrameLayout(ctx)
+        chrome.applyCardBackground(popupContainer, if (hasBgImage) Color.TRANSPARENT else popupBgColor)
 
         // Scrollable content
+        val contentGravity = chrome.contentGravity
         val scrollView = ScrollView(ctx).apply {
-            isFillViewport = true
-            addView(contentView, ViewGroup.LayoutParams(
+            // Filling the viewport stretches the content to the card's height, which is what makes
+            // an alignment unobservable — and is today's behaviour, so it stays on at the default.
+            // An authored alignment needs the content at its own height to have room to move.
+            isFillViewport = contentGravity == null
+            addView(contentView, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                contentGravity ?: DEFAULT_CHILD_GRAVITY
             ))
         }
 
@@ -421,30 +437,48 @@ class BannerDisplayManager(
         // Swift arrives at the same place from the other direction: BannerDisplayView
         // reads geometry.safeAreaInsets and hands them to the chrome, which ignores the
         // safe area for its background only.
-        ViewCompat.setOnApplyWindowInsetsListener(popupContainer) { _, windowInsets ->
-            val bars = windowInsets.getInsets(
-                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
-            )
-            // Floored at statusBarHeight, not just bars.top: a window that reports zero
-            // system-bar insets (observed on some OEM skins even with the status bar drawn
-            // and opaque) would otherwise zero out the content padding and drop the close
-            // button to 8dp — under the status bar rather than below it. bars.top still wins
-            // wherever it exceeds the resource estimate (a taller cutout, a landscape bar),
-            // since the resource is only ever a floor, not the true value.
-            val top = maxOf(bars.top, statusBarHeight)
-            scrollView.setPadding(bars.left, top, bars.right, bars.bottom)
-            (closeButton.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
-                lp.topMargin = top + (8 * dp).toInt()
-                lp.rightMargin = bars.right + (8 * dp).toInt()
-                closeButton.layoutParams = lp
+        //
+        // All of which is the edge-to-edge card's problem. A card the author gave a size to
+        // does not reach the window's edges, so insetting it by the status bar as well would
+        // inset it twice.
+        if (cardWidth == null && cardHeight == null) {
+            ViewCompat.setOnApplyWindowInsetsListener(popupContainer) { _, windowInsets ->
+                val bars = windowInsets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+                )
+                // Floored at statusBarHeight, not just bars.top: a window that reports zero
+                // system-bar insets (observed on some OEM skins even with the status bar drawn
+                // and opaque) would otherwise zero out the content padding and drop the close
+                // button to 8dp — under the status bar rather than below it. bars.top still wins
+                // wherever it exceeds the resource estimate (a taller cutout, a landscape bar),
+                // since the resource is only ever a floor, not the true value.
+                val top = maxOf(bars.top, statusBarHeight)
+                scrollView.setPadding(bars.left, top, bars.right, bars.bottom)
+                (closeButton.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+                    lp.topMargin = top + (8 * dp).toInt()
+                    lp.rightMargin = bars.right + (8 * dp).toInt()
+                    closeButton.layoutParams = lp
+                }
+                windowInsets
             }
-            windowInsets
         }
 
         // Ensure close button is visible above content
         closeButton.bringToFront()
 
-        val popupParams = FrameLayout.LayoutParams(popupWidth, popupHeight)
+        val popupParams = FrameLayout.LayoutParams(
+            cardWidth ?: WindowManager.LayoutParams.MATCH_PARENT,
+            cardHeight ?: WindowManager.LayoutParams.MATCH_PARENT,
+            // Inert while the card fills the window, which is what makes it safe at the default:
+            // a card can only move once the author has given it a size.
+            chrome.verticalGravity(Gravity.CENTER_VERTICAL) or
+                chrome.horizontalGravity(Gravity.CENTER_HORIZONTAL)
+        ).apply {
+            // Set on both edges of the axis: for a card anchored to one of them the other is
+            // inert, and for a card that still spans the axis the pair reads as an inset.
+            chrome.offsetVerticalPx(screenHeight)?.let { topMargin = it; bottomMargin = it }
+            chrome.offsetHorizontalPx(screenWidth)?.let { leftMargin = it; rightMargin = it }
+        }
         // No overlay — full-screen popup replaces the screen
         val rootLayout = FrameLayout(ctx)
         rootLayout.addView(popupContainer, popupParams)
@@ -474,24 +508,32 @@ class BannerDisplayManager(
     private fun showBarBanner(banner: BannerResponse) {
         val ctx = activity ?: return
         val root = outerWrapper ?: return
-        val isBottom = banner.displayPosition == "bottom"
+        val chrome = BannerChrome.of(banner, ctx)
 
         val dp = ctx.resources.displayMetrics.density
         val screenWidth = ctx.resources.displayMetrics.widthPixels
-        val verticalPadding = (12 * dp).toInt()
-        val horizontalPadding = (16 * dp).toInt()
-        val availableWidth = screenWidth - horizontalPadding * 2
+        val screenHeight = ctx.resources.displayMetrics.heightPixels
+        // Where the bar sits: `displayPosition == "bottom"` as it always has, now reached through
+        // the chrome's lookup so that an authored key can override it and an unexpected value
+        // cannot fall through an implicit else.
+        val verticalGravity = chrome.verticalGravity(Gravity.TOP)
+        val cardWidth = chrome.widthPx(screenWidth)
+        val verticalPadding = chrome.offsetVerticalPx(screenHeight) ?: (12 * dp).toInt()
+        val horizontalPadding = chrome.offsetHorizontalPx(screenWidth) ?: (16 * dp).toInt()
+        val availableWidth = (cardWidth ?: screenWidth) - horizontalPadding * 2
 
         val contentView = DesignRenderer.render(ctx, banner.design!!, maxWidthPx = availableWidth) { url ->
             trackClick(banner)
             onLinkTap(url)
         }
-        val statusBarPad = if (!isBottom) getStatusBarHeight(ctx) else 0
+        // Only a bar hard against the top of the window has to clear the status bar.
+        val statusBarPad = if (verticalGravity == Gravity.TOP) getStatusBarHeight(ctx) else 0
 
+        // The card: transparent and edge to edge until the author says otherwise.
         val barLayout = FrameLayout(ctx).apply {
-            setBackgroundColor(Color.TRANSPARENT)
             elevation = 10 * dp
         }
+        chrome.applyCardBackground(barLayout, chrome.backgroundColor ?: Color.TRANSPARENT)
 
         val contentWrapper = FrameLayout(ctx).apply {
             setPadding(horizontalPadding, statusBarPad + verticalPadding, horizontalPadding, verticalPadding)
@@ -503,7 +545,8 @@ class BannerDisplayManager(
 
         barLayout.addView(contentWrapper, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            chrome.contentGravity ?: DEFAULT_CHILD_GRAVITY
         ))
 
         // Close button positioned so ~1/4 overlaps the content boundary
@@ -517,7 +560,8 @@ class BannerDisplayManager(
             closeSize, closeSize,
             Gravity.TOP or Gravity.END
         ).apply {
-            topMargin = if (isBottom) verticalPadding - closeOverlap else statusBarPad + verticalPadding - closeOverlap
+            // statusBarPad is zero anywhere but the top, which is the only place it was ever added.
+            topMargin = statusBarPad + verticalPadding - closeOverlap
             rightMargin = horizontalPadding - closeOverlap
         })
         barLayout.clipChildren = false
@@ -525,9 +569,10 @@ class BannerDisplayManager(
 
         // Add to outer wrapper as overlay
         root.addView(barLayout, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            if (isBottom) Gravity.BOTTOM else Gravity.TOP
+            cardWidth ?: ViewGroup.LayoutParams.MATCH_PARENT,
+            chrome.heightPx(screenHeight) ?: ViewGroup.LayoutParams.WRAP_CONTENT,
+            // The horizontal half is inert while the bar spans the width, as it does by default.
+            verticalGravity or chrome.horizontalGravity(Gravity.CENTER_HORIZONTAL)
         ))
     }
 
@@ -535,7 +580,11 @@ class BannerDisplayManager(
     private fun showFlyoutBanner(banner: BannerResponse) {
         val ctx = activity ?: return
         val overlayColor = getOverlayColor(banner)
-        val isLeft = banner.displayPosition == "left"
+        val chrome = BannerChrome.of(banner, ctx)
+        // `displayPosition == "left"` as it always has, now through the chrome's lookup so that an
+        // authored key can override it and an unexpected value cannot fall through an implicit else.
+        val horizontalGravity = chrome.horizontalGravity(Gravity.END)
+        val isLeft = horizontalGravity == Gravity.START
 
         val dialog = Dialog(ctx, android.R.style.Theme_Translucent_NoTitleBar)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -543,7 +592,8 @@ class BannerDisplayManager(
 
         val dp = ctx.resources.displayMetrics.density
         val screenWidth = ctx.resources.displayMetrics.widthPixels
-        val flyoutWidth = (screenWidth * 0.8).toInt()
+        val screenHeight = ctx.resources.displayMetrics.heightPixels
+        val flyoutWidth = chrome.widthPx(screenWidth) ?: (screenWidth * 0.8).toInt()
 
         // Check for body background image
         val bodyValues = getDesignBodyValues(banner)
@@ -569,13 +619,14 @@ class BannerDisplayManager(
             }
         }
 
+        val sideInset = chrome.offsetHorizontalPx(screenWidth) ?: 0
         val flyoutContainer = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.WHITE)
             elevation = 10 * dp
             isClickable = true
-            setPadding(0, getStatusBarHeight(ctx), 0, 0)
+            setPadding(sideInset, chrome.offsetVerticalPx(screenHeight) ?: getStatusBarHeight(ctx), sideInset, 0)
         }
+        chrome.applyCardBackground(flyoutContainer, chrome.backgroundColor ?: Color.WHITE)
 
         // Close button on the outer edge: left flyout → close on right, right flyout → close on left
         val closeButton = buildCloseButton(ctx, banner) {
@@ -600,9 +651,10 @@ class BannerDisplayManager(
 
         // Scrollable content below close button
         val scrollView = ScrollView(ctx).apply {
-            addView(contentView, ViewGroup.LayoutParams(
+            addView(contentView, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                chrome.contentGravity ?: DEFAULT_CHILD_GRAVITY
             ))
         }
         flyoutContainer.addView(scrollView, LinearLayout.LayoutParams(
@@ -635,9 +687,11 @@ class BannerDisplayManager(
             flyoutContainer
         }
 
-        val flyoutGravity = if (isLeft) Gravity.START else Gravity.END
         overlayLayout.addView(flyoutView, FrameLayout.LayoutParams(
-            flyoutWidth, ViewGroup.LayoutParams.MATCH_PARENT, flyoutGravity
+            flyoutWidth,
+            chrome.heightPx(screenHeight) ?: ViewGroup.LayoutParams.MATCH_PARENT,
+            // The vertical half is inert while the flyout spans the height, as it does by default.
+            horizontalGravity or chrome.verticalGravity(Gravity.TOP)
         ))
 
         dialog.setContentView(overlayLayout, ViewGroup.LayoutParams(
