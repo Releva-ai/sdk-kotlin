@@ -14,6 +14,9 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ScrollView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -201,6 +204,101 @@ class BannerChromeTest {
         assertEquals(36f, (card.view.background as GradientDrawable).cornerRadius, 0.01f)
     }
 
+    /**
+     * A `GradientDrawable` corner radius only rounds its own painting, not the card's children —
+     * a design with a body or row background colour would still square off the corners it just
+     * rounded. `clipToOutline` is what actually clips descendants to the rounded rect.
+     */
+    @Test
+    fun `cardBorderRadius clips the card's children to the rounded corners`() {
+        val card = showPopup(cssStyles = mapOf("cardBorderRadius" to "12"))
+
+        assertEquals(true, card.view.clipToOutline)
+    }
+
+    @Test
+    fun `no cardBorderRadius leaves clipToOutline off`() {
+        val card = showPopup(cssStyles = emptyMap())
+
+        assertEquals(false, card.view.clipToOutline)
+    }
+
+    // ---- popup safe-area insets on a partially sized card -------------------------------------
+
+    /**
+     * `cardWidth` alone is the single most natural authored value of the nine, and it still runs
+     * the card the full height of the window — so the top/bottom safe-area inset, and the close
+     * button's clearance, must still apply. Only the left/right inset drops out, since the card no
+     * longer reaches those edges.
+     */
+    // Per-type window insets (`WindowInsetsCompat.Builder.setInsets`) only round-trip faithfully
+    // through a real platform `android.view.WindowInsets` from API 30 on, which is what backs
+    // these three tests' `dispatchInsets` call; below that, androidx's compat shim collapses
+    // everything back to one legacy `systemWindowInsets` value and the per-axis assertions below
+    // would not be exercising what they claim to.
+    @Config(sdk = [30])
+    @Test
+    fun `a popup sized only on width still clears the status bar top and bottom`() {
+        val card = showPopup(cssStyles = mapOf("cardWidth" to "50%"))
+        val popup = card.view as ViewGroup
+        val scrollView = popup.getChildAt(0) as ScrollView
+        val closeButton = popup.getChildAt(1)
+
+        dispatchInsets(card.view, top = 100, left = 20, right = 30, bottom = 40)
+
+        val expectedTop = maxOf(100, statusBarHeight)
+        assertEquals(expectedTop, scrollView.paddingTop)
+        assertEquals(40, scrollView.paddingBottom)
+        assertEquals(0, scrollView.paddingLeft)
+        assertEquals(0, scrollView.paddingRight)
+
+        val lp = closeButton.layoutParams as FrameLayout.LayoutParams
+        assertEquals(expectedTop + (8 * density).toInt(), lp.topMargin)
+        assertEquals((8 * density).toInt(), lp.rightMargin)
+    }
+
+    /** The mirror of the above: sized on height alone, the card still reaches the sides. */
+    @Config(sdk = [30])
+    @Test
+    fun `a popup sized only on height still clears the left and right insets`() {
+        val card = showPopup(cssStyles = mapOf("cardHeight" to "50%"))
+        val popup = card.view as ViewGroup
+        val scrollView = popup.getChildAt(0) as ScrollView
+        val closeButton = popup.getChildAt(1)
+
+        dispatchInsets(card.view, top = 100, left = 20, right = 30, bottom = 40)
+
+        assertEquals(0, scrollView.paddingTop)
+        assertEquals(0, scrollView.paddingBottom)
+        assertEquals(20, scrollView.paddingLeft)
+        assertEquals(30, scrollView.paddingRight)
+
+        val lp = closeButton.layoutParams as FrameLayout.LayoutParams
+        assertEquals((8 * density).toInt(), lp.topMargin)
+        assertEquals(30 + (8 * density).toInt(), lp.rightMargin)
+    }
+
+    /** Sized on both axes, the card reaches no edge, so nothing insets it a second time. */
+    @Config(sdk = [30])
+    @Test
+    fun `a popup sized on both axes is not inset by the safe area on either`() {
+        val card = showPopup(cssStyles = mapOf("cardWidth" to "50%", "cardHeight" to "50%"))
+        val popup = card.view as ViewGroup
+        val scrollView = popup.getChildAt(0) as ScrollView
+        val closeButton = popup.getChildAt(1)
+
+        dispatchInsets(card.view, top = 100, left = 20, right = 30, bottom = 40)
+
+        assertEquals(0, scrollView.paddingTop)
+        assertEquals(0, scrollView.paddingLeft)
+        assertEquals(0, scrollView.paddingRight)
+        assertEquals(0, scrollView.paddingBottom)
+
+        val lp = closeButton.layoutParams as FrameLayout.LayoutParams
+        assertEquals((8 * density).toInt(), lp.topMargin)
+        assertEquals((8 * density).toInt(), lp.rightMargin)
+    }
+
     @Test
     fun `contentVerticalAlign places the content inside the bar card`() {
         val aligned = showBar(cssStyles = mapOf("contentVerticalAlign" to "bottom"))
@@ -356,6 +454,18 @@ class BannerChromeTest {
         show(banner("flyout", cssStyles, displayPosition))
         val flyout = dialogCard()
         return Card(flyout, (flyout.getChildAt(1) as ScrollView).getChildAt(0))
+    }
+
+    /**
+     * Simulates the platform delivering window insets to [view], the same way an
+     * `OnApplyWindowInsetsListener` registered on it would receive them from a real window. The
+     * four values are raw pixels, as `WindowInsetsCompat` reports them, not `dp`.
+     */
+    private fun dispatchInsets(view: View, top: Int, left: Int, right: Int, bottom: Int) {
+        val insets = WindowInsetsCompat.Builder()
+            .setInsets(WindowInsetsCompat.Type.systemBars(), Insets.of(left, top, right, bottom))
+            .build()
+        ViewCompat.dispatchApplyWindowInsets(view, insets)
     }
 
     private fun dialogCard(): ViewGroup {

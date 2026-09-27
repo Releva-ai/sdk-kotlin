@@ -417,7 +417,11 @@ class BannerDisplayManager(
             (32 * dp).toInt(), (32 * dp).toInt(),
             Gravity.TOP or Gravity.END
         ).apply {
-            topMargin = statusBarHeight + (8 * dp).toInt()
+            // Only a card still reaching the top edge (unsized height) needs to clear the status
+            // bar; a card the author gave a height to is not necessarily anywhere near it. The
+            // listener below overwrites this once real insets are available, but the initial
+            // value has to already be right for the first layout pass.
+            topMargin = (if (cardHeight == null) statusBarHeight else 0) + (8 * dp).toInt()
             rightMargin = (8 * dp).toInt()
         })
 
@@ -438,10 +442,14 @@ class BannerDisplayManager(
         // reads geometry.safeAreaInsets and hands them to the chrome, which ignores the
         // safe area for its background only.
         //
-        // All of which is the edge-to-edge card's problem. A card the author gave a size to
-        // does not reach the window's edges, so insetting it by the status bar as well would
-        // inset it twice.
-        if (cardWidth == null && cardHeight == null) {
+        // All of which is the edge-to-edge card's problem, and it is a per-axis problem: a card
+        // the author sized on one axis no longer reaches *that* axis's edges, but an axis still
+        // left at `auto` still does. `cardWidth: "90%"` alone, the single most natural authored
+        // value of the nine, still runs the card the full height of the window — only the width
+        // axis stops needing an inset. So the listener is skipped only when both axes are sized
+        // (nothing reaches any edge, and insetting it would double up); each axis's inset inside
+        // the listener is applied only while that axis is still unsized.
+        if (cardWidth == null || cardHeight == null) {
             ViewCompat.setOnApplyWindowInsetsListener(popupContainer) { _, windowInsets ->
                 val bars = windowInsets.getInsets(
                     WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
@@ -452,11 +460,14 @@ class BannerDisplayManager(
                 // button to 8dp — under the status bar rather than below it. bars.top still wins
                 // wherever it exceeds the resource estimate (a taller cutout, a landscape bar),
                 // since the resource is only ever a floor, not the true value.
-                val top = maxOf(bars.top, statusBarHeight)
-                scrollView.setPadding(bars.left, top, bars.right, bars.bottom)
+                val top = if (cardHeight == null) maxOf(bars.top, statusBarHeight) else 0
+                val bottom = if (cardHeight == null) bars.bottom else 0
+                val left = if (cardWidth == null) bars.left else 0
+                val right = if (cardWidth == null) bars.right else 0
+                scrollView.setPadding(left, top, right, bottom)
                 (closeButton.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
                     lp.topMargin = top + (8 * dp).toInt()
-                    lp.rightMargin = bars.right + (8 * dp).toInt()
+                    lp.rightMargin = right + (8 * dp).toInt()
                     closeButton.layoutParams = lp
                 }
                 windowInsets
@@ -520,7 +531,10 @@ class BannerDisplayManager(
         val cardWidth = chrome.widthPx(screenWidth)
         val verticalPadding = chrome.offsetVerticalPx(screenHeight) ?: (12 * dp).toInt()
         val horizontalPadding = chrome.offsetHorizontalPx(screenWidth) ?: (16 * dp).toInt()
-        val availableWidth = (cardWidth ?: screenWidth) - horizontalPadding * 2
+        // Floored at zero: an absurd authored `cardOffsetHorizontal` or small `cardWidth` could
+        // otherwise go negative and reach `DesignRenderer.render`'s `maxWidthPx`, where Android
+        // reads -1/-2 as MATCH_PARENT/WRAP_CONTENT rather than as "no width at all".
+        val availableWidth = ((cardWidth ?: screenWidth) - horizontalPadding * 2).coerceAtLeast(0)
 
         val contentView = DesignRenderer.render(ctx, banner.design!!, maxWidthPx = availableWidth) { url ->
             trackClick(banner)
@@ -680,8 +694,12 @@ class BannerDisplayManager(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             ))
-            // Make flyout container background transparent so bg image shows through
-            flyoutContainer.setBackgroundColor(Color.TRANSPARENT)
+            // Make flyout container background transparent so bg image shows through. Colouring
+            // the existing drawable rather than replacing it, since a rounded `GradientDrawable`
+            // (an authored `cardBorderRadius`) would otherwise be discarded along with its corner
+            // radius and `clipToOutline`.
+            (flyoutContainer.background as? GradientDrawable)?.setColor(Color.TRANSPARENT)
+                ?: flyoutContainer.setBackgroundColor(Color.TRANSPARENT)
             bgWrapper
         } else {
             flyoutContainer

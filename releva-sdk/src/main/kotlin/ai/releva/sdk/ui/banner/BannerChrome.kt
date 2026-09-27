@@ -78,15 +78,26 @@ internal class BannerChrome(
     /**
      * Paints the card [color], which stays a flat background — exactly what the call sites set
      * today — until a radius is authored and the background has to become a drawable to carry it.
-     * A null [color] with no radius leaves the view's background untouched, which is what a bar's
-     * card has today.
+     * Every call site resolves its own fallback before calling this, so [color] is always non-null
+     * in practice; it stays nullable so a future caller with nothing to paint can leave the view's
+     * background untouched rather than being forced to invent a colour.
+     *
+     * A rounded [GradientDrawable] only rounds its own painting; it does not clip the view's
+     * children, so a design with a body or row background colour would still square off the
+     * corners it just rounded. [View.setClipToOutline] closes that: the platform derives the
+     * outline from this same background (a [GradientDrawable] with a non-zero corner radius emits
+     * a rounded-rect outline), so descendants are clipped to the same rounded rect that is drawn.
+     * Inert whenever no radius is authored, since `clipToOutline` is only set `true` in that branch.
      */
     fun applyCardBackground(view: View, color: Int?) {
         val radius = borderRadiusPx
         when {
-            radius != null -> view.background = GradientDrawable().apply {
-                cornerRadius = radius
-                setColor(color ?: Color.TRANSPARENT)
+            radius != null -> {
+                view.background = GradientDrawable().apply {
+                    cornerRadius = radius
+                    setColor(color ?: Color.TRANSPARENT)
+                }
+                view.clipToOutline = true
             }
             color != null -> view.setBackgroundColor(color)
         }
@@ -123,7 +134,11 @@ internal class BannerChrome(
             text.endsWith("%") -> text.dropLast(1).toFloatOrNull()?.div(100f)?.times(availablePx)
             else -> null
         } ?: return null
-        return if (!allowNegative && px < 0f) null else px.toInt()
+        // A size of zero or less is server-legal but would render an invisible card that has
+        // already fired its impression — reject it here rather than let it reach a layout call.
+        // An offset of zero is meaningful (the bare "0" above already accepts it) and a negative
+        // one insets from the far edge, so only a size (`allowNegative == false`) is held to it.
+        return if (!allowNegative && px <= 0f) null else px.toInt()
     }
 
     companion object {

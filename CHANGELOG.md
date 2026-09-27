@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.5.3
+
+PATCH: the change below changes behaviour but adds and deprecates no public API. Verified with
+`BannerChromeTest.kt` (see that file for coverage); not verified on a physical device.
+
+### Changed
+
+- **Honoured nine `cssStyles` chrome and position keys the API already serves**
+  (`cardBackgroundColor`, `cardWidth`, `cardHeight`, `cardBorderRadius`, `contentVerticalAlign`,
+  `cardPositionVertical`, `cardPositionHorizontal`, `cardOffsetVertical`,
+  `cardOffsetHorizontal`), which this SDK previously ignored on all three dialog-based display
+  types (`popup`, `bar`, `flyout`). A value equal to its documented default changes nothing, so a
+  banner whose author never opened these controls — every banner in production before this
+  release — renders exactly as it did in 1.5.2.
+- **The popup card no longer takes its background colour from the Unlayer design's
+  `popupBackgroundColor`.** That key was always an editor default (our editor never shows the
+  Popup Builder that would let an author set it), not authored intent, and `cardBackgroundColor`
+  now owns the property. Behaviour visible only to an account that had somehow authored
+  `popupBackgroundColor` directly on the design JSON outside the normal editor flow: that popup
+  now renders with the `cardBackgroundColor` default (white) instead.
+
 ## 1.5.2
 
 Released 22 September 2026. PATCH: the fix below changes behaviour but adds and deprecates no
