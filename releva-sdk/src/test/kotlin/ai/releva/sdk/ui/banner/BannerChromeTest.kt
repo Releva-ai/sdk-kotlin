@@ -380,6 +380,12 @@ class BannerChromeTest {
      * sized and centred carries clearance it does not need, which costs it some empty space; the
      * alternative — deciding per edge whether the card still reaches it — errs the other way, and
      * that way lies content underneath a system bar.
+     *
+     * The close button's own position is read the same way the offset tests read a card's: via
+     * `getX()`/`getY()` after a real layout pass, since the button is now placed from
+     * `popupContainer`'s laid-out rect rather than from a `LayoutParams` margin. The expected
+     * values mirror `positionCloseButton`'s own clamp — the card's corner is not always where the
+     * button lands, and it must not be wherever that corner would put it under a system bar.
      */
     // Per-type window insets (`WindowInsetsCompat.Builder.setInsets`) only round-trip faithfully
     // through a real platform `android.view.WindowInsets` from API 30 on, which is what backs
@@ -397,6 +403,7 @@ class BannerChromeTest {
             val card = showPopup(cssStyles = cssStyles)
             val scrollView = (card.view as ViewGroup).getChildAt(0) as ScrollView
             val closeButton = popupCloseButton()
+            layoutDialog()
 
             dispatchInsets(card.view, top = 100, left = 20, right = 30, bottom = 40)
 
@@ -406,10 +413,42 @@ class BannerChromeTest {
             assertEquals("$cssStyles", 30, scrollView.paddingRight)
             assertEquals("$cssStyles", 40, scrollView.paddingBottom)
 
-            val lp = closeButton.layoutParams as FrameLayout.LayoutParams
-            assertEquals("$cssStyles", expectedTop + (8 * density).toInt(), lp.topMargin)
-            assertEquals("$cssStyles", 30 + (8 * density).toInt(), lp.rightMargin)
+            val closeSize = (32 * density).toInt()
+            val closeMargin = (8 * density).toInt()
+            val maxX = (screenWidth - 30 - closeMargin - closeSize).toFloat()
+            val minY = (expectedTop + closeMargin).toFloat()
+            val expectedX = (card.view.x + card.view.width - closeSize - closeMargin).coerceAtMost(maxX)
+            val expectedY = (card.view.y + closeMargin).coerceAtLeast(minY)
+            assertEquals("$cssStyles", expectedX, closeButton.x, 0.01f)
+            assertEquals("$cssStyles", expectedY, closeButton.y, 0.01f)
         }
+    }
+
+    /**
+     * The finding this pins: a card the author has shrunk and centred must not leave its close
+     * button in the screen's corner with nothing behind it (the popup path has no scrim). The
+     * button now tracks `popupContainer`'s own laid-out rect — its top-right corner, inset by the
+     * same margin the window-corner case always used — via the `OnLayoutChangeListener`
+     * registered on it, rather than a `LayoutParams` margin fixed to the window.
+     */
+    @Test
+    fun `a popup's close button sits at a sized and centred card's own corner, not the window's`() {
+        val card = showPopup(cssStyles = mapOf("cardWidth" to "50%", "cardHeight" to "50%"))
+        layoutDialog()
+        val closeButton = popupCloseButton()
+
+        val closeSize = (32 * density).toInt()
+        val closeMargin = (8 * density).toInt()
+
+        // The card is well clear of every screen edge at 50%/50% centred, so the button's own
+        // safe-area clamp cannot be what is putting it here — this is the card's corner, not the
+        // window's (which the test above covers).
+        assertEquals(card.view.x + card.view.width - closeSize - closeMargin, closeButton.x, 0.01f)
+        assertEquals(card.view.y + closeMargin, closeButton.y, 0.01f)
+        assertTrue(
+            "must not be left at the window's corner",
+            closeButton.x < screenWidth - closeSize - closeMargin - 1f
+        )
     }
 
     /**
@@ -418,20 +457,16 @@ class BannerChromeTest {
      * it is not once `cardWidth` can make the card narrower than the button's own box, because
      * `ViewGroup.dispatchTouchEvent` only forwards a pointer to a child the pointer falls inside,
      * so the part of the button hanging outside the card would not be tappable — on a modal that
-     * blocks the screen and is re-shown after a rotation. Keeping the button on the window keeps
-     * it reachable at any card size.
+     * blocks the screen and is re-shown after a rotation. Staying a sibling of the card, rather
+     * than its child, keeps it reachable at any card size regardless of where it is positioned.
      */
     @Test
-    fun `a popup's close button is on the window and not inside the card`() {
+    fun `a popup's close button is a sibling of the card, not a child, and stays clickable`() {
         val card = showPopup(cssStyles = mapOf("cardWidth" to "10px", "cardHeight" to "10px"))
         val closeButton = popupCloseButton()
 
         assertEquals("the card must be smaller than the button for this to mean anything", 30, card.params.width)
         assertEquals(-1, (card.view as ViewGroup).indexOfChild(closeButton))
-        assertEquals(
-            Gravity.TOP or Gravity.END,
-            (closeButton.layoutParams as FrameLayout.LayoutParams).gravity
-        )
 
         closeButton.performClick()
         shadowOf(Looper.getMainLooper()).idle()
@@ -509,6 +544,20 @@ class BannerChromeTest {
         val card = showBar(mapOf("cardPositionVertical" to "top"), displayPosition = "bottom")
 
         assertEquals(Gravity.TOP, card.verticalGravity)
+    }
+
+    /**
+     * The half of the above the existing gravity assertion doesn't reach: `statusBarPad` and the
+     * close button's `topMargin` both key off `verticalGravity == Gravity.TOP`, and on master that
+     * was driven only by `displayPosition`. An authored `cardPositionVertical` can now take
+     * `verticalGravity` off `TOP` with `displayPosition` absent entirely, which this pins by
+     * asserting the padding it drops rather than only the gravity that drops it.
+     */
+    @Test
+    fun `cardPositionVertical bottom drops a bar's status-bar padding without displayPosition`() {
+        val card = showBar(mapOf("cardPositionVertical" to "bottom"))
+
+        assertEquals((12 * density).toInt(), card.content.paddingTop)
     }
 
     @Test

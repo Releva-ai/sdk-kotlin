@@ -28,7 +28,15 @@ internal class BannerChrome(
     private val density: Float
 ) {
 
-    /** The card's colour, or null to leave the colour the call site already uses in place. */
+    /**
+     * The card's colour, or null to leave the colour the call site already uses in place. That
+     * "in place" fallback, not this property's own default, is what an author sees at
+     * `#fefefe` — the documented default — since [authored] treats the two as equal and answers
+     * null for either. An author who explicitly sets `#fefefe` on a bar (whose fallback is
+     * transparent, not near-white) therefore gets a transparent card, the same as one who never
+     * touched the key at all. Deliberate: painting `#fefefe` on every bar by default would be a
+     * worse regression than one author-typed value being read as "unchanged".
+     */
     val backgroundColor: Int?
         get() = DesignRenderer.parseColor(authored(CARD_BACKGROUND_COLOR, DEFAULT_BACKGROUND_COLOR))
 

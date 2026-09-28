@@ -448,22 +448,43 @@ class BannerDisplayManager(
         // safe while the card was always the whole window. Once `cardWidth`/`cardHeight` can
         // shrink the card, a button anchored inside it hangs outside its bounds — and
         // `ViewGroup.dispatchTouchEvent` only forwards a pointer to a child it falls inside, so
-        // the one way out of a screen-blocking modal would stop responding. At the default the
-        // card fills the window, so the button is laid out exactly where it always was.
+        // the one way out of a screen-blocking modal would stop responding. Staying a sibling of
+        // the card keeps it dispatchable at any size; what follows is how it stays visually
+        // attached to the card instead of floating in the window's corner once the card no
+        // longer fills the window.
         val statusBarHeight = getStatusBarHeight(ctx)
         val closeButton = buildCloseButton(ctx, banner) {
             dialog.dismiss()
             closeBanner(banner)
         }
-        val closeParams = FrameLayout.LayoutParams(
-            (32 * dp).toInt(), (32 * dp).toInt(),
-            Gravity.TOP or Gravity.END
-        ).apply {
-            // The listener below overwrites this once real insets are available, but the initial
-            // value has to already be right for the first layout pass.
-            topMargin = statusBarHeight + (8 * dp).toInt()
-            rightMargin = (8 * dp).toInt()
+        val closeSize = (32 * dp).toInt()
+        val closeMargin = (8 * dp).toInt()
+        val closeParams = FrameLayout.LayoutParams(closeSize, closeSize)
+
+        // The window's safe area, updated by the insets listener below and read every time the
+        // card's own layout moves the button. Starts at statusBarHeight/0 so the very first
+        // layout pass — which can run before the platform has dispatched real insets — already
+        // clears the status bar rather than the literal window edge.
+        var closeSafeTop = statusBarHeight
+        var closeSafeRight = 0
+
+        // Places the button from popupContainer's own laid-out rect — its top-right corner,
+        // inset by closeMargin on each axis — rather than the window's, so it stays attached to
+        // the card at any size or offset the author gives it instead of landing in the screen's
+        // corner with nothing behind it. `View.getX()`/`getY()` already fold in the card's own
+        // translation (the offsets below), so a moved card carries its button with it. Still
+        // clamped into the window's safe area: a card sized or offset far enough to reach an edge
+        // must not push the dialog's only way out past it, off-screen or under a system bar.
+        fun positionCloseButton() {
+            val cardRight = popupContainer.x + popupContainer.width
+            val cardTop = popupContainer.y
+            val maxX = (screenWidth - closeSafeRight - closeMargin - closeSize).toFloat()
+            val minY = (closeSafeTop + closeMargin).toFloat()
+            val maxY = (screenHeight - closeSize).toFloat().coerceAtLeast(minY)
+            closeButton.x = (cardRight - closeSize - closeMargin).coerceIn(0f, maxX.coerceAtLeast(0f))
+            closeButton.y = (cardTop + closeMargin).coerceIn(minY, maxY)
         }
+        popupContainer.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> positionCloseButton() }
 
         // A full-screen popup's *background* is meant to run edge to edge — that is what
         // makes it read as a takeover rather than a card. Its *content* is not: with the
@@ -499,11 +520,9 @@ class BannerDisplayManager(
             // since the resource is only ever a floor, not the true value.
             val top = maxOf(bars.top, statusBarHeight)
             scrollView.setPadding(bars.left, top, bars.right, bars.bottom)
-            (closeButton.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
-                lp.topMargin = top + (8 * dp).toInt()
-                lp.rightMargin = bars.right + (8 * dp).toInt()
-                closeButton.layoutParams = lp
-            }
+            closeSafeTop = top
+            closeSafeRight = bars.right
+            positionCloseButton()
             windowInsets
         }
 
@@ -518,10 +537,11 @@ class BannerDisplayManager(
         val rootLayout = FrameLayout(ctx)
         rootLayout.addView(popupContainer, popupParams)
         // Displaces the card from wherever the gravity above put it. The close button is not a
-        // child of the card, so it deliberately stays where the window's insets put it.
+        // child of the card, so this alone does not move it — the OnLayoutChangeListener above
+        // does, the next time popupContainer's layout runs.
         chrome.applyOffsets(popupContainer, verticalGravity, horizontalGravity, screenWidth, screenHeight)
-        // Added after the card, so it draws above it — and on the window, so it is reachable
-        // whatever the author did to the card's size.
+        // Added after the card, so it draws above it — and a sibling rather than a child, so it
+        // is reachable whatever the author did to the card's size.
         rootLayout.addView(closeButton, closeParams)
 
         dialog.setContentView(rootLayout, ViewGroup.LayoutParams(
@@ -638,7 +658,10 @@ class BannerDisplayManager(
         // authored key can override it and an unexpected value cannot fall through an implicit
         // else. This is the SDK's one horizontal `displayPosition`.
         val horizontalGravity = chrome.horizontalGravity(chrome.horizontalFromDisplayPosition(Gravity.END))
-        val isLeft = horizontalGravity == Gravity.START
+        // Named for what it decides — which edge the close button goes on — rather than for the
+        // card's own anchor, because `horizontalGravity` can now also be `CENTER_HORIZONTAL` once
+        // `cardPositionHorizontal: "center"` is authored, and a centred card is not "left".
+        val closeOnTrailingEdge = horizontalGravity == Gravity.START
         // The flyout has never read `displayPosition` on this axis, so this half is only ever an
         // authored key, and it is inert while the card spans the height as it does by default.
         val verticalGravity = chrome.verticalGravity(Gravity.TOP)
@@ -695,14 +718,14 @@ class BannerDisplayManager(
             dialog.dismiss()
             closeBanner(banner)
         }
-        val closeGravity = if (isLeft) Gravity.TOP or Gravity.END else Gravity.TOP or Gravity.START
+        val closeGravity = if (closeOnTrailingEdge) Gravity.TOP or Gravity.END else Gravity.TOP or Gravity.START
         val closeRow = FrameLayout(ctx).apply {
             addView(closeButton, FrameLayout.LayoutParams(
                 (32 * dp).toInt(), (32 * dp).toInt(),
                 closeGravity
             ).apply {
                 topMargin = (8 * dp).toInt()
-                if (isLeft) rightMargin = (8 * dp).toInt() else leftMargin = (8 * dp).toInt()
+                if (closeOnTrailingEdge) rightMargin = (8 * dp).toInt() else leftMargin = (8 * dp).toInt()
                 bottomMargin = (8 * dp).toInt()
             })
         }

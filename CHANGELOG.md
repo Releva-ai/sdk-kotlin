@@ -19,11 +19,18 @@ PATCH: the change below changes behaviour but adds and deprecates no public API.
   translate the card rather than inset or pad it, so a positive value moves it away from the edge
   it is anchored to and down or right on an axis where it is centred — the same displacement, and
   the same sign, as the Swift, React Native and Flutter SDKs.
-- **The popup's close button is now attached to the dialog window rather than to the card.** The
-  popup dialog is deliberately not dismissable any other way, and a card the author has given a
-  `cardWidth` to can be narrower than the button, which would leave part of it outside the card
-  and untappable. At the default the card fills the window, so the button is laid out exactly
-  where it was in 1.5.2.
+- **The popup's close button is now a sibling of the card, not a child of it, and tracks the
+  card's own laid-out corner.** The popup dialog is deliberately not dismissable any other way,
+  and a card the author has given a `cardWidth` to can be narrower than the button, which would
+  leave part of it outside the card and untappable — `ViewGroup.dispatchTouchEvent` only forwards
+  a pointer to a child it falls inside. Being a sibling of the card keeps it reachable at any card
+  size; being positioned from the card's own top-right corner — via an `OnLayoutChangeListener` on
+  the card, rather than the gravity a true child could use — keeps it visually attached to the card
+  instead of the window, so a card the author has sized or centred keeps its close button attached
+  to it rather than leaving it floating in the screen's corner with nothing behind it (the popup
+  path has no scrim). Still clamped into the window's safe area, so it cannot be pushed off screen
+  or under a system bar. At the default the card fills the window, so the button is laid out
+  exactly where it was in 1.5.2.
 - **The popup card no longer takes its background colour from the Unlayer design's
   `popupBackgroundColor`.** That key was always an editor default (our editor never shows the
   Popup Builder that would let an author set it), not authored intent, and `cardBackgroundColor`
