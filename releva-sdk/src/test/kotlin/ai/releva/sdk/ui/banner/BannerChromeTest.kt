@@ -500,10 +500,55 @@ class BannerChromeTest {
         assertEquals("horizontal is not", 0, tallOnly.params.leftMargin)
         assertEquals("nor inset", 0, tallOnly.params.rightMargin)
 
-        // Bars that go away unwind: the margins reset rather than sticking at their last value.
+        // Bars that go away unwind — down to the STATUS-BAR FLOOR on the top edge, not to zero.
+        // That floor is the same one the content padding has always carried: some OEM skins
+        // report zero insets with the bar drawn and opaque, so a reported zero is not evidence
+        // the bar is gone. The margin reads the floored value because the padding it is paired
+        // with does, and the two must not disagree about where the bar is. A centred axis takes
+        // half the difference, so the floor arrives halved here.
         dispatchInsets(tallOnly.view, top = 0, left = 0, right = 0, bottom = 0)
-        assertEquals("an immersive toggle unwinds", 0, tallOnly.params.topMargin)
-        assertEquals("on both edges", 0, tallOnly.params.bottomMargin)
+        assertEquals("unwinds to the floor, not past it", statusBarHeight / 2, tallOnly.params.topMargin)
+        assertEquals("and the bottom, which has no floor, to zero", 0, tallOnly.params.bottomMargin)
+    }
+
+    /**
+     * The flyout's half of the same rule, which had no assertion at all until this test: the gate
+     * could have been deleted and the suite would have stayed green.
+     *
+     * The first attempt here used `screenHeight - statusBarHeight` — no bottom inset, no
+     * reference to the anchor — and a flyout's vertical gravity is author-settable, so a card
+     * around 92% tall passed it on the `bottom` and `center` arms and was then laid out with its
+     * own top edge under the status bar. `100%` was caught, which is what made that shape look
+     * complete, so the tall-but-not-full case is the one asserted here.
+     *
+     * 92% is chosen to DISCRIMINATE, not for roundness: at this harness's geometry the old shape
+     * drops the padding at or below 1310px and the correct one at or below 1270px, so only a card
+     * between those two separates them. 93% sits above both and would have passed either way —
+     * which it did, until the differential run showed the test was green for the wrong reason.
+     */
+    @Test
+    @Config(sdk = [30])
+    fun `a tall flyout that still covers a bar keeps its content padding`() {
+        // Fits inside the visible box: the card is clear, and the clearance comes off the content.
+        val fits = showFlyout(mapOf("cardHeight" to "40%"), displayPosition = "right")
+        layoutDialog()
+        dispatchInsets(fits.view, top = 100, left = 0, right = 0, bottom = 40)
+        assertEquals("a flyout inside the visible box drops it", 0, flyoutContent(fits).paddingTop)
+
+        // Tall enough to cover a bar on an anchored arm, but NOT 100% — the case the first shape
+        // let through. The padding has to stay.
+        for (anchor in listOf("bottom", "center")) {
+            val tall = showFlyout(
+                mapOf("cardHeight" to "92%", "cardPositionVertical" to anchor),
+                displayPosition = "right"
+            )
+            layoutDialog()
+            dispatchInsets(tall.view, top = 100, left = 0, right = 0, bottom = 40)
+            assertEquals(
+                "a 92% flyout anchored $anchor still covers a bar",
+                maxOf(100, statusBarHeight), flyoutContent(tall).paddingTop
+            )
+        }
     }
 
     /**
@@ -945,6 +990,9 @@ class BannerChromeTest {
     }
 
     /** The flyout's card: the dialog's overlay holds it, and its second child is the scroller. */
+    /** The `flyoutContainer` whose top padding is the flyout's status-bar clearance. */
+    private fun flyoutContent(card: Card): View = card.view
+
     private fun showFlyout(cssStyles: Map<String, Any?>, displayPosition: String?): Card {
         show(banner("flyout", cssStyles, displayPosition))
         val flyout = dialogCard()

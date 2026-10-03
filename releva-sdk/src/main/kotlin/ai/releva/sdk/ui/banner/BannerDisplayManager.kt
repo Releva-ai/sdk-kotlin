@@ -12,6 +12,7 @@ import android.util.Log
 import android.view.*
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
@@ -547,8 +548,16 @@ class BannerDisplayManager(
             // So: sized on this axis, fits inside the visible box on it, and not translated along
             // it. All three are values already in scope, and anything that fails one keeps the
             // padding it has always had.
-            val visibleH = screenHeight - bars.top - bars.bottom
-            val visibleW = screenWidth - bars.left - bars.right
+            // `top`, not `bars.top`. The floor exists because some OEM skins report zero
+            // system-bar insets with the status bar drawn and opaque, and the gate has to agree
+            // with the padding it gates: reading the unfloored value there would declare a sized
+            // card clear on exactly those devices, hand it `topMargin = 0`, and drop the floored
+            // padding — the heading-under-the-status-bar case, reintroduced for the cards this
+            // change adds. applyAnchorInsets is given the same floored value for the same reason,
+            // so the margin and the padding cannot disagree about where the bar is.
+            val effective = Insets.of(bars.left, top, bars.right, bars.bottom)
+            val visibleH = screenHeight - effective.top - effective.bottom
+            val visibleW = screenWidth - effective.left - effective.right
             val clearV = cardHeight != null && cardHeight <= visibleH &&
                 chrome.verticalOffsetPx(screenHeight) == null
             val clearH = cardWidth != null && cardWidth <= visibleW &&
@@ -564,7 +573,7 @@ class BannerDisplayManager(
             closeSafeRight = bars.right
             // A sized card anchored to an edge is placed inside the bars, not under them.
             applyAnchorInsets(
-                popupContainer, bars,
+                popupContainer, effective,
                 sizedVertically = cardHeight != null, sizedHorizontally = cardWidth != null,
                 verticalGravity = verticalGravity, horizontalGravity = horizontalGravity
             )
@@ -787,25 +796,22 @@ class BannerDisplayManager(
             }
         }
 
-        // The same clearance question the popup asks, on the display type that also got a margin.
-        // Since a cardHeight-sized flyout takes `topMargin = bars.top` from applyAnchorInsets, its
-        // card is already below the status bar, and padding its content for that bar again starts
-        // the design a status bar below the card's own painted top edge — the CHR-07 symptom, on
-        // the other display type. Dropped only where the card is provably clear: sized on this
-        // axis, fitting inside the visible box, and not translated along it. The status bar comes
-        // from the resource rather than live insets because this path has no listener of its own
-        // for the padding — the margin does use real insets, so this is the conservative side of
-        // the two, which is the right way round for a padding that stops content hiding.
-        val flyoutStatusPad = getStatusBarHeight(ctx)
-        val flyoutHeightPx = chrome.heightPx(screenHeight)
-        val flyoutClearV = flyoutHeightPx != null &&
-            flyoutHeightPx <= screenHeight - flyoutStatusPad &&
-            chrome.verticalOffsetPx(screenHeight) == null
+        // The same clearance question the popup asks, in the SAME SHAPE. The first attempt at this
+        // used `screenHeight - statusBarHeight` — no bottom inset and no reference to the anchor —
+        // which is wrong because a flyout's vertical gravity is author-settable: on the `bottom`
+        // and `center` arms a card around 93% tall passed that gate and was then laid out with its
+        // own top edge under the status bar, with the padding gone. `100%` was caught, which is
+        // what made the reasoning look complete.
+        //
+        // So it is decided in the insets listener below, where the real bars are, against
+        // `screenHeight - top - bottom` exactly as the popup is. Starts as the padding this path
+        // has always had, and is only ever REMOVED once the insets arrive — a flyout that never
+        // receives them keeps the clearance rather than losing it.
         val flyoutContainer = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             elevation = 10 * dp
             isClickable = true
-            setPadding(0, if (flyoutClearV) 0 else flyoutStatusPad, 0, 0)
+            setPadding(0, getStatusBarHeight(ctx), 0, 0)
         }
         // Applied here only without a background image: with one, bgWrapper below is the view
         // that is actually the card, and the chrome has to go there instead.
@@ -901,11 +907,20 @@ class BannerDisplayManager(
             // through — ~48dp of it in landscape with three-button navigation. The vertical axis
             // is sized only when the author gave a `cardHeight`, and that is the axis where a
             // flyout can be anchored away from the edge it is docked to.
+            val fTop = maxOf(bars.top, getStatusBarHeight(ctx))
+            val fEffective = Insets.of(bars.left, fTop, bars.right, bars.bottom)
+            val fHeight = chrome.heightPx(screenHeight)
             applyAnchorInsets(
-                flyoutView, bars,
-                sizedVertically = chrome.heightPx(screenHeight) != null, sizedHorizontally = false,
+                flyoutView, fEffective,
+                sizedVertically = fHeight != null, sizedHorizontally = false,
                 verticalGravity = verticalGravity, horizontalGravity = horizontalGravity
             )
+            // Clear on the same three clauses as the popup: sized, fits inside the visible box,
+            // and not translated along the axis.
+            val fClearV = fHeight != null &&
+                fHeight <= screenHeight - fEffective.top - fEffective.bottom &&
+                chrome.verticalOffsetPx(screenHeight) == null
+            flyoutContainer.setPadding(0, if (fClearV) 0 else fTop, 0, 0)
             windowInsets
         }
         // flyoutView, not flyoutContainer: with a background image the card is the wrapper around
