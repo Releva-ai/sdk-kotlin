@@ -102,7 +102,18 @@ class BannerChromeTest {
         assertEquals(Gravity.TOP, card.verticalGravity)
         assertEquals(Color.TRANSPARENT, card.color)
         assertEquals((16 * density).toInt(), card.content.paddingLeft)
-        assertEquals(statusBarHeight + (12 * density).toInt(), card.content.paddingTop)
+        // The status-bar clearance moved from the content's padding to the CARD's top margin, so
+        // the card's own background stops short of the clock instead of running up behind it.
+        // The content does not move: it was at statusBarPad + 12 inside a card at y=0 and is now
+        // at 12 inside a card at y=statusBarPad, which is what the next two assertions pin — a
+        // default bar has no background to see, so nothing it DRAWS changes.
+        assertEquals((12 * density).toInt(), card.content.paddingTop)
+        assertEquals(statusBarHeight, card.params.topMargin)
+        assertEquals(
+            "the content's absolute top is unchanged",
+            statusBarHeight + (12 * density).toInt(),
+            card.params.topMargin + card.content.paddingTop
+        )
         assertEquals((12 * density).toInt(), card.content.paddingBottom)
     }
 

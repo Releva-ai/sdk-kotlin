@@ -522,6 +522,12 @@ class BannerDisplayManager(
             scrollView.setPadding(bars.left, top, bars.right, bars.bottom)
             closeSafeTop = top
             closeSafeRight = bars.right
+            // A sized card anchored to an edge is placed inside the bars, not under them.
+            applyAnchorInsets(
+                popupContainer, bars,
+                sizedVertically = cardHeight != null, sizedHorizontally = cardWidth != null,
+                verticalGravity = verticalGravity, horizontalGravity = horizontalGravity
+            )
             positionCloseButton()
             windowInsets
         }
@@ -603,7 +609,21 @@ class BannerDisplayManager(
             trackClick(banner)
             onLinkTap(url)
         }
-        // Only a bar hard against the top of the window has to clear the status bar.
+        // Only a bar hard against the top of the window has to clear the status bar — and it is the
+        // CARD that clears it, not the content inside it.
+        //
+        // This used to be the content wrapper's top padding, which held the design clear of the
+        // clock but left the card's own background running up behind it. Invisible while a bar
+        // had no background, which is every banner before `cardBackgroundColor` existed; plainly
+        // wrong once one does, and worst on a card the author narrowed — CHR-02's 240dp centred
+        // card was photographed on 2026-10-03 with the status bar's clock and battery drawn over
+        // its magenta, which is nobody's intent for a floating card.
+        //
+        // THE CONTENT DOES NOT MOVE. It was at `statusBarPad + verticalPadding` inside a card at
+        // y=0; it is now at `verticalPadding` inside a card at y=statusBarPad. Same absolute
+        // position, and the card's bottom is unchanged too — only its top edge, and the
+        // background that used to reach past it, come down. A banner carrying none of these keys
+        // has no background to see, so the default path is unchanged in what it draws.
         val statusBarPad = if (verticalGravity == Gravity.TOP) getStatusBarHeight(ctx) else 0
 
         // The card: transparent and edge to edge until the author says otherwise.
@@ -613,7 +633,7 @@ class BannerDisplayManager(
         chrome.applyCardBackground(barLayout, chrome.backgroundColor ?: Color.TRANSPARENT)
 
         val contentWrapper = FrameLayout(ctx).apply {
-            setPadding(horizontalPadding, statusBarPad + verticalPadding, closeGutter, verticalPadding)
+            setPadding(horizontalPadding, verticalPadding, closeGutter, verticalPadding)
             addView(contentView, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -637,8 +657,9 @@ class BannerDisplayManager(
             closeSize, closeSize,
             Gravity.TOP or Gravity.END
         ).apply {
-            // statusBarPad is zero anywhere but the top, which is the only place it was ever added.
-            topMargin = statusBarPad + verticalPadding - closeOverlap
+            // No statusBarPad: the CARD now clears the status bar, so the control is positioned
+            // from the card's own top edge like every other child of it.
+            topMargin = verticalPadding - closeOverlap
             rightMargin = horizontalPadding - closeOverlap
         })
         barLayout.clipChildren = false
@@ -649,7 +670,7 @@ class BannerDisplayManager(
             cardWidth ?: ViewGroup.LayoutParams.MATCH_PARENT,
             chrome.heightPx(screenHeight) ?: ViewGroup.LayoutParams.WRAP_CONTENT,
             verticalGravity or horizontalGravity
-        ))
+        ).apply { topMargin = statusBarPad })
         // The card moves; the paddings above stay what they have always been. Padding the content
         // instead would shrink the area `availableWidth` just rendered the design to fit, and a
         // negative offset — which the contract allows — would give the wrapper a negative padding
@@ -809,6 +830,22 @@ class BannerDisplayManager(
             chrome.heightPx(screenHeight) ?: ViewGroup.LayoutParams.MATCH_PARENT,
             horizontalGravity or verticalGravity
         ))
+        // The same anchored-edge rule the popup applies, and for the same reason: a flyout given a
+        // `cardHeight` and anchored to the bottom was placed against the DISPLAY's bottom, so its
+        // last rows sat behind the navigation bar. A flyout with no cardHeight is pinned top to
+        // bottom and stays full-bleed. This path has no insets listener of its own — the status
+        // bar is read from the resource above — so it gets one.
+        ViewCompat.setOnApplyWindowInsetsListener(flyoutView) { _, windowInsets ->
+            val bars = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            applyAnchorInsets(
+                flyoutView, bars,
+                sizedVertically = chrome.heightPx(screenHeight) != null, sizedHorizontally = true,
+                verticalGravity = verticalGravity, horizontalGravity = horizontalGravity
+            )
+            windowInsets
+        }
         // flyoutView, not flyoutContainer: with a background image the card is the wrapper around
         // both, and translating the inner one would slide the content off its own image.
         chrome.applyOffsets(flyoutView, verticalGravity, horizontalGravity, screenWidth, screenHeight)
@@ -975,6 +1012,51 @@ class BannerDisplayManager(
         DesignRenderer.parseColor(bodyValues["popupOverlay_backgroundColor"])?.let { return it }
         DesignRenderer.parseColor(banner.cssStyles["overlayColor"])?.let { return it }
         return Color.argb(128, 0, 0, 0)
+    }
+
+    /**
+     * Keep a card the author SIZED clear of the system bar it is anchored to.
+     *
+     * A card with no size on an axis is MATCH_PARENT and is meant to run edge to edge: a
+     * full-bleed takeover whose background deliberately passes under the bars while its content
+     * is padded clear of them. A card the author gave a size is not that. `cardPositionVertical:
+     * "bottom"` on a 300dp card means "at the bottom", and anchoring it to the DISPLAY's bottom
+     * puts its last rows behind the navigation bar — where a `cardOffsetVertical` meant to lift
+     * it clear of that edge buys nothing, because the edge it is measured from is itself behind
+     * the bar. Measured on a device 2026-10-03: CHR-08's 300dp card read 277dp of magenta, the
+     * missing 23 being under the bar, and the 24dp gap the author asked for was invisible.
+     *
+     * Only the ANCHORED edge, and only on an axis the author sized. A centred card is nowhere
+     * near a bar and keeps the display as its box, so centring does not shift; an unsized axis
+     * stays MATCH_PARENT and stays full-bleed, which is what CHR-09 and CHR-13 assert. The
+     * content padding on the scroller is left alone: on an anchored card it now reserves space
+     * the card no longer needs, which is the same clearance a sized-and-centred card has always
+     * carried, and the alternative is a per-edge predicate that puts content UNDER a bar when it
+     * gets the answer wrong.
+     *
+     * sdk-react-native reaches the same place by a different route — its overlay IS the safe
+     * area, so every card it places is inside one already.
+     */
+    private fun applyAnchorInsets(
+        view: View,
+        bars: androidx.core.graphics.Insets,
+        sizedVertically: Boolean,
+        sizedHorizontally: Boolean,
+        verticalGravity: Int,
+        horizontalGravity: Int
+    ) {
+        val lp = view.layoutParams as? FrameLayout.LayoutParams ?: return
+        val v = verticalGravity and Gravity.VERTICAL_GRAVITY_MASK
+        val h = horizontalGravity and (Gravity.START or Gravity.END)
+        val top = if (sizedVertically && v == Gravity.TOP) bars.top else 0
+        val bottom = if (sizedVertically && v == Gravity.BOTTOM) bars.bottom else 0
+        val left = if (sizedHorizontally && h == Gravity.START) bars.left else 0
+        val right = if (sizedHorizontally && h == Gravity.END) bars.right else 0
+        if (lp.leftMargin != left || lp.topMargin != top ||
+            lp.rightMargin != right || lp.bottomMargin != bottom) {
+            lp.setMargins(left, top, right, bottom)
+            view.layoutParams = lp
+        }
     }
 
     private fun getStatusBarHeight(ctx: android.content.Context): Int {
