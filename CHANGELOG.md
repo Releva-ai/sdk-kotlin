@@ -1,5 +1,87 @@
 # Changelog
 
+## 1.5.3
+
+PATCH: the changes below change behaviour but add and deprecate no public API. Verified with
+`BannerChromeTest.kt` (see that file for coverage) AND on a physical device — Android 16,
+example-kotlin section Q, 17 rows measured and photographed. The two chrome-layout fixes came
+out of reading those photographs: neither is visible to a Robolectric assertion, because both
+are about what a card PAINTS rather than where its `LayoutParams` put it.
+
+### Fixed
+
+- **The close button no longer covers the start of a bar's copy.** It is an absolute sibling
+  drawn over the content, pulled out by a quarter of itself so it straddles the card's edge —
+  which left it covering the band from 10dp to 34dp in from the right while the content was
+  inset only 16dp, so the tail of a headline was drawn beneath the glyph. The right gutter is
+  now 42dp (34 plus clearance) and is applied with `setPaddingRelative`, so it lands on the end
+  side under an RTL layout direction where the button is. **This widens the right gutter on
+  every bar**, authored chrome or not: the collision predates these keys, and a narrower card
+  will now wrap copy that previously ran under the ✕.
+
+- **A bar's card no longer paints behind the status bar.** The clearance for it was the content
+  wrapper's top padding, which held the design clear of the clock but let the card's own
+  background run up behind it. Invisible for as long as a bar had no background — which is every
+  banner before `cardBackgroundColor` — and plainly wrong once one does, worst on a card the
+  author narrowed: a 240dp centred card was photographed with the clock and battery drawn over
+  it. The clearance is now the card's top margin. **The content does not move**: it was at
+  `statusBarPad + 12` inside a card at y=0 and is at `12` inside a card at y=`statusBarPad`, and
+  the card's bottom is unchanged, so a default bar — which is transparent — draws exactly what it
+  drew before.
+
+- **A card the author SIZED is laid out inside the system bars rather than under them.** A popup
+  or flyout given a `cardWidth`/`cardHeight` was placed against the DISPLAY's edges, so a
+  bottom-anchored card put its last rows behind the navigation bar and a `cardOffsetVertical`
+  meant to lift it clear bought nothing — the edge it measures from was itself under the bar. A
+  sized axis is now inset on both of its edges, so an anchored card lands on the bar's inner edge
+  and a centred one is centred in what a person can see. An unsized axis stays `MATCH_PARENT` and
+  stays full-bleed, which is what a takeover popup is; a flyout's own 80% width is not an authored
+  size and keeps its background flush with the edge it is docked to. On a CENTRED axis the inset
+  applied is half the difference between the two bars, not both of them: `FrameLayout` adds
+  `topMargin - bottomMargin` whole when it centres, so equal-to-the-insets margins would overshoot
+  the visible centre by exactly as much as no inset at all undershot it. The content's own
+  padding is dropped on an axis the card is inset on, for the same reason: the card is already
+  clear of that bar, and padding for it twice held `contentVerticalAlign: "bottom"` 63dp short of
+  the card's bottom edge. The padding is dropped only where the card is provably CLEAR of that
+  bar — sized on the axis, fitting inside the visible box, and not translated along it by an
+  offset — because a sized card is not necessarily a clear one: `cardHeight: "100%"` covers both
+  bars exactly as an unsized card does.
+
+### Changed
+
+- **Honoured nine `cssStyles` chrome and position keys the API already serves**
+  (`cardBackgroundColor`, `cardWidth`, `cardHeight`, `cardBorderRadius`, `contentVerticalAlign`,
+  `cardPositionVertical`, `cardPositionHorizontal`, `cardOffsetVertical`,
+  `cardOffsetHorizontal`), which this SDK previously ignored on the three display types that
+  draw a card of their own (`popup`, `bar`, `flyout`). A value equal to its documented default
+  changes nothing, so a banner whose author never opened these controls — every banner in
+  production before this release — renders exactly as it did in 1.5.2 **except for the three
+  chrome-layout changes listed under Fixed below**, which affect every bar and every popup
+  because the defects they close predate these keys. `displayPosition` keeps
+  the role it has today: it is what `cardPositionVertical`/`cardPositionHorizontal` fall back to
+  on the bar's vertical axis and the flyout's horizontal one, and on no other. The two offsets
+  translate the card rather than inset or pad it, so a positive value moves it away from the edge
+  it is anchored to and down or right on an axis where it is centred — the same displacement, and
+  the same sign, as the Swift, React Native and Flutter SDKs.
+- **The popup's close button is now a sibling of the card, not a child of it, and tracks the
+  card's own laid-out corner.** The popup dialog is deliberately not dismissable any other way,
+  and a card the author has given a `cardWidth` to can be narrower than the button, which would
+  leave part of it outside the card and untappable — `ViewGroup.dispatchTouchEvent` only forwards
+  a pointer to a child it falls inside. Being a sibling of the card keeps it reachable at any card
+  size; being positioned from the card's own top-right corner — via an `OnLayoutChangeListener` on
+  the card, rather than the gravity a true child could use — keeps it visually attached to the card
+  instead of the window, so a card the author has sized or centred keeps its close button attached
+  to it rather than leaving it floating in the screen's corner with nothing behind it (the popup
+  path has no scrim). Still clamped into the window's safe area, so it cannot be pushed off screen
+  or under a system bar. At the default the card fills the window, so the button is laid out
+  exactly where it was in 1.5.2.
+- **The popup card no longer takes its background colour from the Unlayer design's
+  `popupBackgroundColor`.** That key was always an editor default (our editor never shows the
+  Popup Builder that would let an author set it), not authored intent, and `cardBackgroundColor`
+  now owns the property. Behaviour visible only to an account that had somehow authored
+  `popupBackgroundColor` directly on the design JSON outside the normal editor flow: that popup
+  now renders with the `cardBackgroundColor` default (white) instead.
+
 ## 1.5.2
 
 Released 22 September 2026. PATCH: the fix below changes behaviour but adds and deprecates no
