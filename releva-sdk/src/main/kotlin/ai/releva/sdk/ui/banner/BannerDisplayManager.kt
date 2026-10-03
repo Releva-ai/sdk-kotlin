@@ -585,11 +585,19 @@ class BannerDisplayManager(
         val barWidth = cardWidth ?: screenWidth
         val verticalPadding = (12 * dp).toInt()
         val horizontalPadding = (16 * dp).toInt()
+        // The close button is an absolute sibling drawn OVER the content: 24dp wide, pulled out
+        // by `closeOverlap` so it straddles the card's edge, which leaves it covering the band
+        // from 10dp to 34dp in from the right. Content padded to 16 runs under it for 18dp and
+        // the tail of a headline is drawn beneath the glyph. Reserve the band instead: 42 is
+        // 34 plus 8 of clearance. This widens the right gutter on EVERY bar, authored chrome or
+        // not — the collision predates the chrome keys, and keeping the default path
+        // byte-identical would be preserving a bug rather than compatibility.
+        val closeGutter = (42 * dp).toInt()
         // Floored before it reaches `DesignRenderer.render`'s `maxWidthPx`: on master the bar was
         // always the screen's width so this could not go negative, and a small authored `cardWidth`
         // now can — where Android reads -1/-2 as MATCH_PARENT/WRAP_CONTENT rather than as "no width
         // at all".
-        val availableWidth = (barWidth - horizontalPadding * 2).coerceAtLeast(0)
+        val availableWidth = (barWidth - horizontalPadding - closeGutter).coerceAtLeast(0)
 
         val contentView = DesignRenderer.render(ctx, banner.design!!, maxWidthPx = availableWidth) { url ->
             trackClick(banner)
@@ -605,7 +613,7 @@ class BannerDisplayManager(
         chrome.applyCardBackground(barLayout, chrome.backgroundColor ?: Color.TRANSPARENT)
 
         val contentWrapper = FrameLayout(ctx).apply {
-            setPadding(horizontalPadding, statusBarPad + verticalPadding, horizontalPadding, verticalPadding)
+            setPadding(horizontalPadding, statusBarPad + verticalPadding, closeGutter, verticalPadding)
             addView(contentView, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -647,6 +655,22 @@ class BannerDisplayManager(
         // negative offset — which the contract allows — would give the wrapper a negative padding
         // and, with `clipChildren` off, draw the design outside the bar altogether.
         chrome.applyOffsets(barLayout, verticalGravity, horizontalGravity, screenWidth, screenHeight)
+
+        // The close button rides on the card, and a bar with no authored width already spans the
+        // screen — so translating it right carries its right edge, and the ✕ with it, off the
+        // display and leaves the banner undismissable. The popup path has always bounded its own
+        // control (positionCloseButton's coerceIn); the bar never did.
+        //
+        // The CARD still moves by exactly the authored amount: the contract is a translation and
+        // is not this file's to bound. Only the control comes back, by the amount of the card now
+        // past the edge — which, for a card that filled the width before the translation, IS the
+        // translation. No measurement needed, and confined to that case: a bar with an authored
+        // cardWidth has slack the offset is probably moving it within, and pulling the control in
+        // there would move it off a card that never left the screen.
+        if (cardWidth == null) {
+            val overflow = barLayout.translationX.coerceAtLeast(0f)
+            if (overflow > 0f) closeButton.translationX = -overflow
+        }
     }
 
     @Suppress("UNCHECKED_CAST")

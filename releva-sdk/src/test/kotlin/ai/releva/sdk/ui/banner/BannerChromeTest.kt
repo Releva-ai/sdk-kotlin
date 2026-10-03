@@ -335,6 +335,46 @@ class BannerChromeTest {
      * that narrowed the card with margins had to subtract it; subtracting it now would render the
      * design into less room than the card actually has and leave a gap down one side.
      */
+
+    /**
+     * The two gaps the React Native pass found in its own SDK and this one shared: the control is
+     * drawn OVER the content unless a band is reserved for it, and it rides on a card that a
+     * horizontal offset can carry off the screen. The existing offset test covers a FLYOUT's
+     * horizontal axis only, so neither of these was exercised here.
+     */
+    @Test
+    fun `a bar reserves the close button's band so a headline cannot run under it`() {
+        val bar = showBar(emptyMap())
+
+        // The button is 24dp pulled out by a quarter of itself, so it covers from 10dp to 34dp in
+        // from the card's right edge. Anything less than 34 here draws copy under the glyph.
+        assertEquals("left gutter is unchanged", (16 * density).toInt(), bar.content.paddingLeft)
+        assertTrue(
+            "right gutter ${bar.content.paddingRight} must clear the control's band (34dp)",
+            bar.content.paddingRight >= (34 * density).toInt()
+        )
+    }
+
+    @Test
+    fun `a full-width bar offset right keeps its close button on screen`() {
+        val moved = showBar(mapOf("cardOffsetHorizontal" to "24px"))
+
+        // The CARD moves by exactly the authored amount — the contract — and the CONTROL comes
+        // back by the overflow, so its on-screen x is where it would have been with no offset.
+        val close = (moved.view as ViewGroup).getChildAt(1)
+        assertEquals("the card still moves", 24f * density, moved.view.translationX, 0.01f)
+        assertEquals("the control comes back", -24f * density, close.translationX, 0.01f)
+
+        // A LEFT-ward offset moves the right edge further inside the screen: nothing to correct.
+        val left = showBar(mapOf("cardOffsetHorizontal" to "-24px"))
+        assertEquals("nothing to correct", 0f, (left.view as ViewGroup).getChildAt(1).translationX, 0.01f)
+
+        // An authored width has slack the offset is probably moving it within, so the control is
+        // left alone rather than pulled off a card that never reached the edge.
+        val sized = showBar(mapOf("cardWidth" to "240px", "cardOffsetHorizontal" to "24px"))
+        assertEquals("a sized bar is left alone", 0f, (sized.view as ViewGroup).getChildAt(1).translationX, 0.01f)
+    }
+
     @Test
     fun `an offset does not narrow the design inside the card`() {
         val card = showPopup(
@@ -366,7 +406,10 @@ class BannerChromeTest {
         assertEquals("a bottom-anchored card moves up", -60f, card.view.translationY, 0.01f)
         assertEquals("a centred axis moves right", 30f, card.view.translationX, 0.01f)
         assertEquals((16 * density).toInt(), card.content.paddingLeft)
-        assertEquals((16 * density).toInt(), card.content.paddingRight)
+        // 42, not 16: the right gutter reserves the close button's band — see
+        // `a bar reserves the close button's band`. What this row is about is that an OFFSET does
+        // not change the paddings, which still holds.
+        assertEquals((42 * density).toInt(), card.content.paddingRight)
         assertEquals((12 * density).toInt(), card.content.paddingTop)
         assertEquals((12 * density).toInt(), card.content.paddingBottom)
     }
