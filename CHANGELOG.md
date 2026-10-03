@@ -2,8 +2,41 @@
 
 ## 1.5.3
 
-PATCH: the change below changes behaviour but adds and deprecates no public API. Verified with
-`BannerChromeTest.kt` (see that file for coverage); not verified on a physical device.
+PATCH: the changes below change behaviour but add and deprecate no public API. Verified with
+`BannerChromeTest.kt` (see that file for coverage) AND on a physical device — Android 16,
+example-kotlin section Q, 17 rows measured and photographed. The two chrome-layout fixes came
+out of reading those photographs: neither is visible to a Robolectric assertion, because both
+are about what a card PAINTS rather than where its `LayoutParams` put it.
+
+### Fixed
+
+- **The close button no longer covers the start of a bar's copy.** It is an absolute sibling
+  drawn over the content, pulled out by a quarter of itself so it straddles the card's edge —
+  which left it covering the band from 10dp to 34dp in from the right while the content was
+  inset only 16dp, so the tail of a headline was drawn beneath the glyph. The right gutter is
+  now 42dp (34 plus clearance) and is applied with `setPaddingRelative`, so it lands on the end
+  side under an RTL layout direction where the button is. **This widens the right gutter on
+  every bar**, authored chrome or not: the collision predates these keys, and a narrower card
+  will now wrap copy that previously ran under the ✕.
+
+- **A bar's card no longer paints behind the status bar.** The clearance for it was the content
+  wrapper's top padding, which held the design clear of the clock but let the card's own
+  background run up behind it. Invisible for as long as a bar had no background — which is every
+  banner before `cardBackgroundColor` — and plainly wrong once one does, worst on a card the
+  author narrowed: a 240dp centred card was photographed with the clock and battery drawn over
+  it. The clearance is now the card's top margin. **The content does not move**: it was at
+  `statusBarPad + 12` inside a card at y=0 and is at `12` inside a card at y=`statusBarPad`, and
+  the card's bottom is unchanged, so a default bar — which is transparent — draws exactly what it
+  drew before.
+
+- **A card the author SIZED is laid out inside the system bars rather than under them.** A popup
+  or flyout given a `cardWidth`/`cardHeight` was placed against the DISPLAY's edges, so a
+  bottom-anchored card put its last rows behind the navigation bar and a `cardOffsetVertical`
+  meant to lift it clear bought nothing — the edge it measures from was itself under the bar. A
+  sized axis is now inset on both of its edges, so an anchored card lands on the bar's inner edge
+  and a centred one is centred in what a person can see. An unsized axis stays `MATCH_PARENT` and
+  stays full-bleed, which is what a takeover popup is; a flyout's own 80% width is not an authored
+  size and keeps its background flush with the edge it is docked to.
 
 ### Changed
 
@@ -13,7 +46,9 @@ PATCH: the change below changes behaviour but adds and deprecates no public API.
   `cardOffsetHorizontal`), which this SDK previously ignored on the three display types that
   draw a card of their own (`popup`, `bar`, `flyout`). A value equal to its documented default
   changes nothing, so a banner whose author never opened these controls — every banner in
-  production before this release — renders exactly as it did in 1.5.2. `displayPosition` keeps
+  production before this release — renders exactly as it did in 1.5.2 **except for the three
+  chrome-layout changes listed under Fixed below**, which affect every bar and every popup
+  because the defects they close predate these keys. `displayPosition` keeps
   the role it has today: it is what `cardPositionVertical`/`cardPositionHorizontal` fall back to
   on the bar's vertical axis and the flyout's horizontal one, and on no other. The two offsets
   translate the card rather than inset or pad it, so a positive value moves it away from the edge

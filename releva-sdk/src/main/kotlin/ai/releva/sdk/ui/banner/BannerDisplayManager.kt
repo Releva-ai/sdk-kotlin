@@ -525,8 +525,7 @@ class BannerDisplayManager(
             // A sized card anchored to an edge is placed inside the bars, not under them.
             applyAnchorInsets(
                 popupContainer, bars,
-                sizedVertically = cardHeight != null, sizedHorizontally = cardWidth != null,
-                verticalGravity = verticalGravity, horizontalGravity = horizontalGravity
+                sizedVertically = cardHeight != null, sizedHorizontally = cardWidth != null
             )
             positionCloseButton()
             windowInsets
@@ -633,7 +632,10 @@ class BannerDisplayManager(
         chrome.applyCardBackground(barLayout, chrome.backgroundColor ?: Color.TRANSPARENT)
 
         val contentWrapper = FrameLayout(ctx).apply {
-            setPadding(horizontalPadding, verticalPadding, closeGutter, verticalPadding)
+            // Relative, not absolute: the control it reserves for is at `Gravity.END`, so under
+            // an RTL layout direction the band belongs on the left and `setPadding` would put it
+            // on the right — copy under the glyph again, mirrored.
+            setPaddingRelative(horizontalPadding, verticalPadding, closeGutter, verticalPadding)
             addView(contentView, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -839,10 +841,16 @@ class BannerDisplayManager(
             val bars = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
+            // sizedHorizontally is FALSE, not `flyoutWidth != null`. A flyout is a panel DOCKED to
+            // a side edge: its 80% width is the SDK's own, not an authored `cardWidth`, and its
+            // background is meant to reach that edge the way a full-bleed card's does. Insetting
+            // it would open a gap between the panel and the screen edge with the scrim showing
+            // through — ~48dp of it in landscape with three-button navigation. The vertical axis
+            // is sized only when the author gave a `cardHeight`, and that is the axis where a
+            // flyout can be anchored away from the edge it is docked to.
             applyAnchorInsets(
                 flyoutView, bars,
-                sizedVertically = chrome.heightPx(screenHeight) != null, sizedHorizontally = true,
-                verticalGravity = verticalGravity, horizontalGravity = horizontalGravity
+                sizedVertically = chrome.heightPx(screenHeight) != null, sizedHorizontally = false
             )
             windowInsets
         }
@@ -1026,9 +1034,10 @@ class BannerDisplayManager(
      * the bar. Measured on a device 2026-10-03: CHR-08's 300dp card read 277dp of magenta, the
      * missing 23 being under the bar, and the 24dp gap the author asked for was invisible.
      *
-     * Only the ANCHORED edge, and only on an axis the author sized. A centred card is nowhere
-     * near a bar and keeps the display as its box, so centring does not shift; an unsized axis
-     * stays MATCH_PARENT and stays full-bleed, which is what CHR-09 and CHR-13 assert. The
+     * Only on an axis the author SIZED, and then on both of its edges: the card's box becomes
+     * the window less the bars and the gravity places it inside that, so an anchored card lands
+     * on the bar's inner edge and a centred one is centred in what a person can see. An unsized
+     * axis stays MATCH_PARENT and stays full-bleed, which is what CHR-09 and CHR-13 assert. The
      * content padding on the scroller is left alone: on an anchored card it now reserves space
      * the card no longer needs, which is the same clearance a sized-and-centred card has always
      * carried, and the alternative is a per-edge predicate that puts content UNDER a bar when it
@@ -1041,17 +1050,19 @@ class BannerDisplayManager(
         view: View,
         bars: androidx.core.graphics.Insets,
         sizedVertically: Boolean,
-        sizedHorizontally: Boolean,
-        verticalGravity: Int,
-        horizontalGravity: Int
+        sizedHorizontally: Boolean
     ) {
         val lp = view.layoutParams as? FrameLayout.LayoutParams ?: return
-        val v = verticalGravity and Gravity.VERTICAL_GRAVITY_MASK
-        val h = horizontalGravity and (Gravity.START or Gravity.END)
-        val top = if (sizedVertically && v == Gravity.TOP) bars.top else 0
-        val bottom = if (sizedVertically && v == Gravity.BOTTOM) bars.bottom else 0
-        val left = if (sizedHorizontally && h == Gravity.START) bars.left else 0
-        val right = if (sizedHorizontally && h == Gravity.END) bars.right else 0
+        // BOTH edges of a sized axis, not just the one the card is anchored to. The box the card
+        // is placed in is the window less the bars, and the gravity then places it inside THAT —
+        // so an anchored card lands on the bar's inner edge and a CENTRED one is centred in what
+        // a person can see. Insetting only the anchored edge would centre a sized card in the
+        // display instead, which on a phone with a 24dp status bar and a 48dp navigation bar
+        // puts it 12dp below the middle of the area it is actually seen in.
+        val top = if (sizedVertically) bars.top else 0
+        val bottom = if (sizedVertically) bars.bottom else 0
+        val left = if (sizedHorizontally) bars.left else 0
+        val right = if (sizedHorizontally) bars.right else 0
         if (lp.leftMargin != left || lp.topMargin != top ||
             lp.rightMargin != right || lp.bottomMargin != bottom) {
             lp.setMargins(left, top, right, bottom)

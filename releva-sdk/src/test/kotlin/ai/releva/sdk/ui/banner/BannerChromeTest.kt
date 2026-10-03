@@ -445,6 +445,51 @@ class BannerChromeTest {
     // through a real platform `android.view.WindowInsets` from API 30 on, which is what backs
     // this test's `dispatchInsets` call; below that, androidx's compat shim collapses everything
     // back to one legacy `systemWindowInsets` value and the per-axis assertions would not be
+    /**
+     * The placement half of the inset work, which the test above does not reach: it uses CENTRED
+     * cards, and until this round only an ANCHORED edge was inset, so every margin came out 0 and
+     * `applyAnchorInsets` was never entered — the suite passed identically with the method
+     * deleted. Each arm is asserted here: a sized axis is inset on BOTH edges so the gravity
+     * places the card inside the bars, an unsized one stays full-bleed, and the two axes are
+     * independent.
+     */
+    @Test
+    @Config(sdk = [30])
+    fun `a sized card is laid out inside the system bars and an unsized one is not`() {
+        // Both axes sized: the card's box is the window less the bars, on all four edges.
+        val sized = showPopup(cssStyles = mapOf("cardWidth" to "200px", "cardHeight" to "300px"))
+        layoutDialog()
+        dispatchInsets(sized.view, top = 100, left = 20, right = 30, bottom = 40)
+        assertEquals("top", 100, sized.params.topMargin)
+        assertEquals("bottom", 40, sized.params.bottomMargin)
+        assertEquals("left", 20, sized.params.leftMargin)
+        assertEquals("right", 30, sized.params.rightMargin)
+
+        // Neither axis sized: a full-bleed takeover keeps the whole window, bars included. Its
+        // CONTENT is held clear of them by the padding the test above asserts.
+        val full = showPopup(cssStyles = emptyMap())
+        layoutDialog()
+        dispatchInsets(full.view, top = 100, left = 20, right = 30, bottom = 40)
+        assertEquals("a full-bleed card takes no top margin", 0, full.params.topMargin)
+        assertEquals("nor bottom", 0, full.params.bottomMargin)
+        assertEquals("nor left", 0, full.params.leftMargin)
+        assertEquals("nor right", 0, full.params.rightMargin)
+
+        // The axes are independent: a card sized only vertically is inset only vertically.
+        val tallOnly = showPopup(cssStyles = mapOf("cardHeight" to "300px"))
+        layoutDialog()
+        dispatchInsets(tallOnly.view, top = 100, left = 20, right = 30, bottom = 40)
+        assertEquals("vertical is sized", 100, tallOnly.params.topMargin)
+        assertEquals("and inset", 40, tallOnly.params.bottomMargin)
+        assertEquals("horizontal is not", 0, tallOnly.params.leftMargin)
+        assertEquals("nor inset", 0, tallOnly.params.rightMargin)
+
+        // Bars that go away unwind: the margins reset rather than sticking at their last value.
+        dispatchInsets(tallOnly.view, top = 0, left = 0, right = 0, bottom = 0)
+        assertEquals("an immersive toggle unwinds", 0, tallOnly.params.topMargin)
+        assertEquals("on both edges", 0, tallOnly.params.bottomMargin)
+    }
+
     // exercising what they claim to.
     @Config(sdk = [30])
     @Test
