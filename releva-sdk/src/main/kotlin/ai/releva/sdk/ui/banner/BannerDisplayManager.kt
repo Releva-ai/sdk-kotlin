@@ -525,7 +525,8 @@ class BannerDisplayManager(
             // A sized card anchored to an edge is placed inside the bars, not under them.
             applyAnchorInsets(
                 popupContainer, bars,
-                sizedVertically = cardHeight != null, sizedHorizontally = cardWidth != null
+                sizedVertically = cardHeight != null, sizedHorizontally = cardWidth != null,
+                verticalGravity = verticalGravity, horizontalGravity = horizontalGravity
             )
             positionCloseButton()
             windowInsets
@@ -662,7 +663,7 @@ class BannerDisplayManager(
             // No statusBarPad: the CARD now clears the status bar, so the control is positioned
             // from the card's own top edge like every other child of it.
             topMargin = verticalPadding - closeOverlap
-            rightMargin = horizontalPadding - closeOverlap
+            marginEnd = horizontalPadding - closeOverlap
         })
         barLayout.clipChildren = false
         barLayout.clipToPadding = false
@@ -850,7 +851,8 @@ class BannerDisplayManager(
             // flyout can be anchored away from the edge it is docked to.
             applyAnchorInsets(
                 flyoutView, bars,
-                sizedVertically = chrome.heightPx(screenHeight) != null, sizedHorizontally = false
+                sizedVertically = chrome.heightPx(screenHeight) != null, sizedHorizontally = false,
+                verticalGravity = verticalGravity, horizontalGravity = horizontalGravity
             )
             windowInsets
         }
@@ -1050,19 +1052,40 @@ class BannerDisplayManager(
         view: View,
         bars: androidx.core.graphics.Insets,
         sizedVertically: Boolean,
-        sizedHorizontally: Boolean
+        sizedHorizontally: Boolean,
+        verticalGravity: Int,
+        horizontalGravity: Int
     ) {
         val lp = view.layoutParams as? FrameLayout.LayoutParams ?: return
+        val vCentred = (verticalGravity and Gravity.VERTICAL_GRAVITY_MASK) == Gravity.CENTER_VERTICAL
+        // HORIZONTAL_GRAVITY_MASK, not `START or END`. CENTER_HORIZONTAL is 0x01 and START/END
+        // are 0x00800003 / 0x00800005, so `and (START or END)` is NON-ZERO for a centred card and
+        // would have read it as anchored. Masked to 0x07 the three are 0x01 / 0x03 / 0x05 and
+        // separate cleanly, which is the same reason the vertical check masks rather than tests
+        // bits.
+        val hCentred =
+            (horizontalGravity and Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.CENTER_HORIZONTAL
         // BOTH edges of a sized axis, not just the one the card is anchored to. The box the card
         // is placed in is the window less the bars, and the gravity then places it inside THAT —
         // so an anchored card lands on the bar's inner edge and a CENTRED one is centred in what
         // a person can see. Insetting only the anchored edge would centre a sized card in the
         // display instead, which on a phone with a 24dp status bar and a 48dp navigation bar
         // puts it 12dp below the middle of the area it is actually seen in.
-        val top = if (sizedVertically) bars.top else 0
-        val bottom = if (sizedVertically) bars.bottom else 0
-        val left = if (sizedHorizontally) bars.left else 0
-        val right = if (sizedHorizontally) bars.right else 0
+        // A CENTRED axis takes HALF the difference, not both insets. FrameLayout.layoutChildren's
+        // CENTER arms add `topMargin - bottomMargin` WHOLE, so margins equal to the two insets
+        // would land the card at displayCentre + (top - bottom) where the visible centre is
+        // displayCentre + (top - bottom)/2 — the same error as no inset at all, with the sign
+        // flipped, and on a 24dp-status / 48dp-navigation phone that is 12dp the other way.
+        // Halving the difference makes FrameLayout's own arithmetic land it on the visible
+        // centre. An ANCHORED axis takes the whole inset: its arm is
+        // `parentTop + topMargin` / `parentBottom - height - bottomMargin`, which is already
+        // the bar's inner edge, and the opposite margin is ignored.
+        val halfV = (bars.top - bars.bottom) / 2
+        val halfH = (bars.left - bars.right) / 2
+        val top = if (!sizedVertically) 0 else if (vCentred) maxOf(halfV, 0) else bars.top
+        val bottom = if (!sizedVertically) 0 else if (vCentred) maxOf(-halfV, 0) else bars.bottom
+        val left = if (!sizedHorizontally) 0 else if (hCentred) maxOf(halfH, 0) else bars.left
+        val right = if (!sizedHorizontally) 0 else if (hCentred) maxOf(-halfH, 0) else bars.right
         if (lp.leftMargin != left || lp.topMargin != top ||
             lp.rightMargin != right || lp.bottomMargin != bottom) {
             lp.setMargins(left, top, right, bottom)

@@ -36,7 +36,10 @@ are about what a card PAINTS rather than where its `LayoutParams` put it.
   sized axis is now inset on both of its edges, so an anchored card lands on the bar's inner edge
   and a centred one is centred in what a person can see. An unsized axis stays `MATCH_PARENT` and
   stays full-bleed, which is what a takeover popup is; a flyout's own 80% width is not an authored
-  size and keeps its background flush with the edge it is docked to.
+  size and keeps its background flush with the edge it is docked to. On a CENTRED axis the inset
+  applied is half the difference between the two bars, not both of them: `FrameLayout` adds
+  `topMargin - bottomMargin` whole when it centres, so equal-to-the-insets margins would overshoot
+  the visible centre by exactly as much as no inset at all undershot it.
 
 ### Changed
 

@@ -456,14 +456,28 @@ class BannerChromeTest {
     @Test
     @Config(sdk = [30])
     fun `a sized card is laid out inside the system bars and an unsized one is not`() {
-        // Both axes sized: the card's box is the window less the bars, on all four edges.
-        val sized = showPopup(cssStyles = mapOf("cardWidth" to "200px", "cardHeight" to "300px"))
+        // Both axes sized AND ANCHORED: the whole inset on each anchored edge, which is the
+        // bar's inner edge.
+        val sized = showPopup(cssStyles = mapOf(
+            "cardWidth" to "200px", "cardHeight" to "300px",
+            "cardPositionVertical" to "bottom", "cardPositionHorizontal" to "right"
+        ))
         layoutDialog()
         dispatchInsets(sized.view, top = 100, left = 20, right = 30, bottom = 40)
         assertEquals("top", 100, sized.params.topMargin)
         assertEquals("bottom", 40, sized.params.bottomMargin)
         assertEquals("left", 20, sized.params.leftMargin)
         assertEquals("right", 30, sized.params.rightMargin)
+
+        // Both axes sized and CENTRED: half the DIFFERENCE, because FrameLayout's CENTER arms add
+        // (topMargin - bottomMargin) whole. 100/40 becomes 30/0 and 20/30 becomes 0/5.
+        val centred = showPopup(cssStyles = mapOf("cardWidth" to "200px", "cardHeight" to "300px"))
+        layoutDialog()
+        dispatchInsets(centred.view, top = 100, left = 20, right = 30, bottom = 40)
+        assertEquals("centred top", 30, centred.params.topMargin)
+        assertEquals("centred bottom", 0, centred.params.bottomMargin)
+        assertEquals("centred left", 0, centred.params.leftMargin)
+        assertEquals("centred right", 5, centred.params.rightMargin)
 
         // Neither axis sized: a full-bleed takeover keeps the whole window, bars included. Its
         // CONTENT is held clear of them by the padding the test above asserts.
@@ -475,12 +489,14 @@ class BannerChromeTest {
         assertEquals("nor left", 0, full.params.leftMargin)
         assertEquals("nor right", 0, full.params.rightMargin)
 
-        // The axes are independent: a card sized only vertically is inset only vertically.
+        // The axes are independent: a card sized only vertically is inset only vertically. Centred
+        // on both axes here, so the vertical pair is the halved difference and the horizontal one
+        // is zero because the axis is MATCH_PARENT — not because it is centred.
         val tallOnly = showPopup(cssStyles = mapOf("cardHeight" to "300px"))
         layoutDialog()
         dispatchInsets(tallOnly.view, top = 100, left = 20, right = 30, bottom = 40)
-        assertEquals("vertical is sized", 100, tallOnly.params.topMargin)
-        assertEquals("and inset", 40, tallOnly.params.bottomMargin)
+        assertEquals("vertical is sized", 30, tallOnly.params.topMargin)
+        assertEquals("and inset", 0, tallOnly.params.bottomMargin)
         assertEquals("horizontal is not", 0, tallOnly.params.leftMargin)
         assertEquals("nor inset", 0, tallOnly.params.rightMargin)
 
@@ -488,6 +504,48 @@ class BannerChromeTest {
         dispatchInsets(tallOnly.view, top = 0, left = 0, right = 0, bottom = 0)
         assertEquals("an immersive toggle unwinds", 0, tallOnly.params.topMargin)
         assertEquals("on both edges", 0, tallOnly.params.bottomMargin)
+    }
+
+    /**
+     * The PLACEMENT, which the margin assertions above cannot see — and the centred axis is where
+     * a margin and a placement come apart. FrameLayout.layoutChildren's CENTER arms add
+     * `topMargin - bottomMargin` WHOLE, so margins equal to the two insets put the card at
+     * displayCentre + (top - bottom) while the visible centre is displayCentre + (top - bottom)/2:
+     * the same error as applying no inset at all, with the sign flipped. Asserted here the way
+     * the offset tests assert theirs, by laying the dialog out and reading the card's own y.
+     *
+     * The insets are deliberately ASYMMETRIC, because every symmetric pair hides this.
+     */
+    @Test
+    @Config(sdk = [30])
+    fun `a centred sized card lands on the centre of what can be seen`() {
+        val cardHeight = 300
+        val card = showPopup(cssStyles = mapOf("cardWidth" to "200px", "cardHeight" to "${cardHeight}px"))
+        layoutDialog()
+        dispatchInsets(card.view, top = 100, left = 0, right = 0, bottom = 40)
+        layoutDialog()
+
+        // The box a sized card is placed in is the window less the bars; its centre is what the
+        // card's centre should be.
+        val parentH = (card.view.parent as View).height
+        val visibleCentre = (100 + (parentH - 40)) / 2f
+        assertEquals(
+            "centred in what can be seen, not in the display and not past it",
+            visibleCentre, card.view.y + card.view.height / 2f, 1.5f
+        )
+
+        // An ANCHORED axis is the other arm: the whole inset, landing on the bar's inner edge.
+        val anchored = showPopup(cssStyles = mapOf(
+            "cardHeight" to "${cardHeight}px", "cardPositionVertical" to "bottom"
+        ))
+        layoutDialog()
+        dispatchInsets(anchored.view, top = 100, left = 0, right = 0, bottom = 40)
+        layoutDialog()
+        val anchoredParentH = (anchored.view.parent as View).height
+        assertEquals(
+            "flush against the navigation bar's inner edge",
+            (anchoredParentH - 40 - anchored.view.height).toFloat(), anchored.view.y, 1.5f
+        )
     }
 
     // exercising what they claim to.
