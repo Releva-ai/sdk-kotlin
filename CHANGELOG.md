@@ -39,7 +39,10 @@ are about what a card PAINTS rather than where its `LayoutParams` put it.
   size and keeps its background flush with the edge it is docked to. On a CENTRED axis the inset
   applied is half the difference between the two bars, not both of them: `FrameLayout` adds
   `topMargin - bottomMargin` whole when it centres, so equal-to-the-insets margins would overshoot
-  the visible centre by exactly as much as no inset at all undershot it.
+  the visible centre by exactly as much as no inset at all undershot it. The content's own
+  padding is dropped on an axis the card is inset on, for the same reason: the card is already
+  clear of that bar, and padding for it twice held `contentVerticalAlign: "bottom"` 63dp short of
+  the card's bottom edge.
 
 ### Changed
 

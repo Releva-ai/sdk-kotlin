@@ -519,7 +519,25 @@ class BannerDisplayManager(
             // wherever it exceeds the resource estimate (a taller cutout, a landscape bar),
             // since the resource is only ever a floor, not the true value.
             val top = maxOf(bars.top, statusBarHeight)
-            scrollView.setPadding(bars.left, top, bars.right, bars.bottom)
+            // NOT on an axis the card is already inset on. applyAnchorInsets below gives a SIZED
+            // axis a margin, so the card is clear of that bar already and padding the content for
+            // it a second time holds the design off a bar nowhere near it — 42dp at the top and
+            // 47dp at the bottom of a card that does not reach either. Photographed 2026-10-03:
+            // CHR-16 asks for contentVerticalAlign `bottom` on a 280x360 card and its copy sat
+            // 63dp short of the card's own bottom edge, and CHR-07's began 50dp below its top.
+            //
+            // This is the per-edge predicate the older comment here declined to write, and the
+            // reason it is safe now is that it is no longer a guess about whether the card
+            // reaches an edge: the same flag decides the margin and the padding, so the two
+            // cannot disagree. An UNSIZED axis is MATCH_PARENT, takes no margin, genuinely does
+            // overlap the bars, and keeps the padding exactly as before.
+            val padTop = if (cardHeight != null) 0 else top
+            val padBottom = if (cardHeight != null) 0 else bars.bottom
+            val padLeft = if (cardWidth != null) 0 else bars.left
+            val padRight = if (cardWidth != null) 0 else bars.right
+            scrollView.setPadding(padLeft, padTop, padRight, padBottom)
+            // The window-level bound for the close control stays the real inset either way: it is
+            // positioned in display coordinates, not inside the card's padding.
             closeSafeTop = top
             closeSafeRight = bars.right
             // A sized card anchored to an edge is placed inside the bars, not under them.

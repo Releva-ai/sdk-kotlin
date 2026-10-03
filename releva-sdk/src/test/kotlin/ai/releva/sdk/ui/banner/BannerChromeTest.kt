@@ -564,11 +564,25 @@ class BannerChromeTest {
 
             dispatchInsets(card.view, top = 100, left = 20, right = 30, bottom = 40)
 
+            // The GUARANTEE is that the content is clear of the bars; WHERE the clearance comes
+            // from depends on the axis. An unsized one is MATCH_PARENT, genuinely overlaps the
+            // bars, and the scroller pads for them. A sized one is already held off by the card's
+            // own margin (applyAnchorInsets), so padding it again would hold the design off a bar
+            // nowhere near it — 42dp at the top of a card that does not reach the top.
             val expectedTop = maxOf(100, statusBarHeight)
-            assertEquals("$cssStyles", expectedTop, scrollView.paddingTop)
-            assertEquals("$cssStyles", 20, scrollView.paddingLeft)
-            assertEquals("$cssStyles", 30, scrollView.paddingRight)
-            assertEquals("$cssStyles", 40, scrollView.paddingBottom)
+            val sizedV = cssStyles.containsKey("cardHeight")
+            val sizedH = cssStyles.containsKey("cardWidth")
+            assertEquals("$cssStyles", if (sizedV) 0 else expectedTop, scrollView.paddingTop)
+            assertEquals("$cssStyles", if (sizedH) 0 else 20, scrollView.paddingLeft)
+            assertEquals("$cssStyles", if (sizedH) 0 else 30, scrollView.paddingRight)
+            assertEquals("$cssStyles", if (sizedV) 0 else 40, scrollView.paddingBottom)
+
+            // Deliberately NOT asserting "margin + padding == the inset". That holds on an
+            // ANCHORED axis, where the card is pushed to the bar's inner edge, and not on a
+            // centred one, where the card takes half the DIFFERENCE and may be nowhere near
+            // either bar — the cards in this loop are centred, so the sum is 30 and not 100.
+            // What a centred card guarantees is that it is centred in the visible box, which is
+            // `a centred sized card lands on the centre of what can be seen`.
 
             val closeSize = (32 * density).toInt()
             val closeMargin = (8 * density).toInt()
