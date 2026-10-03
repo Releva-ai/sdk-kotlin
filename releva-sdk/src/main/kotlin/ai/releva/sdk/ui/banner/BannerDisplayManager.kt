@@ -503,12 +503,6 @@ class BannerDisplayManager(
         // Swift arrives at the same place from the other direction: BannerDisplayView
         // reads geometry.safeAreaInsets and hands them to the chrome, which ignores the
         // safe area for its background only.
-        //
-        // Unconditional, exactly as before these keys existed: an authored card size does not
-        // make this conditional. A card the author sized and centred is nowhere near a system bar
-        // and carries the clearance anyway, costing it some empty space at the top — the
-        // alternative is a per-edge "does the card still reach this edge" predicate, and getting
-        // that wrong in the other direction puts content *under* a bar.
         ViewCompat.setOnApplyWindowInsetsListener(popupContainer) { _, windowInsets ->
             val bars = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
@@ -548,13 +542,6 @@ class BannerDisplayManager(
             // So: sized on this axis, fits inside the visible box on it, and not translated along
             // it. All three are values already in scope, and anything that fails one keeps the
             // padding it has always had.
-            // `top`, not `bars.top`. The floor exists because some OEM skins report zero
-            // system-bar insets with the status bar drawn and opaque, and the gate has to agree
-            // with the padding it gates: reading the unfloored value there would declare a sized
-            // card clear on exactly those devices, hand it `topMargin = 0`, and drop the floored
-            // padding — the heading-under-the-status-bar case, reintroduced for the cards this
-            // change adds. applyAnchorInsets is given the same floored value for the same reason,
-            // so the margin and the padding cannot disagree about where the bar is.
             // THE MARGIN IS EXACT, THE PADDING IS CONSERVATIVE, and they still cannot disagree
             // because the padding is asked about the rect the margin actually produced.
             //
@@ -1162,10 +1149,10 @@ class BannerDisplayManager(
      * the window less the bars and the gravity places it inside that, so an anchored card lands
      * on the bar's inner edge and a centred one is centred in what a person can see. An unsized
      * axis stays MATCH_PARENT and stays full-bleed, which is what CHR-09 and CHR-13 assert. The
-     * content padding on the scroller is left alone: on an anchored card it now reserves space
-     * the card no longer needs, which is the same clearance a sized-and-centred card has always
-     * carried, and the alternative is a per-edge predicate that puts content UNDER a bar when it
-     * gets the answer wrong.
+     * content padding on the scroller is decided separately, by each caller's own per-edge CLEAR
+     * predicate derived from this same margin — sized alone does not imply clear (a centred axis,
+     * a 100%-height card and an offset can each still leave it covering a bar), so the padding
+     * stays wherever that predicate says the card has not actually left the bar's edge.
      *
      * sdk-react-native reaches the same place by a different route — its overlay IS the safe
      * area, so every card it places is inside one already.

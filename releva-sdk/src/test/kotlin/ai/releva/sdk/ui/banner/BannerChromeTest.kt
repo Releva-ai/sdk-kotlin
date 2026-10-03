@@ -429,11 +429,13 @@ class BannerChromeTest {
 
     /**
      * Holding the design clear of the status bar, the cutout and the gesture pill is the window's
-     * business, not the card's, and an authored size does not change that: the inset is applied
-     * the same way for every card, as it was before these keys existed. A card the author has
-     * sized and centred carries clearance it does not need, which costs it some empty space; the
-     * alternative — deciding per edge whether the card still reaches it — errs the other way, and
-     * that way lies content underneath a system bar.
+     * business, not the card's — but an authored size CAN change it, once the card's own margin
+     * places it clear of the bar it used to overlap: the padding is then dropped, per the
+     * per-edge CLEAR predicate below. A card sized and centred but still covering a bar (a
+     * near-100% height, say) carries the clearance it still needs; getting that predicate wrong
+     * the other way puts content underneath a system bar, which is the case the tests further
+     * down (`a sized card that still covers a bar keeps its content padding`, and the flyout's
+     * and popup's floor tests) are for.
      *
      * The close button's own position is read the same way the offset tests read a card's: via
      * `getX()`/`getY()` after a real layout pass, since the button is now placed from
@@ -594,6 +596,33 @@ class BannerChromeTest {
                 maxOf(100, statusBarHeight), flyoutContent(tall).paddingTop
             )
         }
+    }
+
+    /**
+     * THE FLOOR, flyout half: every dispatch above uses `top = 100`, above the
+     * `statusBarHeight` floor, so `maxOf(bars.top, statusBarHeight)` and `bars.top` read the
+     * same number throughout and the gate at line 957 (and the `else -> fTop` padding arm
+     * below it) could be reverted to the unfloored `bars.top` with the suite still green —
+     * the popup's equivalent test (`a zero-reporting window still measures clearance against
+     * the status-bar floor`) does not reach this listener at all.
+     *
+     * The flyout is the easier instrument than the popup was: its default vertical gravity is
+     * `TOP`, so a sized card's top IS `bars.top` by construction (`fTopV` at the `TOP` arm),
+     * with no need to dial a height until the card's distance from the edge becomes a function
+     * of it, the way the popup's centred fixture had to. `top = 0` alone separates the two
+     * readings: unfloored, the gate reads `0 >= 0` (clear, padding drops to 0); floored, it
+     * reads `0 >= statusBarHeight` (not clear, padding stays).
+     */
+    @Test
+    @Config(sdk = [30])
+    fun `a sized flyout on a zero-reporting window still measures clearance against the floor`() {
+        val sized = showFlyout(mapOf("cardHeight" to "40%"), displayPosition = "right")
+        layoutDialog()
+        dispatchInsets(sized.view, top = 0, left = 0, right = 0, bottom = 0)
+        assertEquals(
+            "a window reporting zero is not a window with no status bar",
+            statusBarHeight, flyoutContent(sized).paddingTop
+        )
     }
 
     /**
