@@ -507,6 +507,41 @@ class BannerChromeTest {
     }
 
     /**
+     * The three ways a card can be SIZED and still not be CLEAR of a bar, which is the
+     * distinction the content padding turns on. None of these has a QA fixture — no CHR row
+     * authors a 100% height, and the device run is green either way — so this is where they live.
+     */
+    @Test
+    @Config(sdk = [30])
+    fun `a sized card that still covers a bar keeps its content padding`() {
+        val scroller = { c: Card -> (c.view as ViewGroup).getChildAt(0) as ScrollView }
+
+        // 100% height has no ceiling in BannerChrome.size: the card IS the display, covers both
+        // bars exactly as a MATCH_PARENT card does, and must keep the padding that holds its
+        // heading out from under the status bar.
+        val full = showPopup(cssStyles = mapOf("cardHeight" to "100%"))
+        layoutDialog()
+        dispatchInsets(full.view, top = 100, left = 0, right = 0, bottom = 40)
+        assertEquals("a 100% card covers the bars", maxOf(100, statusBarHeight), scroller(full).paddingTop)
+        assertEquals("both of them", 40, scroller(full).paddingBottom)
+
+        // A card that FITS drops it — the case the rule is for.
+        val fits = showPopup(cssStyles = mapOf("cardHeight" to "40%"))
+        layoutDialog()
+        dispatchInsets(fits.view, top = 100, left = 0, right = 0, bottom = 40)
+        assertEquals("a card inside the visible box does not", 0, scroller(fits).paddingTop)
+        assertEquals("on either edge", 0, scroller(fits).paddingBottom)
+
+        // An offset translates the card AFTER the margin and this padding are decided, so a card
+        // that fits can still be moved back onto a bar. It keeps the padding.
+        val moved = showPopup(cssStyles = mapOf("cardHeight" to "40%", "cardOffsetVertical" to "200px"))
+        layoutDialog()
+        dispatchInsets(moved.view, top = 100, left = 0, right = 0, bottom = 40)
+        assertEquals("a translated card keeps it", maxOf(100, statusBarHeight), scroller(moved).paddingTop)
+        assertEquals("on both edges", 40, scroller(moved).paddingBottom)
+    }
+
+    /**
      * The PLACEMENT, which the margin assertions above cannot see — and the centred axis is where
      * a margin and a placement come apart. FrameLayout.layoutChildren's CENTER arms add
      * `topMargin - bottomMargin` WHOLE, so margins equal to the two insets put the card at

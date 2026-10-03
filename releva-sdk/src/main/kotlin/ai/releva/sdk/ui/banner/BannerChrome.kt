@@ -81,6 +81,19 @@ internal class BannerChrome(
      *
      * [availableWidth] and [availableHeight] are what a `%` offset resolves against, as for a size.
      */
+    /**
+     * The authored `cardOffset*` in px on one axis, or null at `auto` — the amount
+     * [applyOffsets] will translate the card by, before its sign is resolved against the anchor.
+     *
+     * Exposed so a caller can ask whether a card it has just placed will STAY where it placed it.
+     * A translation happens after both the margin and the content padding are decided, so a card
+     * that fits inside the visible box can still be moved back onto a system bar by one.
+     */
+    fun verticalOffsetPx(availableHeight: Int): Int? = offset(CARD_OFFSET_VERTICAL, availableHeight)
+
+    /** The horizontal twin of [verticalOffsetPx]. */
+    fun horizontalOffsetPx(availableWidth: Int): Int? = offset(CARD_OFFSET_HORIZONTAL, availableWidth)
+
     fun applyOffsets(
         view: View,
         verticalGravity: Int,

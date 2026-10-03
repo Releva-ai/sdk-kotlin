@@ -531,10 +531,32 @@ class BannerDisplayManager(
             // reaches an edge: the same flag decides the margin and the padding, so the two
             // cannot disagree. An UNSIZED axis is MATCH_PARENT, takes no margin, genuinely does
             // overlap the bars, and keeps the padding exactly as before.
-            val padTop = if (cardHeight != null) 0 else top
-            val padBottom = if (cardHeight != null) 0 else bars.bottom
-            val padLeft = if (cardWidth != null) 0 else bars.left
-            val padRight = if (cardWidth != null) 0 else bars.right
+            // The predicate is "is this card CLEAR of that bar", not "is this axis sized". Sized
+            // does not imply clear, and three ways it does not:
+            //
+            //   - a centred axis takes half the DIFFERENCE of the two insets, which is near zero
+            //     under gesture navigation and (0, 12dp) even at 24dp/48dp, so the margin gives a
+            //     centred card almost no clearance to begin with;
+            //   - `cardHeight: "100%"` has no ceiling, so the card is the whole display, covers
+            //     both bars exactly as a MATCH_PARENT card does, and would have had its padding
+            //     dropped — the heading-under-the-status-bar failure this listener exists to
+            //     prevent. Anything above ~91% on a 24dp/48dp phone is in the same position;
+            //   - an authored offset translates the card AFTER both the margin and this padding
+            //     are decided, and can put it back on a bar.
+            //
+            // So: sized on this axis, fits inside the visible box on it, and not translated along
+            // it. All three are values already in scope, and anything that fails one keeps the
+            // padding it has always had.
+            val visibleH = screenHeight - bars.top - bars.bottom
+            val visibleW = screenWidth - bars.left - bars.right
+            val clearV = cardHeight != null && cardHeight <= visibleH &&
+                chrome.verticalOffsetPx(screenHeight) == null
+            val clearH = cardWidth != null && cardWidth <= visibleW &&
+                chrome.horizontalOffsetPx(screenWidth) == null
+            val padTop = if (clearV) 0 else top
+            val padBottom = if (clearV) 0 else bars.bottom
+            val padLeft = if (clearH) 0 else bars.left
+            val padRight = if (clearH) 0 else bars.right
             scrollView.setPadding(padLeft, padTop, padRight, padBottom)
             // The window-level bound for the close control stays the real inset either way: it is
             // positioned in display coordinates, not inside the card's padding.
@@ -765,13 +787,25 @@ class BannerDisplayManager(
             }
         }
 
+        // The same clearance question the popup asks, on the display type that also got a margin.
+        // Since a cardHeight-sized flyout takes `topMargin = bars.top` from applyAnchorInsets, its
+        // card is already below the status bar, and padding its content for that bar again starts
+        // the design a status bar below the card's own painted top edge — the CHR-07 symptom, on
+        // the other display type. Dropped only where the card is provably clear: sized on this
+        // axis, fitting inside the visible box, and not translated along it. The status bar comes
+        // from the resource rather than live insets because this path has no listener of its own
+        // for the padding — the margin does use real insets, so this is the conservative side of
+        // the two, which is the right way round for a padding that stops content hiding.
+        val flyoutStatusPad = getStatusBarHeight(ctx)
+        val flyoutHeightPx = chrome.heightPx(screenHeight)
+        val flyoutClearV = flyoutHeightPx != null &&
+            flyoutHeightPx <= screenHeight - flyoutStatusPad &&
+            chrome.verticalOffsetPx(screenHeight) == null
         val flyoutContainer = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             elevation = 10 * dp
             isClickable = true
-            // Unchanged from master: this is the flyout's status-bar clearance, and it is not
-            // where the offsets go — those translate the card below.
-            setPadding(0, getStatusBarHeight(ctx), 0, 0)
+            setPadding(0, if (flyoutClearV) 0 else flyoutStatusPad, 0, 0)
         }
         // Applied here only without a background image: with one, bgWrapper below is the view
         // that is actually the card, and the chrome has to go there instead.

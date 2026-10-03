@@ -42,7 +42,10 @@ are about what a card PAINTS rather than where its `LayoutParams` put it.
   the visible centre by exactly as much as no inset at all undershot it. The content's own
   padding is dropped on an axis the card is inset on, for the same reason: the card is already
   clear of that bar, and padding for it twice held `contentVerticalAlign: "bottom"` 63dp short of
-  the card's bottom edge.
+  the card's bottom edge. The padding is dropped only where the card is provably CLEAR of that
+  bar — sized on the axis, fitting inside the visible box, and not translated along it by an
+  offset — because a sized card is not necessarily a clear one: `cardHeight: "100%"` covers both
+  bars exactly as an unsized card does.
 
 ### Changed
 
