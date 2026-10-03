@@ -500,15 +500,60 @@ class BannerChromeTest {
         assertEquals("horizontal is not", 0, tallOnly.params.leftMargin)
         assertEquals("nor inset", 0, tallOnly.params.rightMargin)
 
-        // Bars that go away unwind — down to the STATUS-BAR FLOOR on the top edge, not to zero.
-        // That floor is the same one the content padding has always carried: some OEM skins
-        // report zero insets with the bar drawn and opaque, so a reported zero is not evidence
-        // the bar is gone. The margin reads the floored value because the padding it is paired
-        // with does, and the two must not disagree about where the bar is. A centred axis takes
-        // half the difference, so the floor arrives halved here.
+        // Bars that go away unwind to ZERO, floor included. The floor belongs to the PADDING, not
+        // to the margin: a reported zero is what the OEM skins it was added for produce, but it
+        // is equally a window with a deliberately hidden status bar, and a floored margin would
+        // put a top-anchored card below the window edge there with the host app showing through
+        // the gap. Master's floor only ever padded INSIDE the card, so it could cost space but
+        // never open one — the margin keeps that property by reading the exact insets.
         dispatchInsets(tallOnly.view, top = 0, left = 0, right = 0, bottom = 0)
-        assertEquals("unwinds to the floor, not past it", statusBarHeight / 2, tallOnly.params.topMargin)
-        assertEquals("and the bottom, which has no floor, to zero", 0, tallOnly.params.bottomMargin)
+        assertEquals("the margin is exact, so it unwinds fully", 0, tallOnly.params.topMargin)
+        assertEquals("on both edges", 0, tallOnly.params.bottomMargin)
+    }
+
+    /**
+     * THE FLOOR, which nothing discriminated until now: every other dispatch in this file uses
+     * `top = 100`, above the floor, so `maxOf(bars.top, statusBarHeight)` and `bars.top` are the
+     * same number and the two readings cannot be told apart. The one `top = 0` dispatch asserts
+     * margins, not padding, on a card that fits either way.
+     *
+     * A reported zero top inset is what the OEM skins the floor was added for produce with the
+     * bar drawn and opaque. So the card below is sized to fit the box an UNFLOORED reading would
+     * compute and to overflow the floored one — the only band where the two disagree — and the
+     * padding has to survive.
+     */
+    @Test
+    @Config(sdk = [30])
+    fun `a zero-reporting window still measures clearance against the status-bar floor`() {
+        val scroller = { c: Card -> (c.view as ViewGroup).getChildAt(0) as ScrollView }
+
+        // CENTRED on both, because a top-anchored card is the wrong instrument: with exact
+        // margins its rect starts at the window edge, so on a zero-reporting window it overlaps
+        // the floored bar whatever its height, and the assertion would hold for the wrong reason.
+        // A centred card's distance from the edge is a function of its height, which is the dial
+        // this needs.
+        //
+        // 100px shorter than the window: centred, its top is 50 from the edge — inside an
+        // UNFLOORED reading of the bar (0) and outside the floored one (statusBarHeight, 72).
+        // That band is the only place the two readings disagree.
+        val overlapping = showPopup(cssStyles = mapOf(
+            "cardHeight" to "${((screenHeight - 100) / density).toInt()}px"
+        ))
+        layoutDialog()
+        dispatchInsets(overlapping.view, top = 0, left = 0, right = 0, bottom = 0)
+        assertEquals(
+            "a window reporting zero is not a window with no status bar",
+            statusBarHeight, scroller(overlapping).paddingTop
+        )
+
+        // The control: short enough that its top clears the floor too. Without it the assertion
+        // above would also pass on a build that never drops the padding at all.
+        val clears = showPopup(cssStyles = mapOf(
+            "cardHeight" to "${((screenHeight - statusBarHeight * 4) / density).toInt()}px"
+        ))
+        layoutDialog()
+        dispatchInsets(clears.view, top = 0, left = 0, right = 0, bottom = 0)
+        assertEquals("a card clear of the floor drops it", 0, scroller(clears).paddingTop)
     }
 
     /**

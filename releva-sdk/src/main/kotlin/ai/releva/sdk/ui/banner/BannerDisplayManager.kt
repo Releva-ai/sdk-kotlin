@@ -555,12 +555,41 @@ class BannerDisplayManager(
             // padding — the heading-under-the-status-bar case, reintroduced for the cards this
             // change adds. applyAnchorInsets is given the same floored value for the same reason,
             // so the margin and the padding cannot disagree about where the bar is.
-            val effective = Insets.of(bars.left, top, bars.right, bars.bottom)
-            val visibleH = screenHeight - effective.top - effective.bottom
-            val visibleW = screenWidth - effective.left - effective.right
-            val clearV = cardHeight != null && cardHeight <= visibleH &&
+            // THE MARGIN IS EXACT, THE PADDING IS CONSERVATIVE, and they still cannot disagree
+            // because the padding is asked about the rect the margin actually produced.
+            //
+            // The margin reads `bars`, unfloored. Flooring it moved the CARD, and a reported zero
+            // top inset is not only the OEM skins the floor was added for — it is equally a window
+            // with a deliberately hidden status bar, where a floored margin puts a top-anchored
+            // card 24dp below the window edge with the host app showing through the gap. Master's
+            // floor only ever padded INSIDE the card, so it could cost space but never open one.
+            //
+            // The padding reads the floor, because being wrong in that direction costs empty
+            // space and being wrong in the other hides a heading under a bar.
+            //
+            // So: where does the card actually land, and does THAT rect clear the floored bar?
+            // Computed from the same gravity and margins applyAnchorInsets just applied, so the
+            // two are one answer rather than two that agree by construction today.
+            val cardTopV = when {
+                cardHeight == null -> 0
+                (verticalGravity and Gravity.VERTICAL_GRAVITY_MASK) == Gravity.TOP -> bars.top
+                (verticalGravity and Gravity.VERTICAL_GRAVITY_MASK) == Gravity.BOTTOM ->
+                    screenHeight - bars.bottom - cardHeight
+                else -> (screenHeight - cardHeight) / 2 + (bars.top - bars.bottom) / 2
+            }
+            val cardLeftH = when {
+                cardWidth == null -> 0
+                (horizontalGravity and Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.CENTER_HORIZONTAL ->
+                    (screenWidth - cardWidth) / 2 + (bars.left - bars.right) / 2
+                (horizontalGravity and (Gravity.START or Gravity.END)) == Gravity.END ->
+                    screenWidth - bars.right - cardWidth
+                else -> bars.left
+            }
+            val clearV = cardHeight != null &&
+                cardTopV >= top && cardTopV + cardHeight <= screenHeight - bars.bottom &&
                 chrome.verticalOffsetPx(screenHeight) == null
-            val clearH = cardWidth != null && cardWidth <= visibleW &&
+            val clearH = cardWidth != null &&
+                cardLeftH >= bars.left && cardLeftH + cardWidth <= screenWidth - bars.right &&
                 chrome.horizontalOffsetPx(screenWidth) == null
             val padTop = if (clearV) 0 else top
             val padBottom = if (clearV) 0 else bars.bottom
@@ -573,7 +602,7 @@ class BannerDisplayManager(
             closeSafeRight = bars.right
             // A sized card anchored to an edge is placed inside the bars, not under them.
             applyAnchorInsets(
-                popupContainer, effective,
+                popupContainer, bars,
                 sizedVertically = cardHeight != null, sizedHorizontally = cardWidth != null,
                 verticalGravity = verticalGravity, horizontalGravity = horizontalGravity
             )
@@ -907,20 +936,46 @@ class BannerDisplayManager(
             // through — ~48dp of it in landscape with three-button navigation. The vertical axis
             // is sized only when the author gave a `cardHeight`, and that is the axis where a
             // flyout can be anchored away from the edge it is docked to.
-            val fTop = maxOf(bars.top, getStatusBarHeight(ctx))
-            val fEffective = Insets.of(bars.left, fTop, bars.right, bars.bottom)
+            val fResource = getStatusBarHeight(ctx)
+            val fTop = maxOf(bars.top, fResource)
             val fHeight = chrome.heightPx(screenHeight)
+            // Exact insets for the margin, as on the popup and for the same reason.
             applyAnchorInsets(
-                flyoutView, fEffective,
+                flyoutView, bars,
                 sizedVertically = fHeight != null, sizedHorizontally = false,
                 verticalGravity = verticalGravity, horizontalGravity = horizontalGravity
             )
-            // Clear on the same three clauses as the popup: sized, fits inside the visible box,
-            // and not translated along the axis.
+            // Where the card lands, against the floored bar — the popup's rule, same shape.
+            val fTopV = when {
+                fHeight == null -> 0
+                (verticalGravity and Gravity.VERTICAL_GRAVITY_MASK) == Gravity.TOP -> bars.top
+                (verticalGravity and Gravity.VERTICAL_GRAVITY_MASK) == Gravity.BOTTOM ->
+                    screenHeight - bars.bottom - fHeight
+                else -> (screenHeight - fHeight) / 2 + (bars.top - bars.bottom) / 2
+            }
             val fClearV = fHeight != null &&
-                fHeight <= screenHeight - fEffective.top - fEffective.bottom &&
+                fTopV >= fTop && fTopV + fHeight <= screenHeight - bars.bottom &&
                 chrome.verticalOffsetPx(screenHeight) == null
-            flyoutContainer.setPadding(0, if (fClearV) 0 else fTop, 0, 0)
+            // An UNSIZED flyout keeps master's padding EXACTLY: the fixed resource, not the live
+            // `maxOf(bars.top, resource)`. The live value is larger wherever a display cutout
+            // exceeds the status bar, which would move the content of every flyout in production
+            // down — a fourth default-path change, where the CHANGELOG enumerates three and none
+            // is on this display type. The floor belongs to the clearance decision, which only a
+            // SIZED card makes.
+            flyoutContainer.setPadding(
+                0,
+                when {
+                    // The default path, byte-identical to master: the fixed resource. The live
+                    // floored value is larger wherever a cutout exceeds the status bar, and using
+                    // it here would move the content of every flyout in production down.
+                    fHeight == null -> fResource
+                    fClearV -> 0
+                    // Sized and NOT clear: the real inset, because this is the clearance decision
+                    // and the resource is only ever an estimate of it.
+                    else -> fTop
+                },
+                0, 0
+            )
             windowInsets
         }
         // flyoutView, not flyoutContainer: with a background image the card is the wrapper around
