@@ -49,7 +49,7 @@ Add to your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.Releva-ai:sdk-kotlin:1.5.2")
+    implementation("com.github.Releva-ai:sdk-kotlin:1.5.3")
 }
 ```
 
@@ -57,7 +57,7 @@ Or in `build.gradle`:
 
 ```groovy
 dependencies {
-    implementation 'com.github.Releva-ai:sdk-kotlin:1.5.2'
+    implementation 'com.github.Releva-ai:sdk-kotlin:1.5.3'
 }
 ```
 
