@@ -40,22 +40,28 @@ group in `BannerChromeTest.kt`; **not** verified on a physical device, so the qa
   - `transparent` used to return null, so the call site's own fallback applied; it is now a real
     colour and paints nothing. A design's `transparent` button background (fallback `#3AAEE0`),
     divider (`#BBBBBB`), text colour (the default text colour), a `popupOverlay_backgroundColor`
-    (the 50% scrim) and a story slide background (black) are now honoured instead of replaced.
+    (which used to fall through to `cssStyles.overlayColor`, then the 50% scrim, and now overrides
+    both), a `cardBackgroundColor: "transparent"` (which used to leave a popup or flyout card
+    white and now leaves it see-through) and a story slide background (black) are now honoured
+    instead of replaced.
 
   `#rgba` and uppercase values are accepted for the same reason.
 
 ### Fixed
 
-- **The close control's tap target is never below Android's 48dp minimum.** It painted a 32dp
+- **The close control's tap target is 48dp, or the whole card where the card is shorter.** It painted a 32dp
   square (24dp on a bar) and the view was that square, so the touch area was the same size. On a
   popup and a flyout the view is now `max(48dp, the painted side)` with the square drawn inside
   it, placed by the PAINTED square's corner so nothing a person can see moves; the flyout's close
   row stays 48dp tall at every `closeFontSize`, so its scrolled design never moves. A bar's view
   stays the painted square, so a compact bar's height is not floored at 48dp, and its tap target
-  is a `TouchDelegate` on the card.
+  is a `TouchDelegate` on the card, a 48dp square shifted back inside the card's bounds (the
+  square sits 4dp from the card's top, so a centred target would not fit) and cut only where
+  the card is shorter than 48dp.
 - **A bar's control is now the same 32dp square the other two types draw** (it was 24dp). It
   covers 8dp–40dp in from the card's right edge, inside the 42dp gutter reserved in 1.5.3, and a
-  bar whose design is shorter than about 36dp grows by up to a few dp. Its inner edge is anchored
+  bar whose card is shorter than the square plus its 4dp top margin (a design under about 12dp
+  at the default size; under about 21dp at `closeFontSize` 24 to 26) grows to fit it. Its inner edge is anchored
   to that band, so a larger `closeFontSize` grows the square toward the card's edge and the copy
   stays clear up to a size of 24 (a 42dp square flush with the edge). At sizes 25 and 26 the
   square is 43–44dp and reaches 1–2dp into the copy's gutter, which cannot be avoided without

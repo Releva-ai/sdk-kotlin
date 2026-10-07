@@ -668,11 +668,10 @@ class BannerDisplayManager(
         val barWidth = cardWidth ?: screenWidth
         val verticalPadding = (12 * dp).toInt()
         val horizontalPadding = (16 * dp).toInt()
-        // The close button is an absolute sibling drawn OVER the content: 24dp wide, pulled out
-        // by `closeOverlap` so it straddles the card's edge, which leaves it covering the band
-        // from 10dp to 34dp in from the right. Content padded to 16 runs under it for 18dp and
-        // the tail of a headline is drawn beneath the glyph. Reserve the band instead: 42 is
-        // 34 plus 8 of clearance. This widens the right gutter on EVERY bar, authored chrome or
+        // The close button is an absolute sibling drawn OVER the content: 32dp wide by default,
+        // covering the band from 8dp to 40dp in from the right. Content padded to 16 runs under
+        // it and the tail of a headline is drawn beneath the glyph. Reserve the band instead: 42
+        // is 40 plus 2 of clearance. This widens the right gutter on EVERY bar, authored chrome or
         // not — the collision predates the chrome keys, and keeping the default path
         // byte-identical would be preserving a bug rather than compatibility.
         val closeGutter = (42 * dp).toInt()
@@ -733,6 +732,7 @@ class BannerDisplayManager(
         val closeSize = (closeStyle.sideDp * dp).toInt()
         val closeRing = closeRingPx(closeStyle, dp)
         val closeOverlap = closeSize / 4
+        // The band's outer edge: the 16dp padding plus the 24dp the control reaches into the gutter.
         val closeBand = horizontalPadding + (24 * dp).toInt()
         // The view is the painted square and nothing more: a 48dp view would give this WRAP_CONTENT
         // card a 48dp floor and move the copy of a compact bar. The tap target is a TouchDelegate.
@@ -750,11 +750,16 @@ class BannerDisplayManager(
             marginEnd = (closeBand - closeSize).coerceAtLeast(0)
         })
         // A pointer outside the card's own bounds is never dispatched to it, so the ring is
-        // clipped to them.
+        // shifted back inside them rather than clipped, which keeps the full target wherever the
+        // card is at least that big. Only what still does not fit is cut.
         barLayout.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             val hit = Rect()
             closeButton.getHitRect(hit)
             hit.inset(-closeRing, -closeRing)
+            hit.offset(
+                maxOf(0, -hit.left) - maxOf(0, hit.right - barLayout.width),
+                maxOf(0, -hit.top) - maxOf(0, hit.bottom - barLayout.height)
+            )
             if (hit.intersect(0, 0, barLayout.width, barLayout.height)) {
                 barLayout.touchDelegate = TouchDelegate(hit, closeButton)
             }

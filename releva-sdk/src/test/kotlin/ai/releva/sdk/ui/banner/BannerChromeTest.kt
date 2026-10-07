@@ -6,12 +6,14 @@ import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.types.response.BannerResponse
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
 import android.os.Looper
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -862,6 +864,62 @@ class BannerChromeTest {
         val flyoutClose = ((flyout.view as ViewGroup).getChildAt(0) as ViewGroup).getChildAt(0)
         assertEquals(Color.WHITE, closeFill(flyoutClose))
         assertEquals(Color.parseColor("#00aa00"), closeGlyphColor(flyoutClose))
+    }
+
+    @Test
+    fun `the glyph is tinted with SRC_IN so a translucent colour keeps its alpha`() {
+        showPopup(cssStyles = mapOf("closeButtonColor" to "#00000080"))
+        val close = popupCloseButton()
+        val filter = shadowOf((close as ImageButton).colorFilter as PorterDuffColorFilter)
+
+        assertEquals(PorterDuff.Mode.SRC_IN, filter.mode)
+        assertEquals(Color.argb(0x80, 0, 0, 0), filter.color)
+    }
+
+    /**
+     * The bar's 48dp tap target is a TouchDelegate on the card, and it is shifted into the card's
+     * bounds rather than clipped to them: the square sits 4dp from the top, so a ring grown
+     * around it would otherwise lose its top 4dp.
+     */
+    @Test
+    fun `a tap in the bar's ring below the painted square closes the bar`() {
+        val bar = showBar(emptyMap())
+        val card = bar.view as ViewGroup
+        assertTrue("the card must hold a 48dp target", card.height >= 48 * density)
+
+        val x = screenWidth - 24 * density
+        val y = 46 * density
+        tap(card, x, y)
+
+        assertEquals("a tap 46dp below the card's top is inside the 48dp target", null, card.parent)
+    }
+
+    @Test
+    fun `a tap well below the bar's ring does not close it`() {
+        val bar = showBar(emptyMap())
+        val card = bar.view as ViewGroup
+        assertTrue("the card must hold a 48dp target", card.height >= 48 * density)
+
+        tap(card, screenWidth - 60 * density, 20 * density)
+
+        assertTrue(card.parent != null)
+    }
+
+    @Test
+    fun `cardBackgroundColor transparent leaves the popup card see-through`() {
+        val card = showPopup(cssStyles = mapOf("cardBackgroundColor" to "transparent"))
+
+        assertEquals(Color.TRANSPARENT, card.color)
+    }
+
+    private fun tap(target: View, x: Float, y: Float) {
+        val now = android.os.SystemClock.uptimeMillis()
+        for (action in intArrayOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+            val event = MotionEvent.obtain(now, now, action, x, y, 0)
+            target.dispatchTouchEvent(event)
+            event.recycle()
+        }
+        shadowOf(Looper.getMainLooper()).idle()
     }
 
     /** `QA-CLS-10`'s border, read off the drawn view rather than off the resolver. */

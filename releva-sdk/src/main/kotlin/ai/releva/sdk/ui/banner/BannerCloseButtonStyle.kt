@@ -113,6 +113,6 @@ internal data class BannerCloseButtonStyle(
         private val COLOR_TOKEN =
             Regex("""rgba?\([^)]*\)|#[0-9a-f]{3,8}(?![0-9a-z])|transparent""", RegexOption.IGNORE_CASE)
         private val NO_STYLE = Regex("""(?:^|\s)(?:none|hidden)(?:\s|$)""", RegexOption.IGNORE_CASE)
-        private val WIDTH_TOKEN = Regex("""(\d+(?:\.\d+)?)(?:px)?""")
+        private val WIDTH_TOKEN = Regex("""(\d+(?:\.\d+)?)(?:px)?""", RegexOption.IGNORE_CASE)
     }
 }

@@ -9,8 +9,8 @@ import org.robolectric.annotation.Config
 
 /**
  * The five `cssStyles` keys that describe a banner's close control, as the contract all four mobile
- * SDKs implement states them. The inputs below are the qa-shared rows `QA-CLS-01`…`QA-CLS-10`
- * (section R), so a device run and this suite exercise the same values.
+ * SDKs implement states them. The inputs below are the ones the brief lists for the rows
+ * `QA-CLS-01`…`QA-CLS-10` (section R).
  *
  * The compatibility statement they start from is that there isn't one: the API fills every missing
  * key, so every banner in production carries `#000` on `#fff` at radius 20 and size 14 with a blank
