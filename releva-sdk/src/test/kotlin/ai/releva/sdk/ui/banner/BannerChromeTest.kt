@@ -5,6 +5,7 @@ import ai.releva.sdk.services.banner.BannerDisplayController
 import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.types.response.BannerResponse
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -37,6 +38,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowDialog
+import kotlin.math.roundToInt
 
 /**
  * The nine `cssStyles` keys that describe a banner's card — the chrome around the rendered design
@@ -862,6 +864,60 @@ class BannerChromeTest {
         assertEquals(Color.parseColor("#00aa00"), closeGlyphColor(flyoutClose))
     }
 
+    /** `QA-CLS-10`'s border, read off the drawn view rather than off the resolver. */
+    @Test
+    fun `a flyout draws the border shorthand as a stroke of that width and colour`() {
+        val flyout = showFlyout(
+            mapOf(
+                "closeButtonColor" to "#0a0",
+                "closeButtonBackgroundColor" to "#fff",
+                "closeButtonBorder" to "3px solid #0a0"
+            ),
+            displayPosition = "right"
+        )
+        val close = ((flyout.view as ViewGroup).getChildAt(0) as ViewGroup).getChildAt(0)
+        assertEquals((3 * density).roundToInt(), closeStrokeWidth(close))
+        assertEquals(Color.parseColor("#00aa00"), closeStrokeColor(close))
+    }
+
+    @Test
+    fun `a default popup draws no ring and a circle`() {
+        showPopup(emptyMap())
+        val close = popupCloseButton()
+        assertEquals(0, closeStrokeWidth(close))
+        assertEquals(16f * density, closeCornerRadius(close), 0.01f)
+    }
+
+    @Test
+    fun `a zero border radius squares the drawn button`() {
+        showPopup(mapOf("closeButtonBorderRadius" to "0"))
+        assertEquals(0f, closeCornerRadius(popupCloseButton()), 0.01f)
+    }
+
+    /**
+     * The gutter, the card's height and the scrolled design under a flyout's control must not move
+     * with `closeFontSize`: the row is the 48dp tap target at every size.
+     */
+    @Test
+    fun `a flyout's close row is 48dp tall at a larger closeFontSize too`() {
+        showFlyout(cssStyles = mapOf("closeFontSize" to "24"), displayPosition = "right")
+        layoutDialog()
+
+        assertEquals((48 * density).toInt(), dialogCard().getChildAt(0).height)
+    }
+
+    /** The bar's view is the painted square, so a compact bar's height is not floored by a 48dp view. */
+    @Test
+    fun `a bar's close view is the painted square and its inner edge stays inside the gutter`() {
+        val bar = showBar(mapOf("closeFontSize" to "24"))
+        val close = (bar.view as ViewGroup).getChildAt(1)
+        val side = (42 * density).toInt()
+        val lp = close.layoutParams as FrameLayout.LayoutParams
+        assertEquals(side, lp.width)
+        assertEquals(side, lp.height)
+        assertEquals(0, lp.marginEnd)
+    }
+
     /**
      * The row above the flyout's scrolled design is sized by the control's margins and the view
      * inside it, and that view is now a 48dp tap target rather than the 32dp square it paints. The
@@ -1126,6 +1182,20 @@ class BannerChromeTest {
      */
     private fun closeFill(button: View): Int? =
         ((button.background as InsetDrawable).drawable as GradientDrawable).color?.defaultColor
+
+    private fun closeDrawable(button: View): GradientDrawable =
+        (button.background as InsetDrawable).drawable as GradientDrawable
+
+    private fun closeCornerRadius(button: View): Float = closeDrawable(button).cornerRadius
+
+    private fun strokePaint(button: View): Paint? =
+        GradientDrawable::class.java.getDeclaredField("mStrokePaint")
+            .apply { isAccessible = true }
+            .get(closeDrawable(button)) as Paint?
+
+    private fun closeStrokeWidth(button: View): Int = strokePaint(button)?.strokeWidth?.roundToInt() ?: 0
+
+    private fun closeStrokeColor(button: View): Int = strokePaint(button)!!.color
 
     private fun closeGlyphColor(button: View): Int =
         shadowOf((button as ImageButton).colorFilter as PorterDuffColorFilter).color

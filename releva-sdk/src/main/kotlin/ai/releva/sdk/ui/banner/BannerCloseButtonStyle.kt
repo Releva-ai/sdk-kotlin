@@ -90,6 +90,7 @@ internal data class BannerCloseButtonStyle(
          */
         private fun border(value: Any?): Pair<Float, Int> {
             val text = value?.toString()?.trim().orEmpty()
+            if (NO_STYLE.containsMatchIn(text)) return NO_BORDER
             val token = COLOR_TOKEN.find(text) ?: return NO_BORDER
             val color = DesignRenderer.parseColor(token.value) ?: return NO_BORDER
             val width = text.removeRange(token.range).trim().split(WHITESPACE)
@@ -110,7 +111,8 @@ internal data class BannerCloseButtonStyle(
         private val NO_BORDER = 0f to Color.TRANSPARENT
         private val WHITESPACE = Regex("""\s+""")
         private val COLOR_TOKEN =
-            Regex("""rgba?\([^)]*\)|#[0-9a-f]{3,8}|transparent""", RegexOption.IGNORE_CASE)
+            Regex("""rgba?\([^)]*\)|#[0-9a-f]{3,8}(?![0-9a-z])|transparent""", RegexOption.IGNORE_CASE)
+        private val NO_STYLE = Regex("""(?:^|\s)(?:none|hidden)(?:\s|$)""", RegexOption.IGNORE_CASE)
         private val WIDTH_TOKEN = Regex("""(\d+(?:\.\d+)?)(?:px)?""")
     }
 }

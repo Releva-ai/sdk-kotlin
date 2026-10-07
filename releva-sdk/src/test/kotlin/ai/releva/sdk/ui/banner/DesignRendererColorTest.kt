@@ -40,6 +40,16 @@ class DesignRendererColorTest {
         assertEquals(Color.argb(0xff, 0xff, 0xff, 0x00), DesignRenderer.parseColor("#ffff00ff"))
     }
 
+    /**
+     * The story viewer's progress indicator also reads colours through here, and the SDK's own
+     * default for the inactive segments (`StoryResponse`) is this eight-digit value: white at 30%,
+     * where `Color.parseColor` drew it as an opaque pale yellow.
+     */
+    @Test
+    fun `the story viewer's default inactive indicator is white at thirty percent`() {
+        assertEquals(Color.argb(0x4D, 0xFF, 0xFF, 0xFF), DesignRenderer.parseColor("#FFFFFF4D"))
+    }
+
     @Test
     fun `six digit hex is unchanged, trimmed and case-insensitive`() {
         assertEquals(Color.argb(255, 0xe0, 0x00, 0x00), DesignRenderer.parseColor("  #E00000 "))

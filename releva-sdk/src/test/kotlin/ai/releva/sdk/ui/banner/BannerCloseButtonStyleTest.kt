@@ -86,7 +86,7 @@ class BannerCloseButtonStyleTest {
     /** The web draws no border by default, so everything that names no colour means none. */
     @Test
     fun `a border naming no colour is no border`() {
-        for (value in listOf("", "   ", "none", "0", "1px solid", "thin dotted")) {
+        for (value in listOf("", "   ", "none", "0", "1px solid", "thin dotted", "1px none #fff", "1px solid #ffffffffff")) {
             val style = BannerCloseButtonStyle.of(mapOf("closeButtonBorder" to value))
             assertEquals("closeButtonBorder=$value", 0f, style.borderWidthDp, 0f)
             assertEquals("closeButtonBorder=$value", Color.TRANSPARENT, style.borderColor)

@@ -825,8 +825,9 @@ object DesignRenderer {
     // --- Utility functions ---
 
     /**
-     * A **CSS** colour, which is the only kind this SDK ever sees: every string reaching here comes
-     * from a banner's `cssStyles` or from the Unlayer design JSON, and both are authored as CSS.
+     * A **CSS** colour. Banner `cssStyles` and the Unlayer design JSON are authored as CSS, and the
+     * story viewer's progress-indicator colours, which also come through here, are written the same
+     * way (`#FFFFFF4D` is white at 30%, alpha last).
      *
      * `Color.parseColor` is not that parser, which is why this no longer calls it. It throws on the
      * three-digit `#000` the admin serves as its own default — so the value was silently dropped —

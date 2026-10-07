@@ -27,24 +27,42 @@ group in `BannerChromeTest.kt`; **not** verified on a physical device, so the qa
   and `popupCloseButton_backgroundColor` used to win over the `cssStyles` keys; the web SDK never
   read them and that override is retired. `cssStyles` is the only source.
 
-- **`DesignRenderer.parseColor` reads CSS rather than Android colour literals.** Every string it
-  sees comes from `cssStyles` or from the design JSON and both are authored as CSS, but it
-  delegated to `Color.parseColor`, which is not a CSS parser. Two consequences, **both of which
-  change colours already in production designs**: a three-digit value (`#000`, `#fff`) threw and
-  was silently dropped, so it now resolves instead of falling back; and an eight-digit value was
-  read as Android's `#AARRGGBB` where CSS puts the alpha LAST, so `#ff000080` — a half-transparent
-  red — was drawn as an opaque navy and is now drawn as the author wrote it. `transparent`,
+- **`DesignRenderer.parseColor` reads CSS rather than Android colour literals.** Banner
+  `cssStyles`, the Unlayer design JSON and the story viewer's progress-indicator colours are all
+  written as CSS, but it delegated to `Color.parseColor`, which is not a CSS parser. Three
+  consequences, **all of which change colours already in production**:
+  - a three-digit value (`#000`, `#fff`) threw and was silently dropped, so it now resolves
+    instead of falling back;
+  - an eight-digit value was read as Android's `#AARRGGBB` where CSS puts the alpha LAST, so
+    `#ff000080` — a half-transparent red — was drawn as an opaque navy and is now drawn as the
+    author wrote it. This reaches the **story viewer**: its inactive progress segments default to
+    `#FFFFFF4D`, which was an opaque pale yellow and is now white at 30%;
+  - `transparent` used to return null, so the call site's own fallback applied; it is now a real
+    colour and paints nothing. A design's `transparent` button background (fallback `#3AAEE0`),
+    divider (`#BBBBBB`), text colour (the default text colour), a `popupOverlay_backgroundColor`
+    (the 50% scrim) and a story slide background (black) are now honoured instead of replaced.
+
   `#rgba` and uppercase values are accepted for the same reason.
 
 ### Fixed
 
 - **The close control's tap target is never below Android's 48dp minimum.** It painted a 32dp
-  square (24dp on a bar) and the view was that square, so the touch area was the same size. The
-  view is now `max(48dp, the painted side)` with the square drawn inside it, and every call site
-  places the control by the PAINTED square's corner and pulls the view back by half the
-  difference — so nothing a person can see moves. A bar's control is now the same 32dp square the
-  other two types draw, which widens the band it covers from 34dp to 40dp; the 42dp right gutter
-  reserved in 1.5.3 already clears it, so no copy moves either.
+  square (24dp on a bar) and the view was that square, so the touch area was the same size. On a
+  popup and a flyout the view is now `max(48dp, the painted side)` with the square drawn inside
+  it, placed by the PAINTED square's corner so nothing a person can see moves; the flyout's close
+  row stays 48dp tall at every `closeFontSize`, so its scrolled design never moves. A bar's view
+  stays the painted square, so a compact bar's height is not floored at 48dp, and its tap target
+  is a `TouchDelegate` on the card.
+- **A bar's control is now the same 32dp square the other two types draw** (it was 24dp). It
+  covers 8dp–40dp in from the card's right edge, inside the 42dp gutter reserved in 1.5.3, and a
+  bar whose design is shorter than about 36dp grows by up to a few dp. Its inner edge is anchored
+  to that band, so a larger `closeFontSize` grows the square toward the card's edge and the copy
+  stays clear up to a size of 24 (a 42dp square flush with the edge). At sizes 25 and 26 the
+  square is 43–44dp and reaches 1–2dp into the copy's gutter, which cannot be avoided without
+  widening the gutter, and that is out of scope.
+- **The ✕ takes its colour's alpha.** The glyph tint is applied with `SRC_IN`, so
+  `closeButtonColor: transparent` or a translucent colour draws no ✕ / a translucent ✕ rather than
+  the icon's own grey.
 
 ## 1.5.3
 
