@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.5.4
+
+PATCH: the changes below change what the close control looks like but add and deprecate no public
+API. Verified with `BannerCloseButtonStyleTest.kt`, `DesignRendererColorTest.kt` and the close-control
+group in `BannerChromeTest.kt`; **not** verified on a physical device, so the qa-shared rows
+`QA-CLS-01`…`QA-CLS-10` are still outstanding.
+
+### Changed
+
+- **Honoured the five `cssStyles` close-button keys the API already serves** —
+  `closeButtonColor`, `closeButtonBackgroundColor`, `closeButtonBorder`, `closeFontSize` and
+  `closeButtonBorderRadius` — on the three display types that draw a close control (`popup`,
+  `bar`, `flyout`). They are resolved by `BannerCloseButtonStyle`, the same contract the other
+  three mobile SDKs implement against the web SDK's `.closeBtnHolder`. The remaining six keys
+  (`closeButtonSymbol`, `closeButtonPadding`, `closeButtonFontWeight`, `closeButtonLineHeight`,
+  `closeButtonTopPosition`, `closeButtonRightPosition`) are web-only and are deliberately
+  ignored: the control keeps this SDK's own glyph and its current placement.
+
+  **This changes what an unauthored banner draws**, which is every banner in production: the API
+  fills the missing keys with `#000` on `#fff` at radius 20 and size 14 with a blank border, and
+  those now render as a **black ✕ on a white circle with no ring** where this SDK drew a dark-grey
+  ✕ on white inside a hard-coded light-grey ring. That is what the web shows for the same banner.
+
+- **The Unlayer design no longer overrides the control's colours.** `popupCloseButton_iconColor`
+  and `popupCloseButton_backgroundColor` used to win over the `cssStyles` keys; the web SDK never
+  read them and that override is retired. `cssStyles` is the only source.
+
+- **`DesignRenderer.parseColor` reads CSS rather than Android colour literals.** Every string it
+  sees comes from `cssStyles` or from the design JSON and both are authored as CSS, but it
+  delegated to `Color.parseColor`, which is not a CSS parser. Two consequences, **both of which
+  change colours already in production designs**: a three-digit value (`#000`, `#fff`) threw and
+  was silently dropped, so it now resolves instead of falling back; and an eight-digit value was
+  read as Android's `#AARRGGBB` where CSS puts the alpha LAST, so `#ff000080` — a half-transparent
+  red — was drawn as an opaque navy and is now drawn as the author wrote it. `transparent`,
+  `#rgba` and uppercase values are accepted for the same reason.
+
+### Fixed
+
+- **The close control's tap target is never below Android's 48dp minimum.** It painted a 32dp
+  square (24dp on a bar) and the view was that square, so the touch area was the same size. The
+  view is now `max(48dp, the painted side)` with the square drawn inside it, and every call site
+  places the control by the PAINTED square's corner and pulls the view back by half the
+  difference — so nothing a person can see moves. A bar's control is now the same 32dp square the
+  other two types draw, which widens the band it covers from 34dp to 40dp; the 42dp right gutter
+  reserved in 1.5.3 already clears it, so no copy moves either.
+
 ## 1.5.3
 
 PATCH: the changes below change behaviour but add and deprecate no public API. Verified with

@@ -5,13 +5,16 @@ import ai.releva.sdk.services.banner.BannerDisplayController
 import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.types.response.BannerResponse
 import android.graphics.Color
+import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.ScrollView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.Insets
@@ -44,6 +47,10 @@ import org.robolectric.shadows.ShadowDialog
  * must lay out exactly as it did before the keys existed, and so must one carrying all nine at
  * their documented defaults. Only then do the per-key tests say what an authored value moves.
  *
+ * The close control is the card's neighbour rather than one of those keys, and has a resolver and a
+ * suite of its own — what it is asserted for here is where it lands on the card and that each
+ * display type paints what that resolver resolved.
+ *
  * `qualifiers = "xxhdpi"` pins density to 3.0 for the same reason `DesignRendererPaddingTest` does:
  * at the default 1.0 a missing or doubled density multiply is invisible.
  */
@@ -60,6 +67,17 @@ class BannerChromeTest {
     private val density get() = metrics.density
     private val screenWidth get() = metrics.widthPixels
     private val screenHeight get() = metrics.heightPixels
+
+    /**
+     * The close control at the default `closeFontSize`, in this fixture's pixels: a 32dp painted
+     * square inside a 48dp tap target, placed 8dp in from the card's corner. `BannerCloseButtonStyle`
+     * owns these numbers and `BannerCloseButtonStyleTest` pins them; here they are only what the
+     * card's own geometry is measured against.
+     */
+    private val closeSidePx get() = (32 * density).toInt()
+    private val closeTapTargetPx get() = (48 * density).toInt()
+    private val closeRingPx get() = (closeTapTargetPx - closeSidePx) / 2
+    private val closeMarginPx get() = (8 * density).toInt()
 
     /** Read the way `BannerDisplayManager` reads it, since that value is part of what is pinned. */
     private val statusBarHeight: Int
@@ -357,12 +375,13 @@ class BannerChromeTest {
     fun `a bar reserves the close button's band so a headline cannot run under it`() {
         val bar = showBar(emptyMap())
 
-        // The button is 24dp pulled out by a quarter of itself, so it covers from 10dp to 34dp in
-        // from the card's right edge. Anything less than 34 here draws copy under the glyph.
+        // The painted button is 32dp pulled out by a quarter of itself, and its margin is floored
+        // at zero so the tap target's ring stays inside the card — which puts it from 8dp to 40dp
+        // in from the card's right edge. Anything less than 40 here draws copy under the glyph.
         assertEquals("left gutter is unchanged", (16 * density).toInt(), bar.content.paddingLeft)
         assertTrue(
-            "right gutter ${bar.content.paddingRight} must clear the control's band (34dp)",
-            bar.content.paddingRight >= (34 * density).toInt()
+            "right gutter ${bar.content.paddingRight} must clear the control's band (40dp)",
+            bar.content.paddingRight >= (40 * density).toInt()
         )
     }
 
@@ -738,14 +757,15 @@ class BannerChromeTest {
             // What a centred card guarantees is that it is centred in the visible box, which is
             // `a centred sized card lands on the centre of what can be seen`.
 
-            val closeSize = (32 * density).toInt()
-            val closeMargin = (8 * density).toInt()
-            val maxX = (screenWidth - 30 - closeMargin - closeSize).toFloat()
-            val minY = (expectedTop + closeMargin).toFloat()
-            val expectedX = (card.view.x + card.view.width - closeSize - closeMargin).coerceAtMost(maxX)
-            val expectedY = (card.view.y + closeMargin).coerceAtLeast(minY)
-            assertEquals("$cssStyles", expectedX, closeButton.x, 0.01f)
-            assertEquals("$cssStyles", expectedY, closeButton.y, 0.01f)
+            // Every term is the PAINTED square's; the view is `closeRingPx` wider on each side and
+            // is placed that much back from it, so the control a person sees has not moved.
+            val maxX = (screenWidth - 30 - closeMarginPx - closeSidePx).toFloat()
+            val minY = (expectedTop + closeMarginPx).toFloat()
+            val expectedX = (card.view.x + card.view.width - closeSidePx - closeMarginPx).coerceAtMost(maxX)
+            val expectedY = (card.view.y + closeMarginPx).coerceAtLeast(minY)
+            assertEquals("$cssStyles", expectedX - closeRingPx, closeButton.x, 0.01f)
+            assertEquals("$cssStyles", expectedY - closeRingPx, closeButton.y, 0.01f)
+            assertEquals("$cssStyles", closeTapTargetPx, closeButton.layoutParams.width)
         }
     }
 
@@ -762,17 +782,17 @@ class BannerChromeTest {
         layoutDialog()
         val closeButton = popupCloseButton()
 
-        val closeSize = (32 * density).toInt()
-        val closeMargin = (8 * density).toInt()
-
         // The card is well clear of every screen edge at 50%/50% centred, so the button's own
         // safe-area clamp cannot be what is putting it here — this is the card's corner, not the
         // window's (which the test above covers).
-        assertEquals(card.view.x + card.view.width - closeSize - closeMargin, closeButton.x, 0.01f)
-        assertEquals(card.view.y + closeMargin, closeButton.y, 0.01f)
+        assertEquals(
+            card.view.x + card.view.width - closeSidePx - closeMarginPx - closeRingPx,
+            closeButton.x, 0.01f
+        )
+        assertEquals(card.view.y + closeMarginPx - closeRingPx, closeButton.y, 0.01f)
         assertTrue(
             "must not be left at the window's corner",
-            closeButton.x < screenWidth - closeSize - closeMargin - 1f
+            closeButton.x < screenWidth - closeSidePx - closeMarginPx - closeRingPx - 1f
         )
     }
 
@@ -796,6 +816,63 @@ class BannerChromeTest {
         closeButton.performClick()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(false, ShadowDialog.getLatestDialog().isShowing)
+    }
+
+    // ---- the close control, which reads five `cssStyles` keys of its own -----------------------
+
+    /**
+     * `BannerCloseButtonStyle` resolves those keys and `BannerCloseButtonStyleTest` pins what it
+     * resolves them to; what the three tests below add is that each display type actually draws
+     * what it resolved, and that nothing else gets a say.
+     *
+     * The control's colours used to come from the Unlayer design first —
+     * `popupCloseButton_iconColor` and `popupCloseButton_backgroundColor` — and only then from
+     * `cssStyles`. The web SDK never read those, so an editor default written into a design
+     * overrode what the author had actually set. The lookup is gone. (`QA-CLS-08`.)
+     */
+    @Test
+    fun `a popup's close button no longer takes its colours from the Unlayer design`() {
+        showPopup(
+            cssStyles = emptyMap(),
+            bodyValues = mapOf(
+                "popupCloseButton_backgroundColor" to "#00ff00",
+                "popupCloseButton_iconColor" to "#ff00ff"
+            )
+        )
+        val close = popupCloseButton()
+
+        assertEquals(Color.WHITE, closeFill(close))
+        assertEquals(Color.BLACK, closeGlyphColor(close))
+    }
+
+    /** `QA-CLS-09` and `QA-CLS-10`: the keys reach the other two types, not only the popup. */
+    @Test
+    fun `a bar and a flyout paint their close button from the same keys`() {
+        val bar = showBar(mapOf("closeButtonColor" to "#fff", "closeButtonBackgroundColor" to "#000"))
+        val barClose = (bar.view as ViewGroup).getChildAt(1)
+        assertEquals(Color.BLACK, closeFill(barClose))
+        assertEquals(Color.WHITE, closeGlyphColor(barClose))
+
+        val flyout = showFlyout(
+            mapOf("closeButtonColor" to "#0a0", "closeButtonBackgroundColor" to "#fff"),
+            displayPosition = "right"
+        )
+        val flyoutClose = ((flyout.view as ViewGroup).getChildAt(0) as ViewGroup).getChildAt(0)
+        assertEquals(Color.WHITE, closeFill(flyoutClose))
+        assertEquals(Color.parseColor("#00aa00"), closeGlyphColor(flyoutClose))
+    }
+
+    /**
+     * The row above the flyout's scrolled design is sized by the control's margins and the view
+     * inside it, and that view is now a 48dp tap target rather than the 32dp square it paints. The
+     * margins absorb the difference, so the row — and everything below it — stays where it was.
+     */
+    @Test
+    fun `a flyout's close row stays as tall as the painted control and its margins`() {
+        showFlyout(cssStyles = emptyMap(), displayPosition = "right")
+        layoutDialog()
+
+        assertEquals(closeMarginPx * 2 + closeSidePx, dialogCard().getChildAt(0).height)
     }
 
     // ---- contentVerticalAlign -----------------------------------------------------------------
@@ -1042,6 +1119,16 @@ class BannerChromeTest {
             (content.layoutParams as FrameLayout.LayoutParams).gravity
         )
     }
+
+    /**
+     * The control paints a square inside a transparent ring that widens its view to a tap target,
+     * so its fill is the inset drawable's own, not the view's background directly.
+     */
+    private fun closeFill(button: View): Int? =
+        ((button.background as InsetDrawable).drawable as GradientDrawable).color?.defaultColor
+
+    private fun closeGlyphColor(button: View): Int =
+        shadowOf((button as ImageButton).colorFilter as PorterDuffColorFilter).color
 
     /** The bar's card, which the manager adds as an overlay beside the wrapper it built. */
     private fun showBar(cssStyles: Map<String, Any?>, displayPosition: String? = null): Card {
