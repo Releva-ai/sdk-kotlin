@@ -6,8 +6,6 @@ import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.types.response.BannerResponse
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
@@ -867,13 +865,25 @@ class BannerChromeTest {
     }
 
     @Test
-    fun `the glyph is tinted with SRC_IN so a translucent colour keeps its alpha`() {
+    fun `a translucent glyph colour keeps its alpha`() {
         showPopup(cssStyles = mapOf("closeButtonColor" to "#00000080"))
-        val close = popupCloseButton()
-        val filter = shadowOf((close as ImageButton).colorFilter as PorterDuffColorFilter)
 
-        assertEquals(PorterDuff.Mode.SRC_IN, filter.mode)
-        assertEquals(Color.argb(0x80, 0, 0, 0), filter.color)
+        assertEquals(Color.argb(0x80, 0, 0, 0), closeGlyphColor(popupCloseButton()))
+    }
+
+    /**
+     * Device QA (CLS-01) found the admin default `#000` drawn as #666 grey: the system
+     * `ic_menu_close_clear_cancel` icon is itself ~60% opaque, and a SRC_IN tint keeps the icon's
+     * alpha. The glyph is now the SDK's own drawable, painted in exactly the authored colour.
+     */
+    @Test
+    fun `the default glyph is fully opaque black, not a tinted system icon`() {
+        showPopup(cssStyles = emptyMap())
+        val close = popupCloseButton() as ImageButton
+
+        assertTrue(close.drawable is CloseGlyphDrawable)
+        assertEquals(null, close.colorFilter)
+        assertEquals(Color.BLACK, closeGlyphColor(close))
     }
 
     /**
@@ -1281,7 +1291,7 @@ class BannerChromeTest {
     private fun closeStrokeColor(button: View): Int = strokePaint(button)!!.color
 
     private fun closeGlyphColor(button: View): Int =
-        shadowOf((button as ImageButton).colorFilter as PorterDuffColorFilter).color
+        ((button as ImageButton).drawable as CloseGlyphDrawable).color
 
     /** The bar's card, which the manager adds as an overlay beside the wrapper it built. */
     private fun showBar(cssStyles: Map<String, Any?>, displayPosition: String? = null): Card {

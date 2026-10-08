@@ -6,7 +6,6 @@ import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.types.response.BannerResponse
 import android.app.Dialog
 import android.graphics.Color
-import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -1109,8 +1108,9 @@ class BannerDisplayManager(
         val glyphPadding = ring + ((style.sideDp - style.glyphSizeDp) / 2f * dp).roundToInt()
 
         return ImageButton(context).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-            setColorFilter(style.iconColor, PorterDuff.Mode.SRC_IN)
+            // No intrinsic size, so the ImageView sizes it to the content box — the glyph box the
+            // padding below leaves.
+            setImageDrawable(CloseGlyphDrawable(style.iconColor))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
 
             background = InsetDrawable(
