@@ -1072,12 +1072,6 @@ class BannerDisplayManager(
     }
 
     /**
-     * The transparent ring between the control's tap target — which is the view, so that it is
-     * never below Android's 48dp minimum — and the square it actually paints, in device pixels.
-     * Call sites place the control by the PAINTED square's corner, where it has always sat, and
-     * pull the view back by this.
-     */
-    /**
      * A dimmed backdrop closes its banner on a TAP, not on any gesture that ends inside it. A
      * clickable view counts a press that moved but stayed within its bounds as a click, and a
      * backdrop is the whole window — so a swipe or scroll started on it closed the popup (device
@@ -1090,10 +1084,21 @@ class BannerDisplayManager(
         val taps = GestureDetector(backdrop.context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
             override fun onSingleTapUp(e: MotionEvent): Boolean = backdrop.performClick()
-        })
+        }).apply {
+            // There is no long-press action on a backdrop; leaving detection on means a press held
+            // past the long-press timeout sets mInLongPress, and ACTION_UP never reaches
+            // onSingleTapUp, so a slow tap stops dismissing the banner.
+            setIsLongpressEnabled(false)
+        }
         backdrop.setOnTouchListener { _, event -> taps.onTouchEvent(event); true }
     }
 
+    /**
+     * The transparent ring between the control's tap target — which is the view, so that it is
+     * never below Android's 48dp minimum — and the square it actually paints, in device pixels.
+     * Call sites place the control by the PAINTED square's corner, where it has always sat, and
+     * pull the view back by this.
+     */
     private fun closeRingPx(style: BannerCloseButtonStyle, density: Float): Int =
         ((style.tapTargetDp * density).toInt() - (style.sideDp * density).toInt()) / 2
 

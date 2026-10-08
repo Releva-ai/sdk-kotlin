@@ -585,6 +585,38 @@ class BannerChromeTest {
         assertEquals("a swipe must not close it", true, ShadowDialog.getLatestDialog().isShowing)
     }
 
+    /**
+     * A press held past the long-press timeout is still a tap here — there is no long-press action
+     * on a backdrop. `GestureDetector` has long-press detection on by default, so without
+     * `setIsLongpressEnabled(false)` the timer fires between DOWN and UP, `mInLongPress` is set, and
+     * `ACTION_UP` never reaches `onSingleTapUp`: a slow tap stopped closing the banner.
+     */
+    @Test
+    fun `a slow tap on the dimmed backdrop still closes the popup`() {
+        showPopup(cssStyles = emptyMap())
+        layoutDialog()
+        val backdrop = dialogRoot()
+        val x = screenWidth / 2f
+        val y = 4f
+        val now = android.os.SystemClock.uptimeMillis()
+
+        val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0)
+        backdrop.dispatchTouchEvent(down)
+        down.recycle()
+
+        shadowOf(Looper.getMainLooper()).idleFor(
+            java.time.Duration.ofMillis(android.view.ViewConfiguration.getLongPressTimeout() + 100L)
+        )
+
+        val upTime = now + android.view.ViewConfiguration.getLongPressTimeout() + 100L
+        val up = MotionEvent.obtain(now, upTime, MotionEvent.ACTION_UP, x, y, 0)
+        backdrop.dispatchTouchEvent(up)
+        up.recycle()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals("a slow tap must still close it", false, ShadowDialog.getLatestDialog().isShowing)
+    }
+
     @Test
     fun `the design's overlay colour dims the backdrop`() {
         showPopup(cssStyles = emptyMap(), bodyValues = mapOf("popupOverlay_backgroundColor" to "#ff000080"))
