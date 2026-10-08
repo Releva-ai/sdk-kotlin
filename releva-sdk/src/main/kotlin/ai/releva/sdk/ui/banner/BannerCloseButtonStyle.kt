@@ -56,9 +56,9 @@ internal data class BannerCloseButtonStyle(
     val tapTargetDp: Int,
 
     /**
-     * The box the ✕ drawable is centred in. `closeFontSize` is a font size on the web and this
-     * SDK draws a drawable, which carries its own transparent margin: the extra 6 is what makes
-     * the default of 14 reproduce the 20dp box inside the 32dp button.
+     * The box the ✕ drawable is centred in, equal to `closeFontSize` itself: `CloseGlyphDrawable`
+     * draws corner to corner of the bounds it is given, so the box IS the glyph's size with no
+     * margin of its own to compensate for.
      */
     val glyphSizeDp: Int
 ) {
@@ -77,7 +77,7 @@ internal data class BannerCloseButtonStyle(
                     .coerceIn(0f, side / 2f),
                 sideDp = side,
                 tapTargetDp = maxOf(48, side),
-                glyphSizeDp = fontSize + 6
+                glyphSizeDp = fontSize
             )
         }
 

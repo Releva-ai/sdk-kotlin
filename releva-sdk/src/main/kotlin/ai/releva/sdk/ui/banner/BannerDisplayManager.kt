@@ -1109,9 +1109,9 @@ class BannerDisplayManager(
 
         return ImageButton(context).apply {
             // No intrinsic size, so the ImageView sizes it to the content box — the glyph box the
-            // padding below leaves.
+            // padding below leaves. configureBounds nulls mDrawMatrix on that branch, so no
+            // scaleType is consulted.
             setImageDrawable(CloseGlyphDrawable(style.iconColor))
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
 
             background = InsetDrawable(
                 GradientDrawable().apply {

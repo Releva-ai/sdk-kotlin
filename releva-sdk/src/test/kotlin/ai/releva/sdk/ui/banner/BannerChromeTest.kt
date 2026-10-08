@@ -887,6 +887,27 @@ class BannerChromeTest {
     }
 
     /**
+     * `CloseGlyphDrawable` draws corner to corner of the bounds `ImageView.configureBounds` gives
+     * it (no intrinsic size, no scale type consulted), so the painted box IS
+     * `glyphSizeDp * density` — pins the sizing chain end to end, at the default `closeFontSize`
+     * and at `24` (`QA-CLS-05`).
+     */
+    @Test
+    fun `the glyph's painted box is glyphSizeDp square, at the default size and at 24`() {
+        showPopup(cssStyles = emptyMap())
+        var close = popupCloseButton() as ImageButton
+        var expected = (14 * density).roundToInt()
+        assertEquals(expected, close.drawable.bounds.width())
+        assertEquals(expected, close.drawable.bounds.height())
+
+        showPopup(cssStyles = mapOf("closeFontSize" to "24"))
+        close = popupCloseButton() as ImageButton
+        expected = (24 * density).roundToInt()
+        assertEquals(expected, close.drawable.bounds.width())
+        assertEquals(expected, close.drawable.bounds.height())
+    }
+
+    /**
      * The bar's 48dp tap target is a TouchDelegate on the card, and it is shifted into the card's
      * bounds rather than clipped to them: the square sits 4dp from the top, so a ring grown
      * around it would otherwise lose its top 4dp.

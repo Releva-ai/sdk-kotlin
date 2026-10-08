@@ -4,8 +4,8 @@
 
 PATCH: the changes below change what the close control looks like but add and deprecate no public
 API. Verified with `BannerCloseButtonStyleTest.kt`, `DesignRendererColorTest.kt` and the close-control
-group in `BannerChromeTest.kt`; **not** verified on a physical device, so the qa-shared rows
-`QA-CLS-01`…`QA-CLS-10` are still outstanding.
+group in `BannerChromeTest.kt`, and on a physical device against the qa-shared rows
+`QA-CLS-01`…`QA-CLS-10`.
 
 ### Changed
 
@@ -68,9 +68,15 @@ group in `BannerChromeTest.kt`; **not** verified on a physical device, so the qa
   stays clear up to a size of 24 (a 42dp square flush with the edge). At sizes 25 and 26 the
   square is 43–44dp and reaches 1–2dp into the copy's gutter, which cannot be avoided without
   widening the gutter, and that is out of scope.
-- **The ✕ takes its colour's alpha.** The glyph tint is applied with `SRC_IN`, so
-  `closeButtonColor: transparent` or a translucent colour draws no ✕ / a translucent ✕ rather than
-  the icon's own grey.
+- **The ✕ is now the SDK's own `CloseGlyphDrawable`, painted in exactly `closeButtonColor`
+  (alpha included), replacing `android.R.drawable.ic_menu_close_clear_cancel`.** That system icon's
+  own pixels are themselves only ~60% opaque, so every ✕ this SDK drew — including the admin
+  default `#000` — rendered at roughly 60% strength (`#666` on a real device, QA row `CLS-01`); no
+  tint mode could have produced a true `#000` from a partly-transparent source. The ✕ is now
+  painted at full strength in exactly the authored colour, and `closeButtonColor: transparent` or a
+  translucent colour still draws no ✕ / a translucent one. The drawable fills the box it is given
+  corner to corner, so the box is now `closeFontSize` itself rather than `closeFontSize + 6dp` (the
+  margin the old system icon carried around its own ✕, which this drawable does not have).
 
 ## 1.5.3
 

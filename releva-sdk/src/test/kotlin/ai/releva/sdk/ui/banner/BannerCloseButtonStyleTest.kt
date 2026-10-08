@@ -32,7 +32,7 @@ class BannerCloseButtonStyleTest {
         assertEquals(Color.TRANSPARENT, style.borderColor)
         assertEquals(32, style.sideDp)
         assertEquals(48, style.tapTargetDp)
-        assertEquals(20, style.glyphSizeDp)
+        assertEquals(14, style.glyphSizeDp)
         // 20 capped at half the 32dp side, which is still a circle.
         assertEquals(16f, style.cornerRadiusDp, 0f)
     }
@@ -98,7 +98,7 @@ class BannerCloseButtonStyleTest {
     fun `closeFontSize sizes the button and is clamped to 8 and 26`() {
         val large = BannerCloseButtonStyle.of(mapOf("closeFontSize" to "24"))
         assertEquals(42, large.sideDp)
-        assertEquals(30, large.glyphSizeDp)
+        assertEquals(24, large.glyphSizeDp)
         assertEquals(48, large.tapTargetDp)
 
         // Above the ceiling: 26, so a 44dp square — still inside the 48dp tap target.
@@ -109,7 +109,7 @@ class BannerCloseButtonStyleTest {
         // Below the floor: 8, and the square stays at its own 32dp minimum.
         val tiny = BannerCloseButtonStyle.of(mapOf("closeFontSize" to "2"))
         assertEquals(32, tiny.sideDp)
-        assertEquals(14, tiny.glyphSizeDp)
+        assertEquals(8, tiny.glyphSizeDp)
     }
 
     /** CLS-06: a square button, and the two functional colour forms. */

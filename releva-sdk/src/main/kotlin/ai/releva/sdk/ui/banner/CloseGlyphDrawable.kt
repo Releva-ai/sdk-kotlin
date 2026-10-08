@@ -55,7 +55,7 @@ internal class CloseGlyphDrawable(glyphColor: Int) : Drawable() {
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 
     internal companion object {
-        /** Stroke weight as a share of the glyph's side — close to the system icon's. */
+        /** Stroke weight as a share of the glyph's side. */
         const val STROKE_FRACTION = 0.14f
     }
 }
