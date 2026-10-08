@@ -752,17 +752,22 @@ class BannerDisplayManager(
         // A pointer outside the card's own bounds is never dispatched to it, so the ring is
         // shifted back inside them rather than clipped, which keeps the full target wherever the
         // card is at least that big. Only what still does not fit is cut.
+        val closeHitRect = Rect()
         barLayout.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            val hit = Rect()
-            closeButton.getHitRect(hit)
-            hit.inset(-closeRing, -closeRing)
-            hit.offset(
-                maxOf(0, -hit.left) - maxOf(0, hit.right - barLayout.width),
-                maxOf(0, -hit.top) - maxOf(0, hit.bottom - barLayout.height)
+            closeButton.getHitRect(closeHitRect)
+            closeHitRect.inset(-closeRing, -closeRing)
+            closeHitRect.offset(
+                maxOf(0, -closeHitRect.left) - maxOf(0, closeHitRect.right - barLayout.width),
+                maxOf(0, -closeHitRect.top) - maxOf(0, closeHitRect.bottom - barLayout.height)
             )
-            if (hit.intersect(0, 0, barLayout.width, barLayout.height)) {
-                barLayout.touchDelegate = TouchDelegate(hit, closeButton)
-            }
+            // A zero-size card leaves nothing tappable anyway; clearing the delegate rather than
+            // leaving a stale one pointed at the last laid-out rect.
+            barLayout.touchDelegate =
+                if (closeHitRect.intersect(0, 0, barLayout.width, barLayout.height)) {
+                    TouchDelegate(closeHitRect, closeButton)
+                } else {
+                    null
+                }
         }
         barLayout.clipChildren = false
         barLayout.clipToPadding = false
@@ -876,15 +881,16 @@ class BannerDisplayManager(
             closeBanner(banner)
         }
         val closeGravity = if (closeOnTrailingEdge) Gravity.TOP or Gravity.END else Gravity.TOP or Gravity.START
-        // The painted square sits 8dp in from the side edge, less the ring the tap target adds
-        // around it. The row is the 48dp tap target and no more, whatever the size, so the
-        // scrolled design below it never moves.
+        // The painted square sits 8dp in from the side edge AND the top edge, less the ring the
+        // tap target adds around it on each axis, so the ✕ stays in the same corner at every
+        // closeFontSize instead of riding up as the ring shrinks.
         val closeMargin = ((8 * dp).toInt() - closeRingPx(closeStyle, dp)).coerceAtLeast(0)
         val closeRow = FrameLayout(ctx).apply {
             addView(closeButton, FrameLayout.LayoutParams(
                 (closeStyle.tapTargetDp * dp).toInt(), (closeStyle.tapTargetDp * dp).toInt(),
                 closeGravity
             ).apply {
+                topMargin = closeMargin
                 if (closeOnTrailingEdge) rightMargin = closeMargin else leftMargin = closeMargin
             })
         }

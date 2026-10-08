@@ -52,8 +52,10 @@ group in `BannerChromeTest.kt`; **not** verified on a physical device, so the qa
 - **The close control's tap target is 48dp, or the whole card where the card is shorter.** It painted a 32dp
   square (24dp on a bar) and the view was that square, so the touch area was the same size. On a
   popup and a flyout the view is now `max(48dp, the painted side)` with the square drawn inside
-  it, placed by the PAINTED square's corner so nothing a person can see moves; the flyout's close
-  row stays 48dp tall at every `closeFontSize`, so its scrolled design never moves. A bar's view
+  it, placed by the PAINTED square's corner so nothing a person can see moves. The flyout's close
+  row is 48dp tall at the default size, and grows by `8dp - ring` once the ring shrinks below
+  8dp (5dp at `closeFontSize` 24) so the square's top and side insets stay equal — the scrolled
+  design below it moves down by that same amount. A bar's view
   stays the painted square, so a compact bar's height is not floored at 48dp, and its tap target
   is a `TouchDelegate` on the card, a 48dp square shifted back inside the card's bounds (the
   square sits 4dp from the card's top, so a centred target would not fit) and cut only where

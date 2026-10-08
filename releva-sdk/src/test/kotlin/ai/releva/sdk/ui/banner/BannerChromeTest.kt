@@ -953,15 +953,32 @@ class BannerChromeTest {
     }
 
     /**
-     * The gutter, the card's height and the scrolled design under a flyout's control must not move
-     * with `closeFontSize`: the row is the 48dp tap target at every size.
+     * `topMargin = closeMargin` keeps the painted square's top and side insets equal at every
+     * size, at the cost of the row (and the card below it) growing by `8dp - ring` once the ring
+     * shrinks below 8dp — 0 at the default size, 5dp at closeFontSize 24.
      */
     @Test
-    fun `a flyout's close row is 48dp tall at a larger closeFontSize too`() {
+    fun `a flyout's close row grows with the top margin at a larger closeFontSize`() {
         showFlyout(cssStyles = mapOf("closeFontSize" to "24"), displayPosition = "right")
         layoutDialog()
 
-        assertEquals((48 * density).toInt(), dialogCard().getChildAt(0).height)
+        val side = (42 * density).toInt()
+        val tapTarget = (48 * density).toInt()
+        val ring = (tapTarget - side) / 2
+        val margin = ((8 * density).toInt() - ring).coerceAtLeast(0)
+        assertEquals(margin + tapTarget, dialogCard().getChildAt(0).height)
+    }
+
+    /** The painted square's top and side insets must agree, not just at the default size. */
+    @Test
+    fun `a flyout's close button sits the same distance from the top and side edges at closeFontSize 24`() {
+        showFlyout(cssStyles = mapOf("closeFontSize" to "24"), displayPosition = "right")
+        layoutDialog()
+
+        val closeRow = dialogCard().getChildAt(0) as ViewGroup
+        val lp = closeRow.getChildAt(0).layoutParams as FrameLayout.LayoutParams
+        val sideMargin = if (lp.rightMargin != 0) lp.rightMargin else lp.leftMargin
+        assertEquals(lp.topMargin, sideMargin)
     }
 
     /** The bar's view is the painted square, so a compact bar's height is not floored by a 48dp view. */
@@ -1246,10 +1263,18 @@ class BannerChromeTest {
 
     private fun closeCornerRadius(button: View): Float = closeDrawable(button).cornerRadius
 
-    private fun strokePaint(button: View): Paint? =
-        GradientDrawable::class.java.getDeclaredField("mStrokePaint")
-            .apply { isAccessible = true }
-            .get(closeDrawable(button)) as Paint?
+    private fun strokePaint(button: View): Paint? {
+        val field = try {
+            GradientDrawable::class.java.getDeclaredField("mStrokePaint")
+        } catch (e: NoSuchFieldException) {
+            throw AssertionError(
+                "GradientDrawable.mStrokePaint is gone or renamed; update strokePaint() to match " +
+                    "the framework's current internals",
+                e
+            )
+        }
+        return field.apply { isAccessible = true }.get(closeDrawable(button)) as Paint?
+    }
 
     private fun closeStrokeWidth(button: View): Int = strokePaint(button)?.strokeWidth?.roundToInt() ?: 0
 
