@@ -1,5 +1,85 @@
 # Changelog
 
+## 1.5.4
+
+PATCH: the changes below change what the close control looks like but add and deprecate no public
+API. Verified with `BannerCloseButtonStyleTest.kt`, `DesignRendererColorTest.kt` and the close-control
+group in `BannerChromeTest.kt`, and on a physical device against the qa-shared rows
+`QA-CLS-01`…`QA-CLS-10` on a revision predating the `CloseGlyphDrawable` glyph and this round's
+glyph-box size change; those two are covered by unit assertions on `drawable.bounds` and the glyph
+colour only, not by a fresh photograph.
+
+### Changed
+
+- **Honoured the five `cssStyles` close-button keys the API already serves** —
+  `closeButtonColor`, `closeButtonBackgroundColor`, `closeButtonBorder`, `closeFontSize` and
+  `closeButtonBorderRadius` — on the three display types that draw a close control (`popup`,
+  `bar`, `flyout`). They are resolved by `BannerCloseButtonStyle`, the same contract the other
+  three mobile SDKs implement against the web SDK's `.closeBtnHolder`. The remaining six keys
+  (`closeButtonSymbol`, `closeButtonPadding`, `closeButtonFontWeight`, `closeButtonLineHeight`,
+  `closeButtonTopPosition`, `closeButtonRightPosition`) are web-only and are deliberately
+  ignored: the control keeps this SDK's own glyph and its current placement.
+
+  **This changes what an unauthored banner draws**, which is every banner in production: the API
+  fills the missing keys with `#000` on `#fff` at radius 20 and size 14 with a blank border, and
+  those now render as a **black ✕ on a white circle with no ring** where this SDK drew a dark-grey
+  ✕ on white inside a hard-coded light-grey ring. That is what the web shows for the same banner.
+
+- **The Unlayer design no longer overrides the control's colours.** `popupCloseButton_iconColor`
+  and `popupCloseButton_backgroundColor` used to win over the `cssStyles` keys; the web SDK never
+  read them and that override is retired. `cssStyles` is the only source.
+
+- **`DesignRenderer.parseColor` reads CSS rather than Android colour literals.** Banner
+  `cssStyles`, the Unlayer design JSON and the story viewer's progress-indicator colours are all
+  written as CSS, but it delegated to `Color.parseColor`, which is not a CSS parser. Three
+  consequences, **all of which change colours already in production**:
+  - a three-digit value (`#000`, `#fff`) threw and was silently dropped, so it now resolves
+    instead of falling back;
+  - an eight-digit value was read as Android's `#AARRGGBB` where CSS puts the alpha LAST, so
+    `#ff000080` — a half-transparent red — was drawn as an opaque navy and is now drawn as the
+    author wrote it. This reaches the **story viewer**: its inactive progress segments default to
+    `#FFFFFF4D`, which was an opaque pale yellow and is now white at 30%;
+  - `transparent` used to return null, so the call site's own fallback applied; it is now a real
+    colour and paints nothing. A design's `transparent` button background (fallback `#3AAEE0`),
+    divider (`#BBBBBB`), text colour (the default text colour), a `popupOverlay_backgroundColor`
+    (which used to fall through to `cssStyles.overlayColor`, then the 50% scrim, and now overrides
+    both), a `cardBackgroundColor: "transparent"` (which used to leave a popup or flyout card
+    white and now leaves it see-through) and a story slide background (black) are now honoured
+    instead of replaced.
+
+  `#rgba` and uppercase values are accepted for the same reason.
+
+### Fixed
+
+- **The close control's tap target is 48dp, or the whole card where the card is shorter.** It painted a 32dp
+  square (24dp on a bar) and the view was that square, so the touch area was the same size. On a
+  popup and a flyout the view is now `max(48dp, the painted side)` with the square drawn inside
+  it, placed by the PAINTED square's corner so nothing a person can see moves. The flyout's close
+  row is 48dp tall at the default size, and grows by `8dp - ring` once the ring shrinks below
+  8dp (5dp at `closeFontSize` 24) so the square's top and side insets stay equal — the scrolled
+  design below it moves down by that same amount. A bar's view
+  stays the painted square, so a compact bar's height is not floored at 48dp, and its tap target
+  is a `TouchDelegate` on the card, a 48dp square shifted back inside the card's bounds (the
+  square sits 4dp from the card's top, so a centred target would not fit) and cut only where
+  the card is shorter than 48dp.
+- **A bar's control is now the same 32dp square the other two types draw** (it was 24dp). It
+  covers 8dp–40dp in from the card's right edge, inside the 42dp gutter reserved in 1.5.3, and a
+  bar whose card is shorter than the square plus its 4dp top margin (a design under about 12dp
+  at the default size; under about 21dp at `closeFontSize` 24 to 26) grows to fit it. Its inner edge is anchored
+  to that band, so a larger `closeFontSize` grows the square toward the card's edge and the copy
+  stays clear up to a size of 24 (a 42dp square flush with the edge). At sizes 25 and 26 the
+  square is 43–44dp and reaches 1–2dp into the copy's gutter, which cannot be avoided without
+  widening the gutter, and that is out of scope.
+- **The ✕ is now the SDK's own `CloseGlyphDrawable`, painted in exactly `closeButtonColor`
+  (alpha included), replacing `android.R.drawable.ic_menu_close_clear_cancel`.** That system icon's
+  own pixels are themselves only ~60% opaque, so every ✕ this SDK drew — including the admin
+  default `#000` — rendered at roughly 60% strength (`#666` on a real device, QA row `CLS-01`); no
+  tint mode could have produced a true `#000` from a partly-transparent source. The ✕ is now
+  painted at full strength in exactly the authored colour, and `closeButtonColor: transparent` or a
+  translucent colour still draws no ✕ / a translucent one. The drawable fills the box it is given
+  corner to corner, so the box is now `closeFontSize` itself rather than `closeFontSize + 6dp` (the
+  margin the old system icon carried around its own ✕, which this drawable does not have).
+
 ## 1.5.3
 
 PATCH: the changes below change behaviour but add and deprecate no public API. Verified with

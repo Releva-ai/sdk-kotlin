@@ -25,6 +25,7 @@ object DesignRenderer {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val RGBA_REGEX = Regex("""rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)""")
     private val RGB_REGEX = Regex("""rgb\((\d+),\s*(\d+),\s*(\d+)\)""")
+    private val HEX_REGEX = Regex("""[0-9a-f]+""")
 
     fun loadImageAsync(url: String, imageView: ImageView) {
         imageExecutor.execute {
@@ -823,12 +824,23 @@ object DesignRenderer {
 
     // --- Utility functions ---
 
+    /**
+     * A **CSS** colour. Banner `cssStyles` and the Unlayer design JSON are authored as CSS, and the
+     * story viewer's progress-indicator colours, which also come through here, are written the same
+     * way (`#FFFFFF4D` is white at 30%, alpha last).
+     *
+     * `Color.parseColor` is not that parser, which is why this no longer calls it. It throws on the
+     * three-digit `#000` the admin serves as its own default — so the value was silently dropped —
+     * and it reads an eight-digit value as Android's `#AARRGGBB` where CSS puts the alpha LAST, so
+     * `#ff000080` (half-transparent red) arrived as an opaque navy.
+     */
     fun parseColor(value: Any?): Int? {
-        if (value == null) return null
-        val str = value.toString().trim()
+        val str = value?.toString()?.trim()?.lowercase() ?: return null
         if (str.isEmpty()) return null
 
-        // rgba(r, g, b, a)
+        if (str == "transparent") return Color.TRANSPARENT
+
+        // rgba(r, g, b, a), a in 0..1
         val rgbaMatch = RGBA_REGEX.find(str)
         if (rgbaMatch != null) {
             val r = rgbaMatch.groupValues[1].toInt()
@@ -847,13 +859,17 @@ object DesignRenderer {
             return Color.argb(255, r, g, b)
         }
 
-        // hex color
+        // #rgb, #rgba, #rrggbb, #rrggbbaa — alpha last, as CSS writes it
         if (str.startsWith("#")) {
-            return try {
-                Color.parseColor(str)
-            } catch (_: Exception) {
-                null
+            val digits = str.substring(1)
+            if (!HEX_REGEX.matches(digits)) return null
+            val full = when (digits.length) {
+                3, 4 -> digits.map { "$it$it" }.joinToString("")
+                6, 8 -> digits
+                else -> return null
             }
+            val alpha = if (full.length == 8) full.substring(6, 8).toInt(16) else 255
+            return (alpha shl 24) or full.substring(0, 6).toInt(16)
         }
 
         return null

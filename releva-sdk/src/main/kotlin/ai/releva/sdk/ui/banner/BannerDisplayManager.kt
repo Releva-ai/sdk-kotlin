@@ -6,8 +6,10 @@ import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.types.response.BannerResponse
 import android.app.Dialog
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.util.Log
 import android.view.*
 import android.widget.*
@@ -26,6 +28,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * Manages banner display in an Activity or Fragment.
@@ -454,13 +457,16 @@ class BannerDisplayManager(
         // attached to the card instead of floating in the window's corner once the card no
         // longer fills the window.
         val statusBarHeight = getStatusBarHeight(ctx)
-        val closeButton = buildCloseButton(ctx, banner) {
+        val closeStyle = BannerCloseButtonStyle.of(banner.cssStyles)
+        val closeButton = buildCloseButton(ctx, closeStyle) {
             dialog.dismiss()
             closeBanner(banner)
         }
-        val closeSize = (32 * dp).toInt()
+        val closeSize = (closeStyle.sideDp * dp).toInt()
+        val closeTapTarget = (closeStyle.tapTargetDp * dp).toInt()
+        val closeRing = closeRingPx(closeStyle, dp)
         val closeMargin = (8 * dp).toInt()
-        val closeParams = FrameLayout.LayoutParams(closeSize, closeSize)
+        val closeParams = FrameLayout.LayoutParams(closeTapTarget, closeTapTarget)
 
         // The window's safe area, updated by the insets listener below and read every time the
         // card's own layout moves the button. Starts at statusBarHeight/0 so the very first
@@ -476,14 +482,19 @@ class BannerDisplayManager(
         // translation (the offsets below), so a moved card carries its button with it. Still
         // clamped into the window's safe area: a card sized or offset far enough to reach an edge
         // must not push the dialog's only way out past it, off-screen or under a system bar.
+        //
+        // Every term here is the PAINTED square's — its corner and its bounds — and the view is
+        // placed `closeRing` back from it, so widening the view to a 48dp tap target moves nothing
+        // a person can see.
         fun positionCloseButton() {
             val cardRight = popupContainer.x + popupContainer.width
             val cardTop = popupContainer.y
             val maxX = (screenWidth - closeSafeRight - closeMargin - closeSize).toFloat()
             val minY = (closeSafeTop + closeMargin).toFloat()
             val maxY = (screenHeight - closeSize).toFloat().coerceAtLeast(minY)
-            closeButton.x = (cardRight - closeSize - closeMargin).coerceIn(0f, maxX.coerceAtLeast(0f))
-            closeButton.y = (cardTop + closeMargin).coerceIn(minY, maxY)
+            closeButton.x =
+                (cardRight - closeSize - closeMargin).coerceIn(0f, maxX.coerceAtLeast(0f)) - closeRing
+            closeButton.y = (cardTop + closeMargin).coerceIn(minY, maxY) - closeRing
         }
         popupContainer.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> positionCloseButton() }
 
@@ -656,11 +667,10 @@ class BannerDisplayManager(
         val barWidth = cardWidth ?: screenWidth
         val verticalPadding = (12 * dp).toInt()
         val horizontalPadding = (16 * dp).toInt()
-        // The close button is an absolute sibling drawn OVER the content: 24dp wide, pulled out
-        // by `closeOverlap` so it straddles the card's edge, which leaves it covering the band
-        // from 10dp to 34dp in from the right. Content padded to 16 runs under it for 18dp and
-        // the tail of a headline is drawn beneath the glyph. Reserve the band instead: 42 is
-        // 34 plus 8 of clearance. This widens the right gutter on EVERY bar, authored chrome or
+        // The close button is an absolute sibling drawn OVER the content: 32dp wide by default,
+        // covering the band from 8dp to 40dp in from the right. Content padded to 16 runs under
+        // it and the tail of a headline is drawn beneath the glyph. Reserve the band instead: 42
+        // is 40 plus 2 of clearance. This widens the right gutter on EVERY bar, authored chrome or
         // not — the collision predates the chrome keys, and keeping the default path
         // byte-identical would be preserving a bug rather than compatibility.
         val closeGutter = (42 * dp).toInt()
@@ -714,10 +724,18 @@ class BannerDisplayManager(
             chrome.contentGravity ?: DEFAULT_CHILD_GRAVITY
         ))
 
-        // Close button positioned so ~1/4 overlaps the content boundary
-        val closeSize = (24 * dp).toInt()
-        val closeOverlap = closeSize / 4 // ~6dp overlap
-        val closeButton = buildCloseButton(ctx, banner) {
+        // The control is pulled out of the content's corner by a quarter of its own side, and its
+        // right edge is anchored by its INNER edge: a larger painted square grows toward the card's
+        // edge, so the band the 1.5.3 gutter reserves is only crossed once the square outgrows it.
+        val closeStyle = BannerCloseButtonStyle.of(banner.cssStyles)
+        val closeSize = (closeStyle.sideDp * dp).toInt()
+        val closeRing = closeRingPx(closeStyle, dp)
+        val closeOverlap = closeSize / 4
+        // The band's outer edge: the 16dp padding plus the 24dp the control reaches into the gutter.
+        val closeBand = horizontalPadding + (24 * dp).toInt()
+        // The view is the painted square and nothing more: a 48dp view would give this WRAP_CONTENT
+        // card a 48dp floor and move the copy of a compact bar. The tap target is a TouchDelegate.
+        val closeButton = buildCloseButton(ctx, closeStyle, tapRing = false) {
             (barLayout.parent as? ViewGroup)?.removeView(barLayout)
             closeBanner(banner)
         }
@@ -727,9 +745,29 @@ class BannerDisplayManager(
         ).apply {
             // No statusBarPad: the CARD now clears the status bar, so the control is positioned
             // from the card's own top edge like every other child of it.
-            topMargin = verticalPadding - closeOverlap
-            marginEnd = horizontalPadding - closeOverlap
+            topMargin = (verticalPadding - closeOverlap).coerceAtLeast(0)
+            marginEnd = (closeBand - closeSize).coerceAtLeast(0)
         })
+        // A pointer outside the card's own bounds is never dispatched to it, so the ring is
+        // shifted back inside them rather than clipped, which keeps the full target wherever the
+        // card is at least that big. Only what still does not fit is cut.
+        val closeHitRect = Rect()
+        barLayout.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            closeButton.getHitRect(closeHitRect)
+            closeHitRect.inset(-closeRing, -closeRing)
+            closeHitRect.offset(
+                maxOf(0, -closeHitRect.left) - maxOf(0, closeHitRect.right - barLayout.width),
+                maxOf(0, -closeHitRect.top) - maxOf(0, closeHitRect.bottom - barLayout.height)
+            )
+            // A zero-size card leaves nothing tappable anyway; clearing the delegate rather than
+            // leaving a stale one pointed at the last laid-out rect.
+            barLayout.touchDelegate =
+                if (closeHitRect.intersect(0, 0, barLayout.width, barLayout.height)) {
+                    TouchDelegate(closeHitRect, closeButton)
+                } else {
+                    null
+                }
+        }
         barLayout.clipChildren = false
         barLayout.clipToPadding = false
 
@@ -836,19 +874,23 @@ class BannerDisplayManager(
         }
 
         // Close button on the outer edge: left flyout → close on right, right flyout → close on left
-        val closeButton = buildCloseButton(ctx, banner) {
+        val closeStyle = BannerCloseButtonStyle.of(banner.cssStyles)
+        val closeButton = buildCloseButton(ctx, closeStyle) {
             dialog.dismiss()
             closeBanner(banner)
         }
         val closeGravity = if (closeOnTrailingEdge) Gravity.TOP or Gravity.END else Gravity.TOP or Gravity.START
+        // The painted square sits 8dp in from the side edge AND the top edge, less the ring the
+        // tap target adds around it on each axis, so the ✕ stays in the same corner at every
+        // closeFontSize instead of riding up as the ring shrinks.
+        val closeMargin = ((8 * dp).toInt() - closeRingPx(closeStyle, dp)).coerceAtLeast(0)
         val closeRow = FrameLayout(ctx).apply {
             addView(closeButton, FrameLayout.LayoutParams(
-                (32 * dp).toInt(), (32 * dp).toInt(),
+                (closeStyle.tapTargetDp * dp).toInt(), (closeStyle.tapTargetDp * dp).toInt(),
                 closeGravity
             ).apply {
-                topMargin = (8 * dp).toInt()
-                if (closeOnTrailingEdge) rightMargin = (8 * dp).toInt() else leftMargin = (8 * dp).toInt()
-                bottomMargin = (8 * dp).toInt()
+                topMargin = closeMargin
+                if (closeOnTrailingEdge) rightMargin = closeMargin else leftMargin = closeMargin
             })
         }
         flyoutContainer.addView(closeRow, LinearLayout.LayoutParams(
@@ -1046,39 +1088,43 @@ class BannerDisplayManager(
         }
     }
 
+    /**
+     * The transparent ring between the control's tap target — which is the view, so that it is
+     * never below Android's 48dp minimum — and the square it actually paints, in device pixels.
+     * Call sites place the control by the PAINTED square's corner, where it has always sat, and
+     * pull the view back by this.
+     */
+    private fun closeRingPx(style: BannerCloseButtonStyle, density: Float): Int =
+        ((style.tapTargetDp * density).toInt() - (style.sideDp * density).toInt()) / 2
+
     private fun buildCloseButton(
         context: android.content.Context,
-        banner: BannerResponse,
+        style: BannerCloseButtonStyle,
+        tapRing: Boolean = true,
         onClick: () -> Unit
     ): View {
         val dp = context.resources.displayMetrics.density
-        val bodyValues = getDesignBodyValues(banner)
+        val ring = if (tapRing) closeRingPx(style, dp) else 0
+        val glyphPadding = ring + ((style.sideDp - style.glyphSizeDp) / 2f * dp).roundToInt()
 
-        val bgColor = DesignRenderer.parseColor(bodyValues["popupCloseButton_backgroundColor"])
-            ?: DesignRenderer.parseColor(banner.cssStyles["closeButtonBackgroundColor"])
-            ?: Color.WHITE
-        val iconColor = DesignRenderer.parseColor(bodyValues["popupCloseButton_iconColor"])
-            ?: DesignRenderer.parseColor(banner.cssStyles["closeButtonColor"])
-            ?: Color.DKGRAY
-        val borderColor = DesignRenderer.parseColor(banner.cssStyles["closeButtonBorder"])
-            ?: Color.LTGRAY
+        return ImageButton(context).apply {
+            // No intrinsic size, so the ImageView sizes it to the content box — the glyph box the
+            // padding below leaves. configureBounds nulls mDrawMatrix on that branch, so no
+            // scaleType is consulted.
+            setImageDrawable(CloseGlyphDrawable(style.iconColor))
 
-        val button = ImageButton(context).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-            setColorFilter(iconColor)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            background = InsetDrawable(
+                GradientDrawable().apply {
+                    setColor(style.backgroundColor)
+                    cornerRadius = style.cornerRadiusDp * dp
+                    setStroke((style.borderWidthDp * dp).roundToInt(), style.borderColor)
+                },
+                ring
+            )
 
-            background = GradientDrawable().apply {
-                setColor(bgColor)
-                cornerRadius = 16 * dp
-                setStroke((1 * dp).toInt(), borderColor)
-            }
-
-            setPadding((6 * dp).toInt(), (6 * dp).toInt(), (6 * dp).toInt(), (6 * dp).toInt())
+            setPadding(glyphPadding, glyphPadding, glyphPadding, glyphPadding)
             setOnClickListener { onClick() }
         }
-
-        return button
     }
 
     private fun closeBanner(banner: BannerResponse) {
