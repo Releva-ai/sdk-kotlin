@@ -5,7 +5,9 @@
 PATCH: the changes below change what the close control looks like but add and deprecate no public
 API. Verified with `BannerCloseButtonStyleTest.kt`, `DesignRendererColorTest.kt` and the close-control
 group in `BannerChromeTest.kt`, and on a physical device against the qa-shared rows
-`QA-CLS-01`…`QA-CLS-10`.
+`QA-CLS-01`…`QA-CLS-10` on a revision predating the `CloseGlyphDrawable` glyph and this round's
+glyph-box size change; those two are covered by unit assertions on `drawable.bounds` and the glyph
+colour only, not by a fresh photograph.
 
 ### Changed
 
