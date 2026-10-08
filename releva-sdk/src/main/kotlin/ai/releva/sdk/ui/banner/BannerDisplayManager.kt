@@ -4,6 +4,7 @@ import ai.releva.sdk.client.RelevaClient
 import ai.releva.sdk.services.banner.BannerDisplayController
 import ai.releva.sdk.services.banner.BannerSessionStore
 import ai.releva.sdk.types.response.BannerResponse
+import android.annotation.SuppressLint
 import android.app.Dialog
 import android.graphics.Color
 import android.graphics.Rect
@@ -504,6 +505,7 @@ class BannerDisplayManager(
                 dialog.dismiss()
                 trackDismiss(banner)
             }
+            closeOnTapOnly(this)
         }
 
         // The close button, added to the window below rather than to the card. A button anchored
@@ -591,8 +593,12 @@ class BannerDisplayManager(
         // child of the card, so this alone does not move it — the OnLayoutChangeListener above
         // does, the next time popupContainer's layout runs.
         chrome.applyOffsets(popupContainer, verticalGravity, horizontalGravity, screenWidth, screenHeight)
-        // Added after the card, so it draws above it — and a sibling rather than a child, so it
-        // is reachable whatever the author did to the card's size.
+        // A sibling rather than a child, so it is reachable whatever the author did to the card's
+        // size — and lifted ABOVE the card's elevation. Being added after the card is not enough:
+        // Android draws and dispatches touches by Z first and child order second, so at the
+        // card's 12dp the ✕ was drawn underneath it and the clickable card took its taps (device
+        // QA, CLS-01…08: no ✕ visible, one tap did not close the popup).
+        closeButton.elevation = popupContainer.elevation + 1 * dp
         rootLayout.addView(closeButton, closeParams)
 
         dialog.setContentView(rootLayout, ViewGroup.LayoutParams(
@@ -824,6 +830,7 @@ class BannerDisplayManager(
                 dialog.dismiss()
                 trackDismiss(banner)
             }
+            closeOnTapOnly(this)
         }
 
         // The same clearance question the popup asks, in the SAME SHAPE. The first attempt at this
@@ -1070,6 +1077,23 @@ class BannerDisplayManager(
      * Call sites place the control by the PAINTED square's corner, where it has always sat, and
      * pull the view back by this.
      */
+    /**
+     * A dimmed backdrop closes its banner on a TAP, not on any gesture that ends inside it. A
+     * clickable view counts a press that moved but stayed within its bounds as a click, and a
+     * backdrop is the whole window — so a swipe or scroll started on it closed the popup (device
+     * QA 2026-10-08, BAN-08: the swipe that scrolled the list on to the popup's trigger dismissed
+     * the popup it had just triggered). The click listener stays the action, so accessibility's
+     * click still closes it; touch reaches it only through [GestureDetector.onSingleTapUp].
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun closeOnTapOnly(backdrop: View) {
+        val taps = GestureDetector(backdrop.context, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
+            override fun onSingleTapUp(e: MotionEvent): Boolean = backdrop.performClick()
+        })
+        backdrop.setOnTouchListener { _, event -> taps.onTouchEvent(event); true }
+    }
+
     private fun closeRingPx(style: BannerCloseButtonStyle, density: Float): Int =
         ((style.tapTargetDp * density).toInt() - (style.sideDp * density).toInt()) / 2
 

@@ -1,15 +1,12 @@
 # Changelog
 
-## 1.5.4
+## 1.6.0
 
-PATCH: the changes below change what the close control looks like but add and deprecate no public
-API. Verified with `BannerCloseButtonStyleTest.kt`, `DesignRendererColorTest.kt` and the close-control
-group in `BannerChromeTest.kt`, and on a physical device against the qa-shared rows
-`QA-CLS-01`…`QA-CLS-10` on a revision predating the `CloseGlyphDrawable` glyph and this round's
-glyph-box size change; those two are covered by unit assertions on `drawable.bounds` and the glyph
-colour only, not by a fresh photograph. The content-sized popup card below also changes how every
-popup is laid out, again with no API change; it is verified by the popup group in
-`BannerChromeTest.kt` only, NOT yet on a device.
+MINOR: no public API is added or removed, but **every unsized popup in production now looks
+different** — a content-sized card over a dimmed backdrop instead of a full-screen takeover — by
+product decision (2026-10-08), matching sdk-swift and sdk-react-native (which released the same
+change as 0.4.0). Verified with the popup and bar groups in `BannerChromeTest.kt` and on a physical
+device (see the PR).
 
 ### Changed
 
@@ -32,6 +29,34 @@ popup is laid out, again with no API change; it is verified by the popup group i
   popup** (tracked as a close), as on sdk-swift and sdk-react-native; until now the popup had no
   backdrop and the ✕ was the only way out. The close control keeps its place on the card's
   top-right corner, clamped into the safe area. Flyouts and bars are unchanged.
+
+### Fixed
+
+- **A dimmed backdrop closes its banner on a tap, not on a swipe.** The popup's new backdrop — and
+  the flyout's scrim, which had the same handler on master — counted any press that ended inside
+  it as a click, so a swipe or scroll started on it closed the banner (device QA: the swipe that
+  scrolled the list on to a scroll-triggered popup dismissed it at once). Only a genuine single tap
+  closes it now; accessibility's click still does. Pinned by `a swipe across the dimmed backdrop
+  does not close the popup`, which fails on the previous handler.
+
+- **A tap on a bar no longer falls through to the app underneath.** The bar is an overlay over
+  the screen and its card did not consume touches, so a tap anywhere on it except a link or the
+  close target was handed to the view beneath (device QA: it opened the QA app's
+  "Favorite Products"). Present on master before this release. The card is now clickable, so it
+  consumes every touch on its own area; links in the design and the close control's 48dp target
+  still get theirs first. Pinned by `a tap on a bar's body does not fall through to the app
+  underneath`, which fails on the previous code.
+
+## 1.5.4
+
+PATCH: the changes below change what the close control looks like but add and deprecate no public
+API. Verified with `BannerCloseButtonStyleTest.kt`, `DesignRendererColorTest.kt` and the close-control
+group in `BannerChromeTest.kt`, and on a physical device against the qa-shared rows
+`QA-CLS-01`…`QA-CLS-10` on a revision predating the `CloseGlyphDrawable` glyph and this round's
+glyph-box size change; those two are covered by unit assertions on `drawable.bounds` and the glyph
+colour only, not by a fresh photograph.
+
+### Changed
 
 - **Honoured the five `cssStyles` close-button keys the API already serves** —
   `closeButtonColor`, `closeButtonBackgroundColor`, `closeButtonBorder`, `closeFontSize` and
@@ -101,13 +126,6 @@ popup is laid out, again with no API change; it is verified by the popup group i
   translucent colour still draws no ✕ / a translucent one. The drawable fills the box it is given
   corner to corner, so the box is now `closeFontSize` itself rather than `closeFontSize + 6dp` (the
   margin the old system icon carried around its own ✕, which this drawable does not have).
-- **A tap on a bar no longer falls through to the app underneath.** The bar is an overlay over
-  the screen and its card did not consume touches, so a tap anywhere on it except a link or the
-  close target was handed to the view beneath (device QA: it opened the QA app's
-  "Favorite Products"). Present on master before this release. The card is now clickable, so it
-  consumes every touch on its own area; links in the design and the close control's 48dp target
-  still get theirs first. Pinned by `a tap on a bar's body does not fall through to the app
-  underneath`, which fails on the previous code.
 
 ## 1.5.3
 

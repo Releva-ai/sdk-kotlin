@@ -556,6 +556,35 @@ class BannerChromeTest {
         assertEquals("a tap on the backdrop closes it", false, ShadowDialog.getLatestDialog().isShowing)
     }
 
+    /**
+     * A swipe that starts on the backdrop is a scroll, not a dismissal. A plain click listener
+     * counted any press that stayed inside the (window-sized) backdrop as a click, so the swipe
+     * that scrolled the host list on to a scroll-triggered popup closed it again at once (device
+     * QA 2026-10-08, BAN-08).
+     */
+    @Test
+    fun `a swipe across the dimmed backdrop does not close the popup`() {
+        showPopup(cssStyles = emptyMap())
+        layoutDialog()
+        val backdrop = dialogRoot()
+        val x = screenWidth / 2f
+        val now = android.os.SystemClock.uptimeMillis()
+        val path = listOf(
+            MotionEvent.ACTION_DOWN to 4f,
+            MotionEvent.ACTION_MOVE to 200f,
+            MotionEvent.ACTION_MOVE to 400f,
+            MotionEvent.ACTION_UP to 400f,
+        )
+        path.forEachIndexed { i, (action, y) ->
+            val event = MotionEvent.obtain(now, now + i * 50L, action, x, y, 0)
+            backdrop.dispatchTouchEvent(event)
+            event.recycle()
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals("a swipe must not close it", true, ShadowDialog.getLatestDialog().isShowing)
+    }
+
     @Test
     fun `the design's overlay colour dims the backdrop`() {
         showPopup(cssStyles = emptyMap(), bodyValues = mapOf("popupOverlay_backgroundColor" to "#ff000080"))
@@ -926,6 +955,33 @@ class BannerChromeTest {
         val card = showPopup(cssStyles = mapOf("cardBackgroundColor" to "transparent"))
 
         assertEquals(Color.TRANSPARENT, card.color)
+    }
+
+    /**
+     * The ✕ must be ABOVE the card in Z, not only after it in child order: Android dispatches a
+     * touch by Z first, so a close control below the card's elevation is covered by the clickable
+     * card and never receives the tap (device QA 2026-10-08, CLS-01…08 on the first card build).
+     * Dispatched through the dialog's root, as a finger's would be — not via performClick.
+     */
+    @Test
+    fun `a tap on the popup's close control through the dialog root closes the popup`() {
+        showPopup(cssStyles = emptyMap())
+        val root = dialogRoot()
+        val close = popupCloseButton()
+        val card = close.parent as ViewGroup
+        assertTrue(
+            "the close control must sit above the card's elevation",
+            close.z > (0 until card.childCount).map { card.getChildAt(it) }
+                .filter { it !== close }.maxOf { it.z }
+        )
+        val rootAt = IntArray(2).also { root.getLocationInWindow(it) }
+        val closeAt = IntArray(2).also { close.getLocationInWindow(it) }
+        tap(
+            root,
+            (closeAt[0] - rootAt[0]) + close.width / 2f,
+            (closeAt[1] - rootAt[1]) + close.height / 2f
+        )
+        assertEquals(false, ShadowDialog.getLatestDialog().isShowing)
     }
 
     private fun tap(target: View, x: Float, y: Float) {
