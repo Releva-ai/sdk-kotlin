@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
+import android.widget.FrameLayout
 import kotlin.math.roundToInt
 
 /**
@@ -57,6 +58,29 @@ internal class BannerChrome(
             ?.let { VERTICAL_ALIGNMENTS[it.lowercase()] }
 
     fun widthPx(availableWidth: Int): Int? = size(CARD_WIDTH, availableWidth)
+
+    /**
+     * The popup card's width before [PopupCardLayout] caps it to the box it is placed in: the
+     * authored `cardWidth`, else the design's own `popupWidth` (a CSS pixel, as every dimension in
+     * a design is), else 600 — sdk-swift's order and default (PR #23), which sdk-react-native
+     * adopted on 2026-10-05. 600px is what every production banner that carries the key says.
+     */
+    fun popupWidthPx(availableWidth: Int, designPopupWidth: Any?): Int =
+        widthPx(availableWidth)
+            ?: DesignRenderer.parseDimensionRaw(designPopupWidth)
+                ?.takeIf { it > 0f }?.times(density)?.roundToInt()?.takeIf { it > 0 }
+            ?: (DEFAULT_POPUP_WIDTH * density).roundToInt()
+
+    /**
+     * The popup card's corner radius in px: the authored `cardBorderRadius`, else the design's own
+     * `borderRadius`, else 10 — again sdk-swift's order and default. Unlike [borderRadiusPx] this
+     * is never null: a popup is always a rounded card now, where a bar and a flyout keep today's
+     * square corners until a radius is authored.
+     */
+    fun popupCornerRadiusPx(designBorderRadius: Any?): Float =
+        borderRadiusPx
+            ?: DesignRenderer.parseDimensionRaw(designBorderRadius)?.takeIf { it >= 0f }?.times(density)
+            ?: DEFAULT_POPUP_RADIUS * density
 
     fun heightPx(availableHeight: Int): Int? = size(CARD_HEIGHT, availableHeight)
 
@@ -160,9 +184,13 @@ internal class BannerChrome(
      * outline from this same background (a [GradientDrawable] with a non-zero corner radius emits
      * a rounded-rect outline), so descendants are clipped to the same rounded rect that is drawn.
      * Inert whenever no radius is authored, since `clipToOutline` is only set `true` in that branch.
+     *
+     * [fallbackRadiusPx] is the radius to draw when none is authored — the popup's own default
+     * card corner ([popupCornerRadiusPx]). Null, as the bar and the flyout pass it, keeps the flat
+     * background they have always had.
      */
-    fun applyCardBackground(view: View, color: Int) {
-        val radius = borderRadiusPx
+    fun applyCardBackground(view: View, color: Int, fallbackRadiusPx: Float? = null) {
+        val radius = borderRadiusPx ?: fallbackRadiusPx
         if (radius != null) {
             view.background = GradientDrawable().apply {
                 cornerRadius = radius
@@ -237,6 +265,8 @@ internal class BannerChrome(
         private const val CARD_OFFSET_HORIZONTAL = "cardOffsetHorizontal"
 
         private const val DEFAULT_BACKGROUND_COLOR = "#fefefe"
+        private const val DEFAULT_POPUP_WIDTH = 600f
+        private const val DEFAULT_POPUP_RADIUS = 10f
         private const val DEFAULT_BORDER_RADIUS = "0"
         private const val DEFAULT_CONTENT_VERTICAL_ALIGN = "top"
 
@@ -265,4 +295,52 @@ internal class BannerChrome(
             "right" to Gravity.END
         )
     }
+}
+
+/**
+ * The popup's card: as wide as [wantedWidth] and, unless [wantedHeight] fixes it, as tall as its
+ * content — the content-sized card sdk-swift draws (PR #23) and sdk-react-native adopted on
+ * 2026-10-05, where this SDK used to fill the window.
+ *
+ * Both are capped [gutterPx] short of the box the card is placed in on each side, the content
+ * scrolling inside past that, and the cap is never under [floorPx] (sdk-swift's and React Native's
+ * 120). The box is not assumed from the display: it is the measure spec this view is handed, which
+ * is its parent's own measured size less that parent's padding — the window less the system bars,
+ * as the popup's root pads itself to the insets the window actually reports. An authored size is
+ * capped the same way; it still wins over the content's own height.
+ *
+ * The content height is read from [contentSizer] alone — the popup's scroll view — rather than
+ * from every child: with a body background image the scroller shares a wrapper with an
+ * `ImageView`, and a photograph's intrinsic height must not decide how tall the card is.
+ */
+internal class PopupCardLayout(
+    context: Context,
+    private val wantedWidth: Int,
+    private val wantedHeight: Int?,
+    private val gutterPx: Int,
+    private val floorPx: Int
+) : FrameLayout(context) {
+
+    var contentSizer: View? = null
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val width = minOf(wantedWidth, cap(widthMeasureSpec))
+        val maxHeight = cap(heightMeasureSpec)
+        val height = wantedHeight?.let { minOf(it, maxHeight) } ?: run {
+            val sizer = contentSizer ?: getChildAt(0) ?: return@run 0
+            sizer.measure(
+                MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.AT_MOST)
+            )
+            sizer.measuredHeight
+        }
+        super.onMeasure(
+            MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)
+        )
+    }
+
+    private fun cap(spec: Int): Int =
+        if (MeasureSpec.getMode(spec) == MeasureSpec.UNSPECIFIED) Int.MAX_VALUE / 2
+        else maxOf(MeasureSpec.getSize(spec) - 2 * gutterPx, floorPx)
 }

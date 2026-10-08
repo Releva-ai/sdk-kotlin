@@ -81,6 +81,12 @@ class BannerChromeTest {
     private val closeRingPx get() = (closeTapTargetPx - closeSidePx) / 2
     private val closeMarginPx get() = (8 * density).toInt()
 
+    /** The popup's content starts below the control: its margin, its painted side, the margin again. */
+    private val closeBandPx get() = closeMarginPx * 2 + closeSidePx
+
+    /** How far short of the box it is placed in the popup card is capped, on each side. */
+    private val gutterPx get() = (16 * density).roundToInt()
+
     /** Read the way `BannerDisplayManager` reads it, since that value is part of what is pinned. */
     private val statusBarHeight: Int
         get() {
@@ -146,19 +152,6 @@ class BannerChromeTest {
     }
 
     @Test
-    fun `a popup with none of the keys lays out as it did before they existed`() {
-        val card = showPopup(cssStyles = emptyMap())
-
-        assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, card.params.width)
-        assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, card.params.height)
-        assertEquals(0, card.params.topMargin)
-        assertEquals(0, card.params.leftMargin)
-        assertEquals(0f, card.view.translationX, 0.01f)
-        assertEquals(0f, card.view.translationY, 0.01f)
-        assertEquals(Color.WHITE, card.color)
-    }
-
-    @Test
     fun `the nine keys at their documented defaults change nothing on a popup`() {
         val withoutKeys = showPopup(cssStyles = emptyMap()).snapshot()
         val atDefaults = showPopup(cssStyles = DOCUMENTED_DEFAULTS).snapshot()
@@ -187,19 +180,24 @@ class BannerChromeTest {
     }
 
     /**
-     * The reason this work exists. `popupBackgroundColor` is an Unlayer editor default written
-     * wholesale into every design — our editor runs Unlayer in web display mode, which never shows
-     * the Popup Builder that would author it — and the popup used to paint its card with it.
-     * `cardBackgroundColor` owns the property now, so the editor's value no longer moves anything.
+     * sdk-swift's order, adopted with the content-sized card: the authored `cardBackgroundColor`,
+     * then the design's own `popupBackgroundColor`, then white. The design key had been dropped as
+     * an editor default (#FFFFFF on every production banner that carries it); it is back as the
+     * fallback so the SDKs read the same keys in the same order.
      */
     @Test
-    fun `a popup no longer takes its card colour from the Unlayer design`() {
-        val card = showPopup(
+    fun `a popup's card colour falls back to the design's popupBackgroundColor`() {
+        val fromDesign = showPopup(
             cssStyles = emptyMap(),
             bodyValues = mapOf("popupBackgroundColor" to "#ff0000")
         )
+        assertEquals(Color.RED, fromDesign.color)
 
-        assertEquals(Color.WHITE, card.color)
+        val authored = showPopup(
+            cssStyles = mapOf("cardBackgroundColor" to "#123456"),
+            bodyValues = mapOf("popupBackgroundColor" to "#ff0000")
+        )
+        assertEquals(Color.parseColor("#123456"), authored.color)
     }
 
     // ---- one key at a time --------------------------------------------------------------------
@@ -251,9 +249,10 @@ class BannerChromeTest {
         assertEquals(true, card.view.clipToOutline)
     }
 
+    /** The bar's card stays flat and unclipped until a radius is authored; the popup is always rounded. */
     @Test
-    fun `no cardBorderRadius leaves clipToOutline off`() {
-        val card = showPopup(cssStyles = emptyMap())
+    fun `no cardBorderRadius leaves a bar's clipToOutline off`() {
+        val card = showBar(cssStyles = emptyMap())
 
         assertEquals(false, card.view.clipToOutline)
     }
@@ -418,7 +417,9 @@ class BannerChromeTest {
         assertEquals(0, card.params.leftMargin)
         assertEquals(0, card.params.rightMargin)
         assertEquals(120f, card.view.translationX, 0.01f)
-        assertEquals(screenWidth, innerLayout.layoutParams.width)
+        // The card's own width — the 600dp default capped 16dp short of each side of this
+        // 320dp fixture — and not narrowed by the offset.
+        assertEquals(screenWidth - gutterPx * 2, innerLayout.layoutParams.width)
     }
 
     /**
@@ -446,142 +447,328 @@ class BannerChromeTest {
         assertEquals((12 * density).toInt(), card.content.paddingBottom)
     }
 
-    // ---- the popup's window chrome, which an authored card size must not take away -------------
+    // ---- the popup card, its backdrop and the box it is placed in ------------------------------
 
     /**
-     * Holding the design clear of the status bar, the cutout and the gesture pill is the window's
-     * business, not the card's — but an authored size CAN change it, once the card's own margin
-     * places it clear of the bar it used to overlap: the padding is then dropped, per the
-     * per-edge CLEAR predicate below. A card sized and centred but still covering a bar (a
-     * near-100% height, say) carries the clearance it still needs; getting that predicate wrong
-     * the other way puts content underneath a system bar, which is the case the tests further
-     * down (`a sized card that still covers a bar keeps its content padding`, and the flyout's
-     * and popup's floor tests) are for.
-     *
-     * The close button's own position is read the same way the offset tests read a card's: via
-     * `getX()`/`getY()` after a real layout pass, since the button is now placed from
-     * `popupContainer`'s laid-out rect rather than from a `LayoutParams` margin. The expected
-     * values mirror `positionCloseButton`'s own clamp — the card's corner is not always where the
-     * button lands, and it must not be wherever that corner would put it under a system bar.
+     * The popup is a content-sized card (product decision 2026-10-08, matching sdk-swift PR #23
+     * and sdk-react-native 02085f6): the design's `popupWidth` — 600 when unset — capped 16dp
+     * short of the box it is placed in, as tall as its content, rounded, lifted, and centred.
+     * Before 1.5.4 an unsized popup filled the window, which is what this test used to pin.
      */
+    @Test
+    fun `an unsized popup is a content-sized card, not the whole window`() {
+        val card = showPopup(cssStyles = emptyMap())
+        layoutDialog()
+
+        assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, card.params.width)
+        assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, card.params.height)
+        assertEquals(Gravity.CENTER_VERTICAL, card.verticalGravity)
+        assertEquals(Gravity.CENTER_HORIZONTAL, card.horizontalGravity)
+
+        // 600dp is wider than this 320dp fixture, so the cap decides: 16dp short on each side.
+        assertEquals(screenWidth - gutterPx * 2, card.view.width)
+        // As tall as what it holds — the close control's band plus one line of copy — which is
+        // nowhere near the window.
+        val scroller = popupScrollView(card)
+        assertEquals(scroller.height, card.view.height)
+        assertEquals(closeBandPx + scroller.getChildAt(0).height, card.view.height)
+        assertTrue("content-sized, not the window", card.view.height < screenHeight / 2)
+        // Centred in the box.
+        assertEquals((screenWidth - card.view.width) / 2f, card.view.x, 1f)
+        assertEquals((screenHeight - card.view.height) / 2f, card.view.y, 1f)
+
+        assertEquals(Color.WHITE, card.color)
+        assertEquals(10f * density, (card.view.background as GradientDrawable).cornerRadius, 0.01f)
+        assertEquals(true, card.view.clipToOutline)
+        assertEquals(12f * density, card.view.elevation, 0.01f)
+        assertEquals(0f, card.view.translationX, 0.01f)
+        assertEquals(0f, card.view.translationY, 0.01f)
+    }
+
+    @Test
+    fun `the design's popupWidth sizes an unsized card, and cardWidth wins over it`() {
+        val narrow = showPopup(cssStyles = emptyMap(), bodyValues = mapOf("popupWidth" to "200px"))
+        layoutDialog()
+        assertEquals((200 * density).toInt(), narrow.view.width)
+
+        val authored = showPopup(
+            cssStyles = mapOf("cardWidth" to "150px"),
+            bodyValues = mapOf("popupWidth" to "200px")
+        )
+        layoutDialog()
+        assertEquals((150 * density).toInt(), authored.view.width)
+    }
+
+    /**
+     * Content taller than the box: the card stops 16dp short of it at the top and the bottom and
+     * the design scrolls inside, rather than the card running off the screen.
+     */
+    @Test
+    fun `a design taller than the box is capped and scrolls inside the card`() {
+        val card = showPopup(cssStyles = emptyMap(), textRows = 200)
+        layoutDialog()
+
+        assertEquals(screenHeight - gutterPx * 2, card.view.height)
+        val scroller = popupScrollView(card)
+        assertTrue(
+            "the design must be taller than the card for this to mean anything",
+            scroller.getChildAt(0).height > scroller.height
+        )
+    }
+
+    /**
+     * The corner radius: the authored `cardBorderRadius`, else the design's own `borderRadius`,
+     * else 10 — sdk-swift's order. The bar keeps its square, flat card until a radius is authored.
+     */
+    @Test
+    fun `a popup's corners come from cardBorderRadius, then the design's borderRadius, then 10`() {
+        val fromDesign = showPopup(cssStyles = emptyMap(), bodyValues = mapOf("borderRadius" to "4px"))
+        assertEquals(12f, (fromDesign.view.background as GradientDrawable).cornerRadius, 0.01f)
+
+        val authored = showPopup(
+            cssStyles = mapOf("cardBorderRadius" to "20"),
+            bodyValues = mapOf("borderRadius" to "4px")
+        )
+        assertEquals(60f, (authored.view.background as GradientDrawable).cornerRadius, 0.01f)
+
+        val bar = showBar(cssStyles = emptyMap())
+        assertEquals(false, bar.view.clipToOutline)
+    }
+
+    /**
+     * The dimmed backdrop behind the card, which the popup did not have while it filled the
+     * window: black at 50% by default (the flyout's scrim and sdk-react-native's), and a tap on
+     * it closes the popup as on sdk-swift and sdk-react-native. A tap on the card does not.
+     */
+    @Test
+    fun `a tap on the dimmed backdrop closes the popup and a tap on the card does not`() {
+        val card = showPopup(cssStyles = emptyMap())
+        layoutDialog()
+        val backdrop = dialogRoot()
+        assertEquals(Color.argb(128, 0, 0, 0), (backdrop.background as ColorDrawable).color)
+
+        // The card's own area, below the close control's band: stays up.
+        tap(backdrop, card.view.x + card.view.width / 2f, card.view.y + card.view.height - 4f)
+        assertEquals("a tap on the card must not close it", true, ShadowDialog.getLatestDialog().isShowing)
+
+        // Beside the card: closes.
+        tap(backdrop, screenWidth / 2f, 4f)
+        assertEquals("a tap on the backdrop closes it", false, ShadowDialog.getLatestDialog().isShowing)
+    }
+
+    /**
+     * A swipe that starts on the backdrop is a scroll, not a dismissal. A plain click listener
+     * counted any press that stayed inside the (window-sized) backdrop as a click, so the swipe
+     * that scrolled the host list on to a scroll-triggered popup closed it again at once (device
+     * QA 2026-10-08, BAN-08).
+     */
+    @Test
+    fun `a swipe across the dimmed backdrop does not close the popup`() {
+        showPopup(cssStyles = emptyMap())
+        layoutDialog()
+        val backdrop = dialogRoot()
+        val x = screenWidth / 2f
+        val now = android.os.SystemClock.uptimeMillis()
+        val path = listOf(
+            MotionEvent.ACTION_DOWN to 4f,
+            MotionEvent.ACTION_MOVE to 200f,
+            MotionEvent.ACTION_MOVE to 400f,
+            MotionEvent.ACTION_UP to 400f,
+        )
+        path.forEachIndexed { i, (action, y) ->
+            val event = MotionEvent.obtain(now, now + i * 50L, action, x, y, 0)
+            backdrop.dispatchTouchEvent(event)
+            event.recycle()
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals("a swipe must not close it", true, ShadowDialog.getLatestDialog().isShowing)
+    }
+
+    /**
+     * A press held past the long-press timeout is still a tap here — there is no long-press action
+     * on a backdrop. `GestureDetector` has long-press detection on by default, so without
+     * `setIsLongpressEnabled(false)` the timer fires between DOWN and UP, `mInLongPress` is set, and
+     * `ACTION_UP` never reaches `onSingleTapUp`: a slow tap stopped closing the banner.
+     */
+    @Test
+    fun `a slow tap on the dimmed backdrop still closes the popup`() {
+        showPopup(cssStyles = emptyMap())
+        layoutDialog()
+        val backdrop = dialogRoot()
+        val x = screenWidth / 2f
+        val y = 4f
+        val now = android.os.SystemClock.uptimeMillis()
+
+        val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0)
+        backdrop.dispatchTouchEvent(down)
+        down.recycle()
+
+        shadowOf(Looper.getMainLooper()).idleFor(
+            java.time.Duration.ofMillis(android.view.ViewConfiguration.getLongPressTimeout() + 100L)
+        )
+
+        val upTime = now + android.view.ViewConfiguration.getLongPressTimeout() + 100L
+        val up = MotionEvent.obtain(now, upTime, MotionEvent.ACTION_UP, x, y, 0)
+        backdrop.dispatchTouchEvent(up)
+        up.recycle()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals("a slow tap must still close it", false, ShadowDialog.getLatestDialog().isShowing)
+    }
+
+    @Test
+    fun `the design's overlay colour dims the backdrop`() {
+        showPopup(cssStyles = emptyMap(), bodyValues = mapOf("popupOverlay_backgroundColor" to "#ff000080"))
+
+        assertEquals(Color.argb(0x80, 0xff, 0, 0), (dialogRoot().background as ColorDrawable).color)
+    }
+
     // Per-type window insets (`WindowInsetsCompat.Builder.setInsets`) only round-trip faithfully
     // through a real platform `android.view.WindowInsets` from API 30 on, which is what backs
-    // this test's `dispatchInsets` call; below that, androidx's compat shim collapses everything
+    // these tests' `dispatchInsets` calls; below that, androidx's compat shim collapses everything
     // back to one legacy `systemWindowInsets` value and the per-axis assertions would not be
+    // exercising what they claim to.
+
     /**
-     * The placement half of the inset work, which the test above does not reach: it uses CENTRED
-     * cards, and until this round only an ANCHORED edge was inset, so every margin came out 0 and
-     * `applyAnchorInsets` was never entered — the suite passed identically with the method
-     * deleted. Each arm is asserted here: a sized axis is inset on BOTH edges so the gravity
-     * places the card inside the bars, an unsized one stays full-bleed, and the two axes are
-     * independent.
+     * The box the card is placed in is the window less the system bars and cutout the window
+     * REPORTS: the backdrop pads itself to them, the gravity places the card inside that, and the
+     * cap is taken from it — measured, not assumed from the display. The insets are deliberately
+     * asymmetric, because every symmetric pair hides a centring error.
      */
     @Test
     @Config(sdk = [30])
-    fun `a sized card is laid out inside the system bars and an unsized one is not`() {
-        // Both axes sized AND ANCHORED: the whole inset on each anchored edge, which is the
-        // bar's inner edge.
-        val sized = showPopup(cssStyles = mapOf(
+    fun `a popup card is placed inside the system bars the window reports`() {
+        // Anchored on both axes: flush with the bars' inner edges.
+        val anchored = showPopup(cssStyles = mapOf(
             "cardWidth" to "200px", "cardHeight" to "300px",
             "cardPositionVertical" to "bottom", "cardPositionHorizontal" to "right"
         ))
+        dispatchInsets(dialogRoot(), top = 100, left = 20, right = 30, bottom = 40)
         layoutDialog()
-        dispatchInsets(sized.view, top = 100, left = 20, right = 30, bottom = 40)
-        assertEquals("top", 100, sized.params.topMargin)
-        assertEquals("bottom", 40, sized.params.bottomMargin)
-        assertEquals("left", 20, sized.params.leftMargin)
-        assertEquals("right", 30, sized.params.rightMargin)
+        assertEquals(listOf(20, 100, 30, 40), dialogRoot().let {
+            listOf(it.paddingLeft, it.paddingTop, it.paddingRight, it.paddingBottom)
+        })
+        assertEquals((screenHeight - 40 - anchored.view.height).toFloat(), anchored.view.y, 0.5f)
+        assertEquals((screenWidth - 30 - anchored.view.width).toFloat(), anchored.view.x, 0.5f)
 
-        // Both axes sized and CENTRED: half the DIFFERENCE, because FrameLayout's CENTER arms add
-        // (topMargin - bottomMargin) whole. 100/40 becomes 30/0 and 20/30 becomes 0/5.
-        val centred = showPopup(cssStyles = mapOf("cardWidth" to "200px", "cardHeight" to "300px"))
+        // Unsized and centred: in the centre of what can be seen, not of the display.
+        val centred = showPopup(cssStyles = emptyMap())
+        dispatchInsets(dialogRoot(), top = 100, left = 20, right = 30, bottom = 40)
         layoutDialog()
-        dispatchInsets(centred.view, top = 100, left = 20, right = 30, bottom = 40)
-        assertEquals("centred top", 30, centred.params.topMargin)
-        assertEquals("centred bottom", 0, centred.params.bottomMargin)
-        assertEquals("centred left", 0, centred.params.leftMargin)
-        assertEquals("centred right", 5, centred.params.rightMargin)
+        assertEquals(
+            (100 + (screenHeight - 40)) / 2f,
+            centred.view.y + centred.view.height / 2f, 1.5f
+        )
+        assertEquals(
+            (20 + (screenWidth - 30)) / 2f,
+            centred.view.x + centred.view.width / 2f, 1.5f
+        )
+        // And the cap is taken from that box: 16dp short of its sides, not the display's.
+        assertEquals(screenWidth - 20 - 30 - gutterPx * 2, centred.view.width)
 
-        // Neither axis sized: a full-bleed takeover keeps the whole window, bars included. Its
-        // CONTENT is held clear of them by the padding the test above asserts.
-        val full = showPopup(cssStyles = emptyMap())
-        layoutDialog()
-        dispatchInsets(full.view, top = 100, left = 20, right = 30, bottom = 40)
-        assertEquals("a full-bleed card takes no top margin", 0, full.params.topMargin)
-        assertEquals("nor bottom", 0, full.params.bottomMargin)
-        assertEquals("nor left", 0, full.params.leftMargin)
-        assertEquals("nor right", 0, full.params.rightMargin)
-
-        // The axes are independent: a card sized only vertically is inset only vertically. Centred
-        // on both axes here, so the vertical pair is the halved difference and the horizontal one
-        // is zero because the axis is MATCH_PARENT — not because it is centred.
-        val tallOnly = showPopup(cssStyles = mapOf("cardHeight" to "300px"))
-        layoutDialog()
-        dispatchInsets(tallOnly.view, top = 100, left = 20, right = 30, bottom = 40)
-        assertEquals("vertical is sized", 30, tallOnly.params.topMargin)
-        assertEquals("and inset", 0, tallOnly.params.bottomMargin)
-        assertEquals("horizontal is not", 0, tallOnly.params.leftMargin)
-        assertEquals("nor inset", 0, tallOnly.params.rightMargin)
-
-        // Bars that go away unwind to ZERO, floor included. The floor belongs to the PADDING, not
-        // to the margin: a reported zero is what the OEM skins it was added for produce, but it
-        // is equally a window with a deliberately hidden status bar, and a floored margin would
-        // put a top-anchored card below the window edge there with the host app showing through
-        // the gap. Master's floor only ever padded INSIDE the card, so it could cost space but
-        // never open one — the margin keeps that property by reading the exact insets.
-        dispatchInsets(tallOnly.view, top = 0, left = 0, right = 0, bottom = 0)
-        assertEquals("the margin is exact, so it unwinds fully", 0, tallOnly.params.topMargin)
-        assertEquals("on both edges", 0, tallOnly.params.bottomMargin)
+        // Bars that go away unwind to zero: the padding reads the insets exactly, unfloored, so a
+        // window with a hidden status bar does not hold a top-anchored card below its edge.
+        dispatchInsets(dialogRoot(), top = 0, left = 0, right = 0, bottom = 0)
+        assertEquals(0, dialogRoot().paddingTop)
+        assertEquals(0, dialogRoot().paddingBottom)
     }
 
-    /**
-     * THE FLOOR, which nothing discriminated until now: every other dispatch in this file uses
-     * `top = 100`, above the floor, so `maxOf(bars.top, statusBarHeight)` and `bars.top` are the
-     * same number and the two readings cannot be told apart. The one `top = 0` dispatch asserts
-     * margins, not padding, on a card that fits either way.
-     *
-     * A reported zero top inset is what the OEM skins the floor was added for produce with the
-     * bar drawn and opaque. So the card below is sized to fit the box an UNFLOORED reading would
-     * compute and to overflow the floored one — the only band where the two disagree — and the
-     * padding has to survive.
-     */
+    /** An authored size is capped the same way a content size is, against the same box. */
     @Test
     @Config(sdk = [30])
-    fun `a zero-reporting window still measures clearance against the status-bar floor`() {
-        val scroller = { c: Card -> (c.view as ViewGroup).getChildAt(0) as ScrollView }
-
-        // CENTRED on both, because a top-anchored card is the wrong instrument: with exact
-        // margins its rect starts at the window edge, so on a zero-reporting window it overlaps
-        // the floored bar whatever its height, and the assertion would hold for the wrong reason.
-        // A centred card's distance from the edge is a function of its height, which is the dial
-        // this needs.
-        //
-        // 100px shorter than the window: centred, its top is 50 from the edge — inside an
-        // UNFLOORED reading of the bar (0) and outside the floored one (statusBarHeight, 72).
-        // That band is the only place the two readings disagree.
-        val overlapping = showPopup(cssStyles = mapOf(
-            "cardHeight" to "${((screenHeight - 100) / density).toInt()}px"
-        ))
+    fun `an authored size larger than the box is capped 16dp short of it`() {
+        val card = showPopup(cssStyles = mapOf("cardWidth" to "5000px", "cardHeight" to "5000px"))
+        dispatchInsets(dialogRoot(), top = 100, left = 20, right = 30, bottom = 40)
         layoutDialog()
-        dispatchInsets(overlapping.view, top = 0, left = 0, right = 0, bottom = 0)
-        assertEquals(
-            "a window reporting zero is not a window with no status bar",
-            statusBarHeight, scroller(overlapping).paddingTop
-        )
 
-        // The control: short enough that its top clears the floor too. Without it the assertion
-        // above would also pass on a build that never drops the padding at all.
-        val clears = showPopup(cssStyles = mapOf(
-            "cardHeight" to "${((screenHeight - statusBarHeight * 4) / density).toInt()}px"
-        ))
-        layoutDialog()
-        dispatchInsets(clears.view, top = 0, left = 0, right = 0, bottom = 0)
-        assertEquals("a card clear of the floor drops it", 0, scroller(clears).paddingTop)
+        assertEquals(screenWidth - 20 - 30 - gutterPx * 2, card.view.width)
+        assertEquals(screenHeight - 100 - 40 - gutterPx * 2, card.view.height)
     }
 
     /**
-     * The flyout's half of the same rule, which had no assertion at all until this test: the gate
-     * could have been deleted and the suite would have stayed green.
+     * The card is inside the bars, so its content needs no inset of its own: the only padding on
+     * the scroller is the band the close control sits in. And the control still lands on the
+     * card's own corner, clamped into the safe area.
+     */
+    @Config(sdk = [30])
+    @Test
+    fun `a popup's content clears only the close control, and the control sits on the card's corner`() {
+        for (cssStyles in listOf<Map<String, Any?>>(
+            emptyMap(),
+            mapOf("cardWidth" to "50%"),
+            mapOf("cardWidth" to "50%", "cardHeight" to "50%")
+        )) {
+            val card = showPopup(cssStyles = cssStyles)
+            val scrollView = popupScrollView(card)
+            val closeButton = popupCloseButton()
+            dispatchInsets(dialogRoot(), top = 100, left = 20, right = 30, bottom = 40)
+            layoutDialog()
+
+            assertEquals("$cssStyles", closeBandPx, scrollView.paddingTop)
+            assertEquals("$cssStyles", 0, scrollView.paddingLeft)
+            assertEquals("$cssStyles", 0, scrollView.paddingRight)
+            assertEquals("$cssStyles", 0, scrollView.paddingBottom)
+
+            // Every term is the PAINTED square's; the view is `closeRingPx` wider on each side and
+            // is placed that much back from it, so the control a person sees has not moved.
+            val maxX = (screenWidth - 30 - closeMarginPx - closeSidePx).toFloat()
+            val minY = (maxOf(100, statusBarHeight) + closeMarginPx).toFloat()
+            val expectedX = (card.view.x + card.view.width - closeSidePx - closeMarginPx).coerceAtMost(maxX)
+            val expectedY = (card.view.y + closeMarginPx).coerceAtLeast(minY)
+            assertEquals("$cssStyles", expectedX - closeRingPx, closeButton.x, 0.01f)
+            assertEquals("$cssStyles", expectedY - closeRingPx, closeButton.y, 0.01f)
+            assertEquals("$cssStyles", closeTapTargetPx, closeButton.layoutParams.width)
+        }
+    }
+
+    /**
+     * The control tracks `popupContainer`'s own laid-out rect — its top-right corner, inset by the
+     * control's margin — via the `OnLayoutChangeListener` registered on it, so a card smaller than
+     * the window carries its control with it rather than leaving it in the window's corner.
+     */
+    @Test
+    fun `a popup's close button sits at a sized and centred card's own corner, not the window's`() {
+        val card = showPopup(cssStyles = mapOf("cardWidth" to "50%", "cardHeight" to "50%"))
+        layoutDialog()
+        val closeButton = popupCloseButton()
+
+        // The card is well clear of every screen edge at 50%/50% centred, so the button's own
+        // safe-area clamp cannot be what is putting it here.
+        assertEquals(
+            card.view.x + card.view.width - closeSidePx - closeMarginPx - closeRingPx,
+            closeButton.x, 0.01f
+        )
+        assertEquals(card.view.y + closeMarginPx - closeRingPx, closeButton.y, 0.01f)
+        assertTrue(
+            "must not be left at the window's corner",
+            closeButton.x < screenWidth - closeSidePx - closeMarginPx - closeRingPx - 1f
+        )
+    }
+
+    /**
+     * A card narrower than the control's own box: a button inside it would hang outside its
+     * bounds, and `ViewGroup.dispatchTouchEvent` only forwards a pointer to a child the pointer
+     * falls inside. Staying a sibling of the card keeps it reachable at any card size.
+     */
+    @Test
+    fun `a popup's close button is a sibling of the card, not a child, and stays clickable`() {
+        val card = showPopup(cssStyles = mapOf("cardWidth" to "10px", "cardHeight" to "10px"))
+        layoutDialog()
+        val closeButton = popupCloseButton()
+
+        assertEquals("the card must be smaller than the button for this to mean anything", 30, card.view.width)
+        assertEquals(-1, (card.view as ViewGroup).indexOfChild(closeButton))
+
+        closeButton.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(false, ShadowDialog.getLatestDialog().isShowing)
+    }
+
+    /**
+     * The flyout's content-padding rule, which had no assertion at all until this test: the gate
+     * could have been deleted and the suite would have stayed green. (The popup shared it until
+     * the content-sized card put every popup inside the bars, where its content needs no inset.)
      *
      * The first attempt here used `screenHeight - statusBarHeight` — no bottom inset, no
      * reference to the anchor — and a flyout's vertical gravity is author-settable, so a card
@@ -620,17 +807,14 @@ class BannerChromeTest {
     }
 
     /**
-     * THE FLOOR, flyout half: every dispatch above uses `top = 100`, above the
-     * `statusBarHeight` floor, so `maxOf(bars.top, statusBarHeight)` and `bars.top` read the
-     * same number throughout and the gate at line 957 (and the `else -> fTop` padding arm
-     * below it) could be reverted to the unfloored `bars.top` with the suite still green —
-     * the popup's equivalent test (`a zero-reporting window still measures clearance against
-     * the status-bar floor`) does not reach this listener at all.
+     * THE FLOOR: every dispatch above uses `top = 100`, above the `statusBarHeight` floor, so
+     * `maxOf(bars.top, statusBarHeight)` and `bars.top` read the same number throughout and the
+     * flyout's clearance gate (and the `else -> fTop` padding arm below it) could be reverted to
+     * the unfloored `bars.top` with the suite still green.
      *
-     * The flyout is the easier instrument than the popup was: its default vertical gravity is
-     * `TOP`, so a sized card's top IS `bars.top` by construction (`fTopV` at the `TOP` arm),
-     * with no need to dial a height until the card's distance from the edge becomes a function
-     * of it, the way the popup's centred fixture had to. `top = 0` alone separates the two
+     * The flyout's default vertical gravity is `TOP`, so a sized card's top IS `bars.top` by
+     * construction (`fTopV` at the `TOP` arm), with no need to dial a height until the card's
+     * distance from the edge becomes a function of it. `top = 0` alone separates the two
      * readings: unfloored, the gate reads `0 >= 0` (clear, padding drops to 0); floored, it
      * reads `0 >= statusBarHeight` (not clear, padding stays).
      */
@@ -644,180 +828,6 @@ class BannerChromeTest {
             "a window reporting zero is not a window with no status bar",
             statusBarHeight, flyoutContent(sized).paddingTop
         )
-    }
-
-    /**
-     * The three ways a card can be SIZED and still not be CLEAR of a bar, which is the
-     * distinction the content padding turns on. None of these has a QA fixture — no CHR row
-     * authors a 100% height, and the device run is green either way — so this is where they live.
-     */
-    @Test
-    @Config(sdk = [30])
-    fun `a sized card that still covers a bar keeps its content padding`() {
-        val scroller = { c: Card -> (c.view as ViewGroup).getChildAt(0) as ScrollView }
-
-        // 100% height has no ceiling in BannerChrome.size: the card IS the display, covers both
-        // bars exactly as a MATCH_PARENT card does, and must keep the padding that holds its
-        // heading out from under the status bar.
-        val full = showPopup(cssStyles = mapOf("cardHeight" to "100%"))
-        layoutDialog()
-        dispatchInsets(full.view, top = 100, left = 0, right = 0, bottom = 40)
-        assertEquals("a 100% card covers the bars", maxOf(100, statusBarHeight), scroller(full).paddingTop)
-        assertEquals("both of them", 40, scroller(full).paddingBottom)
-
-        // A card that FITS drops it — the case the rule is for.
-        val fits = showPopup(cssStyles = mapOf("cardHeight" to "40%"))
-        layoutDialog()
-        dispatchInsets(fits.view, top = 100, left = 0, right = 0, bottom = 40)
-        assertEquals("a card inside the visible box does not", 0, scroller(fits).paddingTop)
-        assertEquals("on either edge", 0, scroller(fits).paddingBottom)
-
-        // An offset translates the card AFTER the margin and this padding are decided, so a card
-        // that fits can still be moved back onto a bar. It keeps the padding.
-        val moved = showPopup(cssStyles = mapOf("cardHeight" to "40%", "cardOffsetVertical" to "200px"))
-        layoutDialog()
-        dispatchInsets(moved.view, top = 100, left = 0, right = 0, bottom = 40)
-        assertEquals("a translated card keeps it", maxOf(100, statusBarHeight), scroller(moved).paddingTop)
-        assertEquals("on both edges", 40, scroller(moved).paddingBottom)
-    }
-
-    /**
-     * The PLACEMENT, which the margin assertions above cannot see — and the centred axis is where
-     * a margin and a placement come apart. FrameLayout.layoutChildren's CENTER arms add
-     * `topMargin - bottomMargin` WHOLE, so margins equal to the two insets put the card at
-     * displayCentre + (top - bottom) while the visible centre is displayCentre + (top - bottom)/2:
-     * the same error as applying no inset at all, with the sign flipped. Asserted here the way
-     * the offset tests assert theirs, by laying the dialog out and reading the card's own y.
-     *
-     * The insets are deliberately ASYMMETRIC, because every symmetric pair hides this.
-     */
-    @Test
-    @Config(sdk = [30])
-    fun `a centred sized card lands on the centre of what can be seen`() {
-        val cardHeight = 300
-        val card = showPopup(cssStyles = mapOf("cardWidth" to "200px", "cardHeight" to "${cardHeight}px"))
-        layoutDialog()
-        dispatchInsets(card.view, top = 100, left = 0, right = 0, bottom = 40)
-        layoutDialog()
-
-        // The box a sized card is placed in is the window less the bars; its centre is what the
-        // card's centre should be.
-        val parentH = (card.view.parent as View).height
-        val visibleCentre = (100 + (parentH - 40)) / 2f
-        assertEquals(
-            "centred in what can be seen, not in the display and not past it",
-            visibleCentre, card.view.y + card.view.height / 2f, 1.5f
-        )
-
-        // An ANCHORED axis is the other arm: the whole inset, landing on the bar's inner edge.
-        val anchored = showPopup(cssStyles = mapOf(
-            "cardHeight" to "${cardHeight}px", "cardPositionVertical" to "bottom"
-        ))
-        layoutDialog()
-        dispatchInsets(anchored.view, top = 100, left = 0, right = 0, bottom = 40)
-        layoutDialog()
-        val anchoredParentH = (anchored.view.parent as View).height
-        assertEquals(
-            "flush against the navigation bar's inner edge",
-            (anchoredParentH - 40 - anchored.view.height).toFloat(), anchored.view.y, 1.5f
-        )
-    }
-
-    // exercising what they claim to.
-    @Config(sdk = [30])
-    @Test
-    fun `a popup holds its content clear of the system bars whatever size its card is`() {
-        for (cssStyles in listOf<Map<String, Any?>>(
-            emptyMap(),
-            mapOf("cardWidth" to "50%"),
-            mapOf("cardWidth" to "50%", "cardHeight" to "50%")
-        )) {
-            val card = showPopup(cssStyles = cssStyles)
-            val scrollView = (card.view as ViewGroup).getChildAt(0) as ScrollView
-            val closeButton = popupCloseButton()
-            layoutDialog()
-
-            dispatchInsets(card.view, top = 100, left = 20, right = 30, bottom = 40)
-
-            // The GUARANTEE is that the content is clear of the bars; WHERE the clearance comes
-            // from depends on the axis. An unsized one is MATCH_PARENT, genuinely overlaps the
-            // bars, and the scroller pads for them. A sized one is already held off by the card's
-            // own margin (applyAnchorInsets), so padding it again would hold the design off a bar
-            // nowhere near it — 42dp at the top of a card that does not reach the top.
-            val expectedTop = maxOf(100, statusBarHeight)
-            val sizedV = cssStyles.containsKey("cardHeight")
-            val sizedH = cssStyles.containsKey("cardWidth")
-            assertEquals("$cssStyles", if (sizedV) 0 else expectedTop, scrollView.paddingTop)
-            assertEquals("$cssStyles", if (sizedH) 0 else 20, scrollView.paddingLeft)
-            assertEquals("$cssStyles", if (sizedH) 0 else 30, scrollView.paddingRight)
-            assertEquals("$cssStyles", if (sizedV) 0 else 40, scrollView.paddingBottom)
-
-            // Deliberately NOT asserting "margin + padding == the inset". That holds on an
-            // ANCHORED axis, where the card is pushed to the bar's inner edge, and not on a
-            // centred one, where the card takes half the DIFFERENCE and may be nowhere near
-            // either bar — the cards in this loop are centred, so the sum is 30 and not 100.
-            // What a centred card guarantees is that it is centred in the visible box, which is
-            // `a centred sized card lands on the centre of what can be seen`.
-
-            // Every term is the PAINTED square's; the view is `closeRingPx` wider on each side and
-            // is placed that much back from it, so the control a person sees has not moved.
-            val maxX = (screenWidth - 30 - closeMarginPx - closeSidePx).toFloat()
-            val minY = (expectedTop + closeMarginPx).toFloat()
-            val expectedX = (card.view.x + card.view.width - closeSidePx - closeMarginPx).coerceAtMost(maxX)
-            val expectedY = (card.view.y + closeMarginPx).coerceAtLeast(minY)
-            assertEquals("$cssStyles", expectedX - closeRingPx, closeButton.x, 0.01f)
-            assertEquals("$cssStyles", expectedY - closeRingPx, closeButton.y, 0.01f)
-            assertEquals("$cssStyles", closeTapTargetPx, closeButton.layoutParams.width)
-        }
-    }
-
-    /**
-     * The finding this pins: a card the author has shrunk and centred must not leave its close
-     * button in the screen's corner with nothing behind it (the popup path has no scrim). The
-     * button now tracks `popupContainer`'s own laid-out rect — its top-right corner, inset by the
-     * same margin the window-corner case always used — via the `OnLayoutChangeListener`
-     * registered on it, rather than a `LayoutParams` margin fixed to the window.
-     */
-    @Test
-    fun `a popup's close button sits at a sized and centred card's own corner, not the window's`() {
-        val card = showPopup(cssStyles = mapOf("cardWidth" to "50%", "cardHeight" to "50%"))
-        layoutDialog()
-        val closeButton = popupCloseButton()
-
-        // The card is well clear of every screen edge at 50%/50% centred, so the button's own
-        // safe-area clamp cannot be what is putting it here — this is the card's corner, not the
-        // window's (which the test above covers).
-        assertEquals(
-            card.view.x + card.view.width - closeSidePx - closeMarginPx - closeRingPx,
-            closeButton.x, 0.01f
-        )
-        assertEquals(card.view.y + closeMarginPx - closeRingPx, closeButton.y, 0.01f)
-        assertTrue(
-            "must not be left at the window's corner",
-            closeButton.x < screenWidth - closeSidePx - closeMarginPx - closeRingPx - 1f
-        )
-    }
-
-    /**
-     * The popup dialog is not cancelable and does not dismiss on a touch outside, so its close
-     * button is the only way out of it. That was safe while the card was always the whole window;
-     * it is not once `cardWidth` can make the card narrower than the button's own box, because
-     * `ViewGroup.dispatchTouchEvent` only forwards a pointer to a child the pointer falls inside,
-     * so the part of the button hanging outside the card would not be tappable — on a modal that
-     * blocks the screen and is re-shown after a rotation. Staying a sibling of the card, rather
-     * than its child, keeps it reachable at any card size regardless of where it is positioned.
-     */
-    @Test
-    fun `a popup's close button is a sibling of the card, not a child, and stays clickable`() {
-        val card = showPopup(cssStyles = mapOf("cardWidth" to "10px", "cardHeight" to "10px"))
-        val closeButton = popupCloseButton()
-
-        assertEquals("the card must be smaller than the button for this to mean anything", 30, card.params.width)
-        assertEquals(-1, (card.view as ViewGroup).indexOfChild(closeButton))
-
-        closeButton.performClick()
-        shadowOf(Looper.getMainLooper()).idle()
-        assertEquals(false, ShadowDialog.getLatestDialog().isShowing)
     }
 
     // ---- the close control, which reads five `cssStyles` keys of its own -----------------------
@@ -936,11 +946,74 @@ class BannerChromeTest {
         assertTrue(card.parent != null)
     }
 
+    /**
+     * Device QA: a tap on a bar anywhere but a link or its close target went THROUGH it to the
+     * app underneath (on the QA app it opened "Favorite Products"). The bar is an overlay drawn
+     * over the screen, and a view that does not consume a touch hands it to whatever is beneath.
+     * Dispatched to the activity's content root, as the window would, so the app's own view is a
+     * real candidate for the touch rather than one the test can never reach.
+     */
+    @Test
+    fun `a tap on a bar's body does not fall through to the app underneath`() {
+        var appClicks = 0
+        val bar = showBar(emptyMap())
+        val card = bar.view as ViewGroup
+        val screen = card.rootView.findViewById<ViewGroup>(android.R.id.content)
+        // The host's own content, which `wrapChildren` moved into the holder under the bar.
+        val outer = screen.getChildAt(0) as ViewGroup
+        val holder = (outer.getChildAt(0) as ViewGroup).getChildAt(0) as ViewGroup
+        holder.getChildAt(0).setOnClickListener { appClicks++ }
+        assertTrue("the fixture bar must be laid out", card.height > 0)
+
+        // 8dp in from the bar's left edge, in the content wrapper's 16dp padding: on the bar and
+        // on nothing inside it that could consume the touch itself.
+        tap(screen, card.left + 8 * density, card.top + card.height / 2f)
+        assertEquals("the app under the bar must not be clicked", 0, appClicks)
+        assertTrue("and the bar stays up", card.parent != null)
+
+        // The control's 48dp target still works through the same dispatch.
+        tap(screen, card.left + screenWidth - 24 * density, card.top + 46 * density)
+        assertEquals("the close target dismisses the bar", null, card.parent)
+        assertEquals("without clicking the app", 0, appClicks)
+
+        // And the app is reachable once the bar is gone: the listener is wired, so the zero above
+        // is the bar consuming the touch and not a tap that reached nothing.
+        tap(screen, screen.width / 2f, screen.height / 2f)
+        assertEquals(1, appClicks)
+    }
+
     @Test
     fun `cardBackgroundColor transparent leaves the popup card see-through`() {
         val card = showPopup(cssStyles = mapOf("cardBackgroundColor" to "transparent"))
 
         assertEquals(Color.TRANSPARENT, card.color)
+    }
+
+    /**
+     * The ✕ must be ABOVE the card in Z, not only after it in child order: Android dispatches a
+     * touch by Z first, so a close control below the card's elevation is covered by the clickable
+     * card and never receives the tap (device QA 2026-10-08, CLS-01…08 on the first card build).
+     * Dispatched through the dialog's root, as a finger's would be — not via performClick.
+     */
+    @Test
+    fun `a tap on the popup's close control through the dialog root closes the popup`() {
+        showPopup(cssStyles = emptyMap())
+        val root = dialogRoot()
+        val close = popupCloseButton()
+        val card = close.parent as ViewGroup
+        assertTrue(
+            "the close control must sit above the card's elevation",
+            close.z > (0 until card.childCount).map { card.getChildAt(it) }
+                .filter { it !== close }.maxOf { it.z }
+        )
+        val rootAt = IntArray(2).also { root.getLocationInWindow(it) }
+        val closeAt = IntArray(2).also { close.getLocationInWindow(it) }
+        tap(
+            root,
+            (closeAt[0] - rootAt[0]) + close.width / 2f,
+            (closeAt[1] - rootAt[1]) + close.height / 2f
+        )
+        assertEquals(false, ShadowDialog.getLatestDialog().isShowing)
     }
 
     private fun tap(target: View, x: Float, y: Float) {
@@ -1259,8 +1332,15 @@ class BannerChromeTest {
     private class Card(val view: View, val content: View) {
         val params get() = view.layoutParams as FrameLayout.LayoutParams
 
-        /** Null where the view carries no flat colour, which is what a bar's card carried. */
-        val color get() = (view.background as? ColorDrawable)?.color
+        /**
+         * The card's paint: a flat colour, or a rounded card's fill (the popup is always rounded).
+         * Null where the view carries neither, which is what a bar's card carried.
+         */
+        val color get() = when (val bg = view.background) {
+            is ColorDrawable -> bg.color
+            is GradientDrawable -> bg.color?.defaultColor
+            else -> null
+        }
 
         val verticalGravity get() = params.gravity and Gravity.VERTICAL_GRAVITY_MASK
 
@@ -1323,16 +1403,22 @@ class BannerChromeTest {
         return Card(bar, bar.getChildAt(0))
     }
 
-    /** The popup's card: the first child of the dialog's root layout, holding a scrolled design. */
+    /**
+     * The popup's card: the first child of the dialog's root layout — which is the dimmed backdrop
+     * — holding a scrolled design.
+     */
     private fun showPopup(
         cssStyles: Map<String, Any?>,
         bodyValues: Map<String, Any?> = emptyMap(),
-        displayPosition: String? = null
+        displayPosition: String? = null,
+        textRows: Int = 1
     ): Card {
-        show(banner("popup", cssStyles, displayPosition, bodyValues = bodyValues))
+        show(banner("popup", cssStyles, displayPosition, bodyValues = bodyValues, textRows = textRows))
         val popup = dialogCard()
         return Card(popup, (popup.getChildAt(0) as ScrollView).getChildAt(0))
     }
+
+    private fun popupScrollView(card: Card): ScrollView = (card.view as ViewGroup).getChildAt(0) as ScrollView
 
     /** The flyout's card: the dialog's overlay holds it, and its second child is the scroller. */
     /** The `flyoutContainer` whose top padding is the flyout's status-bar clearance. */
@@ -1355,9 +1441,13 @@ class BannerChromeTest {
             get() = if (aligned) (view.getChildAt(0) as ViewGroup).getChildAt(0)
             else view.getChildAt(0)
 
-        /** The design's top in the scroller's own content space, wrapper offset included. */
+        /**
+         * The design's top in the scroller's own content space, wrapper offset included, measured
+         * from the top of its viewport — below the popup's close band, which is the scroller's
+         * own top padding.
+         */
         val designTop: Int
-            get() = design.top + if (aligned) view.getChildAt(0).top else 0
+            get() = design.top + (if (aligned) view.getChildAt(0).top else 0) - view.paddingTop
 
         /** The height the design asks for when nothing constrains it — what a ScrollView gives it. */
         fun measureContentHeight(): Int {
@@ -1368,12 +1458,14 @@ class BannerChromeTest {
             return design.measuredHeight
         }
 
+        /** Lays the scroller out with a viewport [height] tall, its own padding added on top. */
         fun layoutAt(height: Int) {
+            val total = height + view.paddingTop + view.paddingBottom
             view.measure(
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY)
+                View.MeasureSpec.makeMeasureSpec(total, View.MeasureSpec.EXACTLY)
             )
-            view.layout(0, 0, width, height)
+            view.layout(0, 0, width, total)
         }
     }
 
@@ -1460,19 +1552,20 @@ class BannerChromeTest {
         displayType: String,
         cssStyles: Map<String, Any?>,
         displayPosition: String?,
-        bodyValues: Map<String, Any?> = emptyMap()
+        bodyValues: Map<String, Any?> = emptyMap(),
+        textRows: Int = 1
     ) = BannerResponse(
         token = "chrome-$displayType-${tokenCounter++}",
         displayType = displayType,
         cssSelector = TARGET_SELECTOR,
         displayPosition = displayPosition,
         cssStyles = cssStyles,
-        design = designWithText(bodyValues)
+        design = designWithText(bodyValues, textRows)
     )
 
-    private fun designWithText(bodyValues: Map<String, Any?>): Map<String, Any?> = mapOf(
+    private fun designWithText(bodyValues: Map<String, Any?>, rows: Int = 1): Map<String, Any?> = mapOf(
         "body" to mapOf(
-            "rows" to listOf(
+            "rows" to List(rows) {
                 mapOf(
                     "columns" to listOf(
                         mapOf(
@@ -1486,7 +1579,7 @@ class BannerChromeTest {
                     ),
                     "values" to emptyMap<String, Any?>()
                 )
-            ),
+            },
             "values" to bodyValues
         )
     )

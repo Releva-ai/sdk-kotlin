@@ -1,5 +1,52 @@
 # Changelog
 
+## 1.6.0
+
+MINOR: no public API is added or removed, but **every unsized popup in production now looks
+different** — a content-sized card over a dimmed backdrop instead of a full-screen takeover — by
+product decision (2026-10-08), matching sdk-swift and sdk-react-native (which released the same
+change as 0.4.0). Verified with the popup and bar groups in `BannerChromeTest.kt` and on a physical
+device (see the PR).
+
+### Changed
+
+- **A popup is now a content-sized card over a dimmed backdrop, not a full-screen takeover** —
+  the card sdk-swift draws (PR #23) and sdk-react-native adopted on 2026-10-05, by product
+  decision (2026-10-08). **This changes every unsized popup in production.** The card is the
+  design's `popupWidth` wide (600 when unset) and as tall as its content, capped 16dp short of the
+  box it is placed in on each side (never under 120dp) with the content scrolling inside past
+  that; rounded at the design's `borderRadius` (10 when unset); lifted by a 12dp elevation; and
+  centred unless `cardPositionVertical`/`Horizontal` say otherwise. The authored `cardWidth`,
+  `cardHeight`, `cardBorderRadius` and `cardBackgroundColor` still win, an authored size is capped
+  the same way, and the design's `popupBackgroundColor` is read again as the fallback below
+  `cardBackgroundColor` (sdk-swift's order). The box is the window less the system bars and
+  cutout the window reports — the backdrop pads itself to them and the cap is measured from it —
+  so the card's content no longer carries a status-bar inset of its own; its only padding is a
+  band at the top (the close control's margin, side and margin again: 48dp by default) so the
+  first line of a design does not run under the ✕, as on sdk-react-native (48) and sdk-swift (56).
+  Behind the card is a dimmed backdrop — the design's `popupOverlay_backgroundColor`, else
+  `cssStyles.overlayColor`, else black at 50%, as the flyout's scrim — and **a tap on it closes the
+  popup** (tracked as a close), as on sdk-swift and sdk-react-native; until now the popup had no
+  backdrop and the ✕ was the only way out. The close control keeps its place on the card's
+  top-right corner, clamped into the safe area. Flyouts and bars are unchanged.
+
+### Fixed
+
+- **A dimmed backdrop closes its banner on a tap, not on a swipe.** The popup's new backdrop — and
+  the flyout's scrim, which had the same handler on master — counted any press that ended inside
+  it as a click, so a swipe or scroll started on it closed the banner (device QA: the swipe that
+  scrolled the list on to a scroll-triggered popup dismissed it at once). Only a genuine single tap
+  closes it now; accessibility's click still does. Pinned by `a swipe across the dimmed backdrop
+  does not close the popup`, which fails on the previous handler.
+
+- **A tap on a bar no longer falls through to the app underneath.** The bar is an overlay over
+  the screen and its card did not consume touches, so a tap anywhere on it except a link or the
+  close target was handed to the view beneath (device QA: it opened the QA app's
+  "Favorite Products"). Present on master before this release. The card is now clickable, so it
+  consumes every touch on its own area; links in the design and the close control's 48dp target
+  still get theirs first. Pinned by `a tap on a bar's body does not fall through to the app
+  underneath`, which fails on the previous code.
+
 ## 1.5.4
 
 PATCH: the changes below change what the close control looks like but add and deprecate no public
