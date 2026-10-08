@@ -936,6 +936,42 @@ class BannerChromeTest {
         assertTrue(card.parent != null)
     }
 
+    /**
+     * Device QA: a tap on a bar anywhere but a link or its close target went THROUGH it to the
+     * app underneath (on the QA app it opened "Favorite Products"). The bar is an overlay drawn
+     * over the screen, and a view that does not consume a touch hands it to whatever is beneath.
+     * Dispatched to the activity's content root, as the window would, so the app's own view is a
+     * real candidate for the touch rather than one the test can never reach.
+     */
+    @Test
+    fun `a tap on a bar's body does not fall through to the app underneath`() {
+        var appClicks = 0
+        val bar = showBar(emptyMap())
+        val card = bar.view as ViewGroup
+        val screen = card.rootView.findViewById<ViewGroup>(android.R.id.content)
+        // The host's own content, which `wrapChildren` moved into the holder under the bar.
+        val outer = screen.getChildAt(0) as ViewGroup
+        val holder = (outer.getChildAt(0) as ViewGroup).getChildAt(0) as ViewGroup
+        holder.getChildAt(0).setOnClickListener { appClicks++ }
+        assertTrue("the fixture bar must be laid out", card.height > 0)
+
+        // 8dp in from the bar's left edge, in the content wrapper's 16dp padding: on the bar and
+        // on nothing inside it that could consume the touch itself.
+        tap(screen, card.left + 8 * density, card.top + card.height / 2f)
+        assertEquals("the app under the bar must not be clicked", 0, appClicks)
+        assertTrue("and the bar stays up", card.parent != null)
+
+        // The control's 48dp target still works through the same dispatch.
+        tap(screen, card.left + screenWidth - 24 * density, card.top + 46 * density)
+        assertEquals("the close target dismisses the bar", null, card.parent)
+        assertEquals("without clicking the app", 0, appClicks)
+
+        // And the app is reachable once the bar is gone: the listener is wired, so the zero above
+        // is the bar consuming the touch and not a tap that reached nothing.
+        tap(screen, screen.width / 2f, screen.height / 2f)
+        assertEquals(1, appClicks)
+    }
+
     @Test
     fun `cardBackgroundColor transparent leaves the popup card see-through`() {
         val card = showPopup(cssStyles = mapOf("cardBackgroundColor" to "transparent"))

@@ -79,6 +79,13 @@ colour only, not by a fresh photograph.
   translucent colour still draws no ✕ / a translucent one. The drawable fills the box it is given
   corner to corner, so the box is now `closeFontSize` itself rather than `closeFontSize + 6dp` (the
   margin the old system icon carried around its own ✕, which this drawable does not have).
+- **A tap on a bar no longer falls through to the app underneath.** The bar is an overlay over
+  the screen and its card did not consume touches, so a tap anywhere on it except a link or the
+  close target was handed to the view beneath (device QA: it opened the QA app's
+  "Favorite Products"). Present on master before this release. The card is now clickable, so it
+  consumes every touch on its own area; links in the design and the close control's 48dp target
+  still get theirs first. Pinned by `a tap on a bar's body does not fall through to the app
+  underneath`, which fails on the previous code.
 
 ## 1.5.3
 

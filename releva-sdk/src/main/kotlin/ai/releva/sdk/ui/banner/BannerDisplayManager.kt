@@ -704,6 +704,13 @@ class BannerDisplayManager(
         // The card: transparent and edge to edge until the author says otherwise.
         val barLayout = FrameLayout(ctx).apply {
             elevation = 10 * dp
+            // The bar is an overlay drawn OVER the app, and a touch no view consumes is handed to
+            // whatever is beneath it: device QA found a tap on a bar's body opening the screen
+            // under it. Clickable, the card consumes every touch on its own area. Its children
+            // still see the touch first (links in the design), and `View.onTouchEvent` asks the
+            // close control's TouchDelegate before the card's own click handling. The flyout's
+            // card has always been clickable for the same reason.
+            isClickable = true
         }
         chrome.applyCardBackground(barLayout, chrome.backgroundColor ?: Color.TRANSPARENT)
 
