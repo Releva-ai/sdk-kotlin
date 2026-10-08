@@ -77,6 +77,11 @@ class BannerDisplayManager(
         // `contentVerticalAlign` could place it. Naming it keeps the default path identical rather
         // than merely equivalent.
         private const val DEFAULT_CHILD_GRAVITY = Gravity.TOP or Gravity.START
+
+        // The popup card's cap: this far short of the box it is placed in on each side, and never
+        // under the floor. sdk-swift's and sdk-react-native's 16pt and 120pt.
+        private const val POPUP_CARD_GUTTER_DP = 16f
+        private const val POPUP_CARD_FLOOR_DP = 120f
     }
 
     /**
@@ -370,16 +375,20 @@ class BannerDisplayManager(
         val ctx = activity ?: return
         val bodyValues = getDesignBodyValues(banner)
         val chrome = BannerChrome.of(banner, ctx)
-        // `cardBackgroundColor` owns this now. The Unlayer `popupBackgroundColor` it replaces was
-        // never authored — our editor runs Unlayer in web display mode, which never shows the Popup
-        // Builder — so reading it was an editor default being treated as intent. White is what the
-        // absent key resolved to then and what the documented default resolves to now.
-        val popupBgColor = chrome.backgroundColor ?: Color.WHITE
+        // The authored `cardBackgroundColor`, then the design's own `popupBackgroundColor`, then
+        // white: sdk-swift's order, which sdk-react-native adopted with the content-sized card on
+        // 2026-10-05. `popupBackgroundColor` had been dropped as an editor default (#FFFFFF on every
+        // production banner that carries it); it is back as the fallback so the SDKs read the same
+        // keys in the same order.
+        val popupBgColor = chrome.backgroundColor
+            ?: DesignRenderer.parseColor(bodyValues["popupBackgroundColor"])
+            ?: Color.WHITE
         val overlayColor = getOverlayColor(banner)
 
         val dialog = Dialog(ctx, android.R.style.Theme_Translucent_NoTitleBar)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        // Full-screen popup — only close button dismisses
+        // The window fills the screen, so there is no "outside" for the platform to detect: a tap
+        // beside the card lands on the dimmed backdrop below, which closes the popup itself.
         dialog.setCanceledOnTouchOutside(false)
         dialog.setCancelable(false)
 
@@ -390,20 +399,27 @@ class BannerDisplayManager(
         val bgImageUrl = bgImageMap?.get("url") as? String ?: ""
         val hasBgImage = bgImageUrl.isNotEmpty()
 
-        // Full-screen unless the author gave the card a size of its own. The size is resolved
-        // before the render call below, not after: the design's own `contentWidth` is coerced
-        // against `maxWidthPx`, so that argument has to be the card's real width — the card sits
-        // under a ScrollView that does not scroll sideways, and anything wider is clipped away
-        // with no way to reach it. The offsets do not enter into it; they translate the card
-        // without changing how wide it is.
+        // THE CARD, sized the way sdk-swift sizes it (PR #23) and sdk-react-native since 2026-10-05:
+        // the authored `cardWidth`, else the design's `popupWidth` (600 when unset), and the
+        // authored `cardHeight`, else as tall as its content. PopupCardLayout caps both 16dp short
+        // of the box the card is placed in, measured at layout time. Until this release an unsized
+        // popup filled the window instead.
         val screenWidth = ctx.resources.displayMetrics.widthPixels
         val screenHeight = ctx.resources.displayMetrics.heightPixels
-        val cardWidth = chrome.widthPx(screenWidth)
+        val gutter = (POPUP_CARD_GUTTER_DP * dp).roundToInt()
+        val floor = (POPUP_CARD_FLOOR_DP * dp).roundToInt()
+        val cardWidth = chrome.popupWidthPx(screenWidth, bodyValues["popupWidth"])
         val cardHeight = chrome.heightPx(screenHeight)
 
+        // `DesignRenderer.render` coerces the design's own `contentWidth` against `maxWidthPx`, so
+        // it has to be the card's real width — the card's ScrollView does not scroll sideways and
+        // anything wider is clipped away. Rendering happens before layout, so this is the cap
+        // PopupCardLayout will apply, estimated from the display: exact wherever no system bar
+        // sits at the side, which is portrait on every phone.
+        val renderWidth = minOf(cardWidth, maxOf(screenWidth - 2 * gutter, floor))
         val contentView = DesignRenderer.render(
             ctx, banner.design!!,
-            maxWidthPx = cardWidth ?: screenWidth,
+            maxWidthPx = renderWidth,
             transparentBody = hasBgImage
         ) { url ->
             Log.d(TAG, "Banner link tapped in popup: $url")
@@ -412,18 +428,42 @@ class BannerDisplayManager(
             onLinkTap(url)
         }
 
-        // Popup card
-        val popupContainer = FrameLayout(ctx)
-        chrome.applyCardBackground(popupContainer, if (hasBgImage) Color.TRANSPARENT else popupBgColor)
+        // Popup card: rounded (the authored `cardBorderRadius`, else the design's `borderRadius`,
+        // else 10dp) and lifted off the backdrop by an elevation shadow — sdk-swift draws black at
+        // 25%, a 24pt blur, 8pt down; sdk-react-native uses `elevation: 12` on Android, as here.
+        val popupContainer = PopupCardLayout(ctx, cardWidth, cardHeight, gutter, floor).apply {
+            elevation = 12 * dp
+            // Taps on the card's own area stay on the card; only the backdrop around it closes.
+            isClickable = true
+        }
+        chrome.applyCardBackground(
+            popupContainer,
+            if (hasBgImage) Color.TRANSPARENT else popupBgColor,
+            fallbackRadiusPx = chrome.popupCornerRadiusPx(bodyValues["borderRadius"])
+        )
+
+        // The close button sits over the card's top-right corner (below), so the content starts
+        // below it rather than under it: on a content-sized card the design's first line would
+        // otherwise run beneath the ✕. sdk-react-native reserves 48pt and sdk-swift 56pt for the
+        // same reason; this is the control's margin, its painted side and the margin again (48dp
+        // at the default size). `clipToPadding` off so the band scrolls with the content, as a
+        // padding on React Native's content container does, rather than clipping it.
+        val closeStyle = BannerCloseButtonStyle.of(banner.cssStyles)
+        val closeSize = (closeStyle.sideDp * dp).toInt()
+        val closeMargin = (8 * dp).toInt()
+        val closeBand = closeMargin + closeSize + closeMargin
 
         // Scrollable content
         val scrollView = ScrollView(ctx).apply {
             isFillViewport = true
+            clipToPadding = false
+            setPadding(0, closeBand, 0, 0)
             addView(alignedContent(ctx, contentView, chrome.contentGravity), ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
+        popupContainer.contentSizer = scrollView
 
         // If body has a background image, wrap the scroll content with it
         if (hasBgImage) {
@@ -447,25 +487,37 @@ class BannerDisplayManager(
         val verticalGravity = chrome.verticalGravity(Gravity.CENTER_VERTICAL)
         val horizontalGravity = chrome.horizontalGravity(Gravity.CENTER_HORIZONTAL)
 
-        // The close button, added to the window below rather than to the card. This dialog is
-        // deliberately not cancelable and does not dismiss on a touch outside (above), which was
-        // safe while the card was always the whole window. Once `cardWidth`/`cardHeight` can
-        // shrink the card, a button anchored inside it hangs outside its bounds — and
-        // `ViewGroup.dispatchTouchEvent` only forwards a pointer to a child it falls inside, so
-        // the one way out of a screen-blocking modal would stop responding. Staying a sibling of
-        // the card keeps it dispatchable at any size; what follows is how it stays visually
-        // attached to the card instead of floating in the window's corner once the card no
-        // longer fills the window.
+        // THE BACKDROP, which is also the box the card is placed in. It fills the window, is
+        // dimmed (the design's `popupOverlay_backgroundColor`, else `cssStyles.overlayColor`, else
+        // black at 50% — the flyout's scrim, and sdk-react-native's), and a tap on it closes the
+        // popup, as on sdk-swift and sdk-react-native. Until this release the popup had no
+        // backdrop: it filled the window and its close button was the only way out.
+        //
+        // Its PADDING is the safe area: the insets listener below sets it to the system bars and
+        // cutout the window reports, so the card's gravity places it inside what a person can see
+        // and PopupCardLayout's cap is measured from that box rather than assumed from the
+        // display. `clipToPadding` off so the card's shadow is not cut where it meets a bar.
+        val rootLayout = FrameLayout(ctx).apply {
+            setBackgroundColor(overlayColor)
+            clipToPadding = false
+            setOnClickListener {
+                dialog.dismiss()
+                trackDismiss(banner)
+            }
+        }
+
+        // The close button, added to the window below rather than to the card. A button anchored
+        // inside the card hangs outside its bounds once the card is smaller than the control —
+        // and `ViewGroup.dispatchTouchEvent` only forwards a pointer to a child it falls inside, so
+        // that part of it would stop responding. Staying a sibling of the card keeps it
+        // dispatchable at any size; what follows is how it stays visually attached to the card.
         val statusBarHeight = getStatusBarHeight(ctx)
-        val closeStyle = BannerCloseButtonStyle.of(banner.cssStyles)
         val closeButton = buildCloseButton(ctx, closeStyle) {
             dialog.dismiss()
             closeBanner(banner)
         }
-        val closeSize = (closeStyle.sideDp * dp).toInt()
         val closeTapTarget = (closeStyle.tapTargetDp * dp).toInt()
         val closeRing = closeRingPx(closeStyle, dp)
-        val closeMargin = (8 * dp).toInt()
         val closeParams = FrameLayout.LayoutParams(closeTapTarget, closeTapTarget)
 
         // The window's safe area, updated by the insets listener below and read every time the
@@ -477,11 +529,11 @@ class BannerDisplayManager(
 
         // Places the button from popupContainer's own laid-out rect — its top-right corner,
         // inset by closeMargin on each axis — rather than the window's, so it stays attached to
-        // the card at any size or offset the author gives it instead of landing in the screen's
-        // corner with nothing behind it. `View.getX()`/`getY()` already fold in the card's own
-        // translation (the offsets below), so a moved card carries its button with it. Still
-        // clamped into the window's safe area: a card sized or offset far enough to reach an edge
-        // must not push the dialog's only way out past it, off-screen or under a system bar.
+        // the card at any size or offset instead of landing in the screen's corner with nothing
+        // behind it. `View.getX()`/`getY()` already fold in the card's own translation (the
+        // offsets below) and the backdrop's padding, so a moved card carries its button with it.
+        // Still clamped into the window's safe area: a card offset far enough to reach an edge
+        // must not push the dialog's close control past it, off-screen or under a system bar.
         //
         // Every term here is the PAINTED square's — its corner and its bounds — and the view is
         // placed `closeRing` back from it, so widening the view to a 48dp tap target moves nothing
@@ -497,126 +549,43 @@ class BannerDisplayManager(
             closeButton.y = (cardTop + closeMargin).coerceIn(minY, maxY) - closeRing
         }
         popupContainer.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> positionCloseButton() }
+        // And again once the BACKDROP has laid out all of its children. The button is a child of
+        // the padded backdrop too, so its own left/top move with the padding — and `setX`/`setY`
+        // are a translation from those. The card is laid out before the button, so its listener
+        // above computes that translation against the button's previous position; this one runs
+        // after both and corrects it.
+        rootLayout.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> positionCloseButton() }
 
-        // A full-screen popup's *background* is meant to run edge to edge — that is what
-        // makes it read as a takeover rather than a card. Its *content* is not: with the
-        // scroll view filling the window, the design's first line sat under the status
-        // bar, so a popup whose design was a heading and a button showed as an empty
-        // coloured rectangle with a working close button.
+        // The card is placed inside the bars, so its content needs no inset of its own any more:
+        // the backdrop's padding is the whole of the window chrome. Real window insets rather
+        // than the status_bar_height resource, which is the height the bar *would* have — wrong
+        // wherever it is hidden, and silent about a cutout or a landscape bar on the side.
         //
-        // The inset goes on the scroll view, which is transparent, so the container's
-        // colour or background image still fills the screen behind it. Real window insets
-        // rather than the status_bar_height resource: that resource is the height the bar
-        // *would* have, so it is wrong wherever the bar is hidden, and it says nothing
-        // about a display cutout, the gesture pill, or a landscape bar that sits on the
-        // side. displayCutout is unioned in for notches deeper than the bar itself.
-        //
-        // Swift arrives at the same place from the other direction: BannerDisplayView
-        // reads geometry.safeAreaInsets and hands them to the chrome, which ignores the
-        // safe area for its background only.
-        ViewCompat.setOnApplyWindowInsetsListener(popupContainer) { _, windowInsets ->
+        // The padding reads the insets EXACTLY, unfloored: a reported zero top inset is also a
+        // window with a deliberately hidden status bar, and a floor there would hold a
+        // top-anchored card 24dp below the window edge. The close control's own clamp keeps the
+        // floor, as before — being wrong in that direction only moves it down a little.
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { _, windowInsets ->
             val bars = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            // Floored at statusBarHeight, not just bars.top: a window that reports zero
-            // system-bar insets (observed on some OEM skins even with the status bar drawn
-            // and opaque) would otherwise zero out the content padding and drop the close
-            // button to 8dp — under the status bar rather than below it. bars.top still wins
-            // wherever it exceeds the resource estimate (a taller cutout, a landscape bar),
-            // since the resource is only ever a floor, not the true value.
-            val top = maxOf(bars.top, statusBarHeight)
-            // NOT on an axis the card is already inset on. applyAnchorInsets below gives a SIZED
-            // axis a margin, so the card is clear of that bar already and padding the content for
-            // it a second time holds the design off a bar nowhere near it — 42dp at the top and
-            // 47dp at the bottom of a card that does not reach either. Photographed 2026-10-03:
-            // CHR-16 asks for contentVerticalAlign `bottom` on a 280x360 card and its copy sat
-            // 63dp short of the card's own bottom edge, and CHR-07's began 50dp below its top.
-            //
-            // This is the per-edge predicate the older comment here declined to write, and the
-            // reason it is safe now is that it is no longer a guess about whether the card
-            // reaches an edge: the same flag decides the margin and the padding, so the two
-            // cannot disagree. An UNSIZED axis is MATCH_PARENT, takes no margin, genuinely does
-            // overlap the bars, and keeps the padding exactly as before.
-            // The predicate is "is this card CLEAR of that bar", not "is this axis sized". Sized
-            // does not imply clear, and three ways it does not:
-            //
-            //   - a centred axis takes half the DIFFERENCE of the two insets, which is near zero
-            //     under gesture navigation and (0, 12dp) even at 24dp/48dp, so the margin gives a
-            //     centred card almost no clearance to begin with;
-            //   - `cardHeight: "100%"` has no ceiling, so the card is the whole display, covers
-            //     both bars exactly as a MATCH_PARENT card does, and would have had its padding
-            //     dropped — the heading-under-the-status-bar failure this listener exists to
-            //     prevent. Anything above ~91% on a 24dp/48dp phone is in the same position;
-            //   - an authored offset translates the card AFTER both the margin and this padding
-            //     are decided, and can put it back on a bar.
-            //
-            // So: sized on this axis, fits inside the visible box on it, and not translated along
-            // it. All three are values already in scope, and anything that fails one keeps the
-            // padding it has always had.
-            // THE MARGIN IS EXACT, THE PADDING IS CONSERVATIVE, and they still cannot disagree
-            // because the padding is asked about the rect the margin actually produced.
-            //
-            // The margin reads `bars`, unfloored. Flooring it moved the CARD, and a reported zero
-            // top inset is not only the OEM skins the floor was added for — it is equally a window
-            // with a deliberately hidden status bar, where a floored margin puts a top-anchored
-            // card 24dp below the window edge with the host app showing through the gap. Master's
-            // floor only ever padded INSIDE the card, so it could cost space but never open one.
-            //
-            // The padding reads the floor, because being wrong in that direction costs empty
-            // space and being wrong in the other hides a heading under a bar.
-            //
-            // So: where does the card actually land, and does THAT rect clear the floored bar?
-            // Computed from the same gravity and margins applyAnchorInsets just applied, so the
-            // two are one answer rather than two that agree by construction today.
-            val cardTopV = when {
-                cardHeight == null -> 0
-                (verticalGravity and Gravity.VERTICAL_GRAVITY_MASK) == Gravity.TOP -> bars.top
-                (verticalGravity and Gravity.VERTICAL_GRAVITY_MASK) == Gravity.BOTTOM ->
-                    screenHeight - bars.bottom - cardHeight
-                else -> (screenHeight - cardHeight) / 2 + (bars.top - bars.bottom) / 2
+            if (rootLayout.paddingLeft != bars.left || rootLayout.paddingTop != bars.top ||
+                rootLayout.paddingRight != bars.right || rootLayout.paddingBottom != bars.bottom) {
+                rootLayout.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             }
-            val cardLeftH = when {
-                cardWidth == null -> 0
-                (horizontalGravity and Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.CENTER_HORIZONTAL ->
-                    (screenWidth - cardWidth) / 2 + (bars.left - bars.right) / 2
-                (horizontalGravity and (Gravity.START or Gravity.END)) == Gravity.END ->
-                    screenWidth - bars.right - cardWidth
-                else -> bars.left
-            }
-            val clearV = cardHeight != null &&
-                cardTopV >= top && cardTopV + cardHeight <= screenHeight - bars.bottom &&
-                chrome.verticalOffsetPx(screenHeight) == null
-            val clearH = cardWidth != null &&
-                cardLeftH >= bars.left && cardLeftH + cardWidth <= screenWidth - bars.right &&
-                chrome.horizontalOffsetPx(screenWidth) == null
-            val padTop = if (clearV) 0 else top
-            val padBottom = if (clearV) 0 else bars.bottom
-            val padLeft = if (clearH) 0 else bars.left
-            val padRight = if (clearH) 0 else bars.right
-            scrollView.setPadding(padLeft, padTop, padRight, padBottom)
-            // The window-level bound for the close control stays the real inset either way: it is
-            // positioned in display coordinates, not inside the card's padding.
-            closeSafeTop = top
+            closeSafeTop = maxOf(bars.top, statusBarHeight)
             closeSafeRight = bars.right
-            // A sized card anchored to an edge is placed inside the bars, not under them.
-            applyAnchorInsets(
-                popupContainer, bars,
-                sizedVertically = cardHeight != null, sizedHorizontally = cardWidth != null,
-                verticalGravity = verticalGravity, horizontalGravity = horizontalGravity
-            )
             positionCloseButton()
             windowInsets
         }
 
+        // WRAP_CONTENT on both axes: PopupCardLayout decides its own size against the box it is
+        // handed, which is what lets the cap be measured. The gravity places it in that box.
         val popupParams = FrameLayout.LayoutParams(
-            cardWidth ?: WindowManager.LayoutParams.MATCH_PARENT,
-            cardHeight ?: WindowManager.LayoutParams.MATCH_PARENT,
-            // Inert while the card fills the window, which is what makes it safe at the default:
-            // a card can only move once the author has given it a size.
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
             verticalGravity or horizontalGravity
         )
-        // No overlay — full-screen popup replaces the screen
-        val rootLayout = FrameLayout(ctx)
         rootLayout.addView(popupContainer, popupParams)
         // Displaces the card from wherever the gravity above put it. The close button is not a
         // child of the card, so this alone does not move it — the OnLayoutChangeListener above
@@ -638,7 +607,7 @@ class BannerDisplayManager(
         activeDialogs.add(dialog)
         dialog.show()
 
-        // Make dialog full-screen
+        // The dialog's window fills the screen; the backdrop above is what dims it.
         dialog.window?.apply {
             setLayout(
                 WindowManager.LayoutParams.MATCH_PARENT,
@@ -1208,7 +1177,8 @@ class BannerDisplayManager(
      * stays wherever that predicate says the card has not actually left the bar's edge.
      *
      * sdk-react-native reaches the same place by a different route — its overlay IS the safe
-     * area, so every card it places is inside one already.
+     * area, so every card it places is inside one already. Since the content-sized card, the
+     * popup does too (its backdrop is padded to the bars), and this is the flyout's alone.
      */
     private fun applyAnchorInsets(
         view: View,

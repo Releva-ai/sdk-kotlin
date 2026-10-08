@@ -7,9 +7,31 @@ API. Verified with `BannerCloseButtonStyleTest.kt`, `DesignRendererColorTest.kt`
 group in `BannerChromeTest.kt`, and on a physical device against the qa-shared rows
 `QA-CLS-01`…`QA-CLS-10` on a revision predating the `CloseGlyphDrawable` glyph and this round's
 glyph-box size change; those two are covered by unit assertions on `drawable.bounds` and the glyph
-colour only, not by a fresh photograph.
+colour only, not by a fresh photograph. The content-sized popup card below also changes how every
+popup is laid out, again with no API change; it is verified by the popup group in
+`BannerChromeTest.kt` only, NOT yet on a device.
 
 ### Changed
+
+- **A popup is now a content-sized card over a dimmed backdrop, not a full-screen takeover** —
+  the card sdk-swift draws (PR #23) and sdk-react-native adopted on 2026-10-05, by product
+  decision (2026-10-08). **This changes every unsized popup in production.** The card is the
+  design's `popupWidth` wide (600 when unset) and as tall as its content, capped 16dp short of the
+  box it is placed in on each side (never under 120dp) with the content scrolling inside past
+  that; rounded at the design's `borderRadius` (10 when unset); lifted by a 12dp elevation; and
+  centred unless `cardPositionVertical`/`Horizontal` say otherwise. The authored `cardWidth`,
+  `cardHeight`, `cardBorderRadius` and `cardBackgroundColor` still win, an authored size is capped
+  the same way, and the design's `popupBackgroundColor` is read again as the fallback below
+  `cardBackgroundColor` (sdk-swift's order). The box is the window less the system bars and
+  cutout the window reports — the backdrop pads itself to them and the cap is measured from it —
+  so the card's content no longer carries a status-bar inset of its own; its only padding is a
+  band at the top (the close control's margin, side and margin again: 48dp by default) so the
+  first line of a design does not run under the ✕, as on sdk-react-native (48) and sdk-swift (56).
+  Behind the card is a dimmed backdrop — the design's `popupOverlay_backgroundColor`, else
+  `cssStyles.overlayColor`, else black at 50%, as the flyout's scrim — and **a tap on it closes the
+  popup** (tracked as a close), as on sdk-swift and sdk-react-native; until now the popup had no
+  backdrop and the ✕ was the only way out. The close control keeps its place on the card's
+  top-right corner, clamped into the safe area. Flyouts and bars are unchanged.
 
 - **Honoured the five `cssStyles` close-button keys the API already serves** —
   `closeButtonColor`, `closeButtonBackgroundColor`, `closeButtonBorder`, `closeFontSize` and

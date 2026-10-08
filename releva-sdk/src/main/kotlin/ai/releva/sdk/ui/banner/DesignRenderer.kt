@@ -875,7 +875,7 @@ object DesignRenderer {
         return null
     }
 
-    private fun parseDimensionRaw(value: Any?): Float? {
+    internal fun parseDimensionRaw(value: Any?): Float? {
         if (value == null) return null
         val str = value.toString().replace(Regex("[a-zA-Z%]"), "").trim()
         return str.toFloatOrNull()
