@@ -118,8 +118,8 @@ class PushRequest {
             val context = buildMap<String, Any> {
                 mergeContext["rid"]?.takeIf { it.isNotBlank() }?.let { put("rid", it) }
                 mergeContext["rpid"]?.takeIf { it.isNotBlank() }?.let { put("rpid", it) }
-                mergeContext["rpos"]?.toIntOrNull()?.takeIf { it >= 1 }?.let { put("rpos", it) }
-                mergeContext["pfid"]?.toLongOrNull()?.let { put("pfid", it) }
+                mergeContext["rpos"]?.toDoubleOrNull()?.toInt()?.takeIf { it >= 1 }?.let { put("rpos", it) }
+                mergeContext["pfid"]?.toDoubleOrNull()?.toLong()?.let { put("pfid", it) }
             }
             // Without the block token there is nothing to credit.
             return context.takeIf { it.containsKey("rid") }
