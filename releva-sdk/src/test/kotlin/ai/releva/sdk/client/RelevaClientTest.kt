@@ -779,6 +779,53 @@ class RelevaClientTest {
         // Both clients share the same StorageService singleton
     }
 
+    // Recommender click attribution
+
+    private val mergeContext = mapOf(
+        "rid" to "0233781a-f836-40a9-a67a-2220814b5db4",
+        "rpid" to "sku-1",
+        "rpos" to "3",
+        "pfid" to "30202",
+    )
+
+    private suspend fun pushedContext(block: suspend (RelevaClient) -> Unit): JSONObject {
+        storageService.setDeviceId("device-1")
+        val server = startPushServer()
+        val client = createTestClient()
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        block(client)
+        return JSONObject(server.takeRequest().body.readUtf8()).getJSONObject("context")
+    }
+
+    @Test
+    fun `a product opened from a block sends the click context the API credits`() = runTest {
+        val context = pushedContext { it.trackProductView(productId = "sku-1", recommenderClick = mergeContext) }
+        assertEquals("0233781a-f836-40a9-a67a-2220814b5db4", context.getString("rid"))
+        assertEquals("sku-1", context.getString("rpid"))
+        // The API validates rpos and pfid as numbers, not strings.
+        assertEquals(3, context.get("rpos"))
+        assertEquals(30202L, (context.get("pfid") as Number).toLong())
+        assertEquals("sku-1", context.getJSONObject("product").getString("id"))
+    }
+
+    @Test
+    fun `a plain product view carries no click context`() = runTest {
+        val context = pushedContext { it.trackProductView(productId = "sku-1") }
+        assertFalse(context.has("rid"))
+        assertFalse(context.has("rpos"))
+    }
+
+    @Test
+    fun `malformed click values are left out rather than failing the push`() {
+        val ctx = PushRequest.recommenderClickContext(mergeContext + mapOf("rpos" to "0", "pfid" to "x"))!!
+        assertEquals(setOf("rid", "rpid"), ctx.keys)
+    }
+
+    @Test
+    fun `no block token means no click to credit`() {
+        assertNull(PushRequest.recommenderClickContext(mapOf("rpid" to "sku-1", "rpos" to "1")))
+    }
+
     // Helper Methods
 
     private fun createTestClient(
