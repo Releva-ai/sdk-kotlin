@@ -21,6 +21,7 @@ class PushRequest {
     internal var pageLocale: String? = null
     internal var pageCurrency: String? = null
     internal var cart: Cart? = null
+    internal var recommenderClick: Map<String, Any>? = null
 
     fun getScreenToken(): String? = pageToken
 
@@ -89,5 +90,42 @@ class PushRequest {
     fun productView(product: ViewedProduct): PushRequest {
         viewedProduct = product
         return this
+    }
+
+    /**
+     * Mark this request as the shopper opening a product from a Releva product block, so the
+     * click is credited to that block (and, when the feed bandit is on, rewards the feed that
+     * filled it). Pass the product's
+     * [ai.releva.sdk.types.response.ProductRecommendation.mergeContext] exactly as Releva
+     * returned it; it carries the block token (`rid`), product id (`rpid`), position (`rpos`)
+     * and feed id (`pfid`).
+     *
+     * The web SDK reads the same values from the `rlv_*` URL parameters of the landing page;
+     * an app has no landing URL, so it sends them with the product view instead.
+     */
+    fun recommenderClick(mergeContext: Map<String, String>?): PushRequest {
+        recommenderClick = mergeContext?.let { recommenderClickContext(it) }
+        return this
+    }
+
+    internal companion object {
+        private val UUID_PATTERN =
+            Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+        /**
+         * The push context fields for a recommender click. The API validates `rid` as a uuid
+         * and `rpos` as a number of at least 1, and drops the whole request on a mismatch, so
+         * malformed values are left out rather than sent.
+         */
+        fun recommenderClickContext(mergeContext: Map<String, String>): Map<String, Any>? {
+            val context = buildMap<String, Any> {
+                mergeContext["rid"]?.takeIf { UUID_PATTERN.matches(it) }?.let { put("rid", it) }
+                mergeContext["rpid"]?.takeIf { it.isNotBlank() }?.let { put("rpid", it) }
+                mergeContext["rpos"]?.toIntOrNull()?.takeIf { it >= 1 }?.let { put("rpos", it) }
+                mergeContext["pfid"]?.toLongOrNull()?.let { put("pfid", it) }
+            }
+            // Without the block token there is nothing to credit.
+            return context.takeIf { it.containsKey("rid") }
+        }
     }
 }

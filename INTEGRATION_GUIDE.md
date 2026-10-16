@@ -329,6 +329,32 @@ class ProductViewModel : ViewModel() {
 }
 ```
 
+### Crediting Clicks on Recommended Products
+
+When the shopper opens a product from a Releva product block, pass that product's
+`mergeContext` with the product view. Releva then credits the click (and any later purchase)
+to the block, and, when the feed bandit is on, to the feed that filled it. On the web the same
+values ride on the landing page's `rlv_*` URL parameters; an app has no landing URL, so the
+product view carries them.
+
+```kotlin
+// `product` is a ProductRecommendation from response.recommenders[…].response
+relevaClient.trackProductView(
+    pageUrl = "myapp://product/details",
+    productId = product.id,
+    recommenderClick = product.mergeContext,
+)
+
+// or with the builder
+PushRequest()
+    .url("myapp://product/details")
+    .productView(ViewedProduct(productId = product.id, custom = CustomFields.empty()))
+    .recommenderClick(product.mergeContext)
+```
+
+Send it only for a view that came from a tap on that product's card; a later visit to the same
+product is a plain product view.
+
 ## Step 4: Track Cart and Wishlist
 
 `setCart()` and `setWishlist()` are stateful: the SDK stores the values locally and automatically syncs changes to the backend. Checkout success is a tracking event and goes through the builder.

@@ -88,8 +88,10 @@ data class ProductRecommendation(
                 imageUrl = map["imageUrl"] as? String,
                 listPrice = (map["listPrice"] as? Number)?.toDouble(),
                 locale = map["locale"] as? String,
+                // The API sends rpos and pfid as numbers; keep them as their text rather than
+                // blanking them, or click attribution loses the position and the feed.
                 mergeContext = (map["mergeContext"] as? Map<*, *>)
-                    ?.mapNotNull { (k, v) -> (k as? String)?.let { it to (v as? String ?: "") } }
+                    ?.mapNotNull { (k, v) -> (k as? String)?.let { it to mergeContextValue(v) } }
                     ?.toMap(),
                 name = map["name"] as? String ?: "",
                 price = (map["price"] as? Number)?.toDouble() ?: 0.0,
@@ -97,6 +99,14 @@ data class ProductRecommendation(
                 updatedAt = (map["updatedAt"] as? String)?.let { parseDate(it) },
                 url = map["url"] as? String
             )
+        }
+
+        internal fun mergeContextValue(value: Any?): String = when (value) {
+            null -> ""
+            is String -> value
+            // 30202 parsed as a Double would print "30202.0"; ids and positions are whole.
+            is Number -> if (value.toDouble() % 1.0 == 0.0) value.toLong().toString() else value.toString()
+            else -> value.toString()
         }
 
         private fun parseDate(dateString: String): Date? {

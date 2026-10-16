@@ -81,7 +81,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "1.6.0-kotlin"
+        private const val VERSION = "1.7.0-kotlin"
 
         // The Swift SDK's waits, kept identical so an outage costs both SDKs the same time:
         // a server that answered at all gets longer to recover than a network that did not.
@@ -407,6 +407,7 @@ class RelevaClient(
             })
 
             request.viewedProduct?.let { put("product", JSONObject(it.toMap())) }
+            request.recommenderClick?.forEach { (key, value) -> put(key, value) }
 
             // Carrying merge ids implies the profile changed, so keep the two in step even when
             // the change happened in an earlier process. Before the queue was durable an id
@@ -766,7 +767,11 @@ class RelevaClient(
     }
 
     /**
-     * Track product view
+     * Track product view.
+     *
+     * @param recommenderClick when the shopper opened this product from a Releva product block,
+     *   that product's [ai.releva.sdk.types.response.ProductRecommendation.mergeContext], so the
+     *   click is credited to the block. See [PushRequest.recommenderClick].
      */
     suspend fun trackProductView(
         pageUrl: String? = null,
@@ -775,7 +780,8 @@ class RelevaClient(
         customFields: Map<String, Any?>? = null,
         categories: List<String>? = null,
         locale: String? = null,
-        currency: String? = null
+        currency: String? = null,
+        recommenderClick: Map<String, String>? = null
     ): RelevaResponse {
         if (!config.enableTracking) {
             return RelevaResponse(emptyList(), emptyList())
@@ -793,6 +799,7 @@ class RelevaClient(
             productId = productId,
             custom = customFields?.let { CustomFields.fromMap(it) } ?: CustomFields.empty()
         ))
+        recommenderClick?.let { request.recommenderClick(it) }
 
         return push(request)
     }

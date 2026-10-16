@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.7.0
+
+MINOR: adds public API; nothing is removed or changes behaviour for existing calls.
+
+### Fixed
+
+- **Clicks on Releva product blocks are now credited from the app.** A product opened from a
+  product block was tracked as a plain product view: the SDK never sent the click context
+  (`rid`, `rpid`, `rpos`, `pfid`) that the web SDK reads from the landing page's `rlv_*` URL
+  parameters, so app clicks were not credited to the block, purchases after them were not
+  attributed, and the feed bandit got no click reward. New:
+  `PushRequest.recommenderClick(mergeContext)` and a `recommenderClick` parameter on
+  `trackProductView`, taken from the product's `mergeContext` as Releva returned it. `rpos` and
+  `pfid` are sent as numbers, which is what the API validates; malformed values are left out
+  rather than failing the push. See "Crediting Clicks on Recommended Products" in
+  `INTEGRATION_GUIDE.md`.
+- **Numeric `mergeContext` values are no longer blanked when parsing recommendations.** The API
+  sends `rpos` and `pfid` as JSON numbers, and `ProductRecommendation` parsed every non-string
+  value as `""`. They are now kept as their text (a whole number without a fraction).
+
 ## 1.6.0
 
 MINOR: no public API is added or removed, but **every unsized popup in production now looks
