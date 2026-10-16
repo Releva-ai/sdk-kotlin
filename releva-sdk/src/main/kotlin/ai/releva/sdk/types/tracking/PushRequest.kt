@@ -103,12 +103,15 @@ class PushRequest {
      * The web SDK reads the same values from the `rlv_*` URL parameters of the landing page;
      * an app has no landing URL, so it sends them with the product view instead.
      */
-    fun recommenderClick(mergeContext: Map<String, String>): PushRequest {
-        recommenderClick = recommenderClickContext(mergeContext)
+    fun recommenderClick(mergeContext: Map<String, String>?): PushRequest {
+        recommenderClick = mergeContext?.let { recommenderClickContext(it) }
         return this
     }
 
     internal companion object {
+        private val UUID_PATTERN =
+            Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
         /**
          * The push context fields for a recommender click. The API validates `rid` as a uuid
          * and `rpos` as a number of at least 1, and drops the whole request on a mismatch, so
@@ -116,10 +119,10 @@ class PushRequest {
          */
         fun recommenderClickContext(mergeContext: Map<String, String>): Map<String, Any>? {
             val context = buildMap<String, Any> {
-                mergeContext["rid"]?.takeIf { it.isNotBlank() }?.let { put("rid", it) }
+                mergeContext["rid"]?.takeIf { UUID_PATTERN.matches(it) }?.let { put("rid", it) }
                 mergeContext["rpid"]?.takeIf { it.isNotBlank() }?.let { put("rpid", it) }
-                mergeContext["rpos"]?.toDoubleOrNull()?.toInt()?.takeIf { it >= 1 }?.let { put("rpos", it) }
-                mergeContext["pfid"]?.toDoubleOrNull()?.toLong()?.let { put("pfid", it) }
+                mergeContext["rpos"]?.toIntOrNull()?.takeIf { it >= 1 }?.let { put("rpos", it) }
+                mergeContext["pfid"]?.toLongOrNull()?.let { put("pfid", it) }
             }
             // Without the block token there is nothing to credit.
             return context.takeIf { it.containsKey("rid") }

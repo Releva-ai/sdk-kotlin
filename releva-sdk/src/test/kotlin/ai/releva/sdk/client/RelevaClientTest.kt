@@ -826,6 +826,11 @@ class RelevaClientTest {
         assertNull(PushRequest.recommenderClickContext(mapOf("rpid" to "sku-1", "rpos" to "1")))
     }
 
+    @Test
+    fun `a malformed rid is dropped rather than sent as a non-uuid`() {
+        assertNull(PushRequest.recommenderClickContext(mergeContext + mapOf("rid" to "block-1")))
+    }
+
     // Helper Methods
 
     private fun createTestClient(

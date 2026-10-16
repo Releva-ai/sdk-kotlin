@@ -349,7 +349,7 @@ relevaClient.trackProductView(
 PushRequest()
     .url("myapp://product/details")
     .productView(ViewedProduct(productId = product.id, custom = CustomFields.empty()))
-    .recommenderClick(product.mergeContext ?: emptyMap())
+    .recommenderClick(product.mergeContext)
 ```
 
 Send it only for a view that came from a tap on that product's card; a later visit to the same
