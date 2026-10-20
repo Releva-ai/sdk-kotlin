@@ -4,7 +4,10 @@
 
 PATCH: three push-token fixes; no public API is added, removed or deprecated.
 
-**Upgrading:** installs whose token was registered by 1.7.0 or earlier have no recorded registration, so `setProfileId` has nothing to re-register until `registerPushToken` is called once on 1.7.1. Call it at launch with the current FCM token rather than relying on `onNewToken`, which does not fire on an app update.
+**Upgrading:** installs whose token was registered by 1.7.0 or earlier have no recorded
+registration, so `setProfileId` has nothing to re-register until `registerPushToken` is called
+once on 1.7.1. Call it at launch with the current FCM token rather than relying on
+`onNewToken`, which does not fire on an app update.
 
 ### Fixed
 
@@ -29,8 +32,8 @@ PATCH: three push-token fixes; no public API is added, removed or deprecated.
   that registered while anonymous, or under the previously signed-in user, kept receiving that
   profile's push and none of the new one's until the host happened to call `registerPushToken`
   again. The client now records each accepted registration and re-sends it whenever `setProfileId`
-  finds the recorded id differs from the one set (including on logout, with `skipMergeWithPreviousProfileId`). It runs in the
-  background: `setProfileId` neither waits for it nor fails with it, and it touches neither the
+  finds the recorded id differs from the one set (including on logout, with
+  `skipMergeWithPreviousProfileId`). It runs in the background: `setProfileId` neither waits for it nor fails with it, and it touches neither the
   change flags nor the merge queue.
 
 ## 1.7.0

@@ -326,13 +326,14 @@ class RelevaClient(
      * profile it was registered under last. A device that registered while anonymous, or under
      * the profile of whoever was signed in before, keeps that profile's push — and receives
      * none of the one now signed in — until something re-registers it. Nothing merges it over:
-     * the merge queue moves profile data, not the token row. Mirrors the Swift SDK's
-     * `refreshPushToken`.
+     * the merge queue moves profile data, not the token row. Modelled on the Swift SDK's
+     * `refreshPushToken`, though that is not checked here for when Swift calls it.
      *
      * Detached and silent on failure, like Swift: callers set a profile id on paths that cannot
      * wait for a network round trip and must not fail because of one.
      */
     private fun refreshPushToken(profileId: String) {
+        if (!config.enablePushNotifications) return
         val registration = storage.getPushTokenRegistration() ?: return
         if (registration.profileId == profileId) return
 
