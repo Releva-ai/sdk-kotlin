@@ -772,7 +772,7 @@ On **logout** you want the opposite: start a fresh anonymous profile *without* m
 
 Either way, you do not have to re-register the push token yourself: a token belongs to whichever profile it was registered under last, so `setProfileId` re-registers the stored one under the new id in the background (a merge would not move it — it moves profile data, not the token).
 
-Installs whose token was registered by 1.7.0 or earlier have no registration recorded, and `onNewToken` does not fire on an app update. Call `registerPushToken` with the current FCM token at every launch (after `setDeviceId`/`setProfileId`) so those installs get one. Also call `setProfileId` with the current id at every launch: a re-registration that failed (for example, signing in while offline) is retried only then, or when the token next changes.
+Installs whose token was registered by 1.7.0 or earlier have no registration recorded, and `onNewToken` does not fire on an app update. Call `registerPushToken` with the current FCM token at every launch (after `setDeviceId`/`setProfileId`) so those installs get one. Also call `setProfileId` with the current id at every launch: a re-registration that failed (for example, signing in while offline) is retried by the next `setProfileId` or `registerPushToken` call.
 
 ```kotlin
 import java.util.UUID

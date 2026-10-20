@@ -114,7 +114,7 @@ class RelevaClient(
      * one in the background, so the device receives this profile's push; the call neither waits
      * for that nor fails with it.
      */
-    suspend fun setProfileId(profileId: String, skipMergeWithPreviousProfileId: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun setProfileId(profileId: String, skipMergeWithPreviousProfileId: Boolean = false): Unit = withContext(Dispatchers.IO) {
         val previousProfileId = storage.getProfileId()
 
         if (previousProfileId == null || previousProfileId != profileId) {
@@ -280,7 +280,7 @@ class RelevaClient(
      * written to profile storage, so a later [setProfileId] is still a first-time set — and it
      * re-registers the token under the id it sets.
      */
-    suspend fun registerPushToken(type: DeviceType, token: String) = withContext(Dispatchers.IO) {
+    suspend fun registerPushToken(type: DeviceType, token: String): Unit = withContext(Dispatchers.IO) {
         if (!config.enablePushNotifications) {
             // Silent and ahead of the deviceId check, like the enableTracking guards: a
             // disabled feature is not a misconfigured caller, so it must not throw.

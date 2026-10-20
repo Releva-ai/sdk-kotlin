@@ -648,6 +648,7 @@ class RelevaClientTest {
         assertEquals("profile-1", body.getString("profileId"))
         assertEquals("token-xyz", body.getString("pushToken"))
         assertEquals("android", body.getString("deviceType"))
+        awaitRecordedProfileId("profile-1")
     }
 
     @Test
@@ -732,6 +733,7 @@ class RelevaClientTest {
         val reregistration = server.takeRequest(5, TimeUnit.SECONDS)
         assertNotNull("expected the token to be re-registered after sign-out", reregistration)
         assertEquals("anon-1", JSONObject(reregistration!!.body.readUtf8()).getString("profileId"))
+        awaitRecordedProfileId("anon-1")
     }
 
     @Test
@@ -762,6 +764,7 @@ class RelevaClientTest {
         val retry = server.takeRequest(5, TimeUnit.SECONDS)
         assertNotNull("expected the failed re-registration to be retried", retry)
         assertEquals("profile-2", JSONObject(retry!!.body.readUtf8()).getString("profileId"))
+        awaitRecordedProfileId("profile-2")
     }
 
     @Test
@@ -793,6 +796,7 @@ class RelevaClientTest {
         val second = server.takeRequest(5, TimeUnit.SECONDS)
         assertNotNull("expected the token to follow the id set during the first registration", second)
         assertEquals("profile-1", JSONObject(second!!.body.readUtf8()).getString("profileId"))
+        awaitRecordedProfileId("profile-1")
     }
 
     // Session Management Tests
@@ -1064,6 +1068,20 @@ class RelevaClientTest {
         config: RelevaConfig = RelevaConfig.full()
     ): RelevaClient {
         return RelevaClient(context, realm, accessToken, config)
+    }
+
+    /**
+     * Waits for a detached re-registration to record [profileId]. Returning before that write
+     * would let it land after the next test's `setUp` cleared storage.
+     */
+    private fun awaitRecordedProfileId(profileId: String) {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (storageService.getPushTokenRegistration()?.profileId != profileId) {
+            if (System.currentTimeMillis() > deadline) {
+                fail("expected the re-registration to record $profileId")
+            }
+            Thread.sleep(10)
+        }
     }
 
     /**
