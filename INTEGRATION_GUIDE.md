@@ -766,13 +766,13 @@ suspend fun setProfileId(
 )
 ```
 
-By default (`skipMergeWithPreviousProfileId = false`), changing the profile ID merges the previous profile into the new one — this is what you want on **login**, so the user's anonymous behavior carries over to their account.
+By default (`skipMergeWithPreviousProfileId = false`), changing the profile ID merges the previous profile into the new one — this is what you want on **login**, so the user's earlier behavior carries over to their account (a device that never had a profile id set has no previous profile to merge).
 
 On **logout** you want the opposite: start a fresh anonymous profile *without* merging the logged-in user's data into it. Pass `skipMergeWithPreviousProfileId = true`.
 
 Either way, you do not have to re-register the push token yourself: a token belongs to whichever profile it was registered under last, so `setProfileId` re-registers the stored one under the new id in the background (a merge would not move it — it moves profile data, not the token).
 
-Installs whose token was registered by 1.7.0 or earlier have no registration recorded, and `onNewToken` does not fire on an app update. Call `registerPushToken` once with the current FCM token at launch (after `setDeviceId`/`setProfileId`) so those installs get one; from then on `setProfileId` keeps it current.
+Installs whose token was registered by 1.7.0 or earlier have no registration recorded, and `onNewToken` does not fire on an app update. Call `registerPushToken` with the current FCM token at every launch (after `setDeviceId`/`setProfileId`) so those installs get one. Also call `setProfileId` with the current id at every launch: a re-registration that failed (for example, signing in while offline) is retried only then, or when the token next changes.
 
 ```kotlin
 import java.util.UUID

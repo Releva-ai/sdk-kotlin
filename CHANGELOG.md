@@ -33,8 +33,11 @@ once on 1.7.1. Call it at launch with the current FCM token rather than relying 
   profile's push and none of the new one's until the host happened to call `registerPushToken`
   again. The client now records each accepted registration and re-sends it whenever `setProfileId`
   finds the recorded id differs from the one set (including on logout, with
-  `skipMergeWithPreviousProfileId`). It runs in the background: `setProfileId` neither waits for it nor fails with it, and it touches neither the
-  change flags nor the merge queue.
+  `skipMergeWithPreviousProfileId`), and when a registration completes after the host's id has
+  moved on. It runs in the background: `setProfileId` neither waits for it nor fails with it, and
+  it touches neither the change flags nor the merge queue. A failed re-registration is retried
+  the next time the host calls `setProfileId` or `registerPushToken`, so call them at every
+  launch.
 
 ## 1.7.0
 

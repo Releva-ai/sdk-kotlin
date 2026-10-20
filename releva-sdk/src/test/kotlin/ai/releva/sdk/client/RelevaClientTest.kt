@@ -764,6 +764,37 @@ class RelevaClientTest {
         assertEquals("profile-2", JSONObject(retry!!.body.readUtf8()).getString("profileId"))
     }
 
+    @Test
+    fun `signing in while the first registration is in flight moves the token to the new profile`() = runTest {
+        storageService.setDeviceId("device-1")
+        val release = java.util.concurrent.CountDownLatch(1)
+        val server = MockWebServer()
+        server.start()
+        var requests = 0
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (synchronized(this) { ++requests } == 1) release.await(10, TimeUnit.SECONDS)
+                return MockResponse().setResponseCode(202).setBody("{}")
+            }
+        }
+        mockWebServer = server
+        val client = createTestClient(config = RelevaConfig.pushOnly())
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+
+        val registration = Thread { runBlocking { client.registerPushToken(DeviceType.ANDROID, "token-xyz") } }
+        registration.start()
+        val first = server.takeRequest(5, TimeUnit.SECONDS)
+        assertEquals("device-1", JSONObject(first!!.body.readUtf8()).getString("profileId"))
+
+        client.setProfileId("profile-1")
+        release.countDown()
+        registration.join(10_000)
+
+        val second = server.takeRequest(5, TimeUnit.SECONDS)
+        assertNotNull("expected the token to follow the id set during the first registration", second)
+        assertEquals("profile-1", JSONObject(second!!.body.readUtf8()).getString("profileId"))
+    }
+
     // Session Management Tests
 
     @Test

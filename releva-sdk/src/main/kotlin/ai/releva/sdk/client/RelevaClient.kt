@@ -155,9 +155,10 @@ class RelevaClient(
             storage.setProfileId(profileId)
         }
 
-        // Outside the change guard: hosts re-assert their stored id on every initialisation, so
-        // a re-registration that failed, was raced, or never ran (a token registered before the
-        // registration was recorded) is retried there. In sync, this is one prefs read.
+        // Outside the change guard so that a host re-asserting its stored id retries a
+        // re-registration that failed or never ran (a token registered before registrations
+        // were recorded). That only helps hosts that re-assert on every launch; the integration
+        // guide asks them to. In sync, this is one prefs read.
         refreshPushToken(profileId)
     }
 
@@ -312,6 +313,11 @@ class RelevaClient(
         // recorded here would answer that question with an id the host never set.
         storage.setPushTokenRegistration(token, type.name, hostProfileId)
 
+        // A setProfileId that ran while this request was in flight found no record, or the
+        // previous one, and had nothing to re-register; check once more against the id that is
+        // current now.
+        storage.getProfileId()?.let { if (it != hostProfileId) refreshPushToken(it) }
+
         // Deliberately clears nothing else: the request body built above carries neither
         // mergeProfileIds nor the four change flags, so clearing either here would discard
         // state that no request has delivered yet. Only `push` sends them, so only `push`
@@ -327,7 +333,7 @@ class RelevaClient(
      * the profile of whoever was signed in before, keeps that profile's push — and receives
      * none of the one now signed in — until something re-registers it. Nothing merges it over:
      * the merge queue moves profile data, not the token row. Modelled on the Swift SDK's
-     * `refreshPushToken`, though that is not checked here for when Swift calls it.
+     * `refreshPushToken`.
      *
      * Detached and silent on failure, like Swift: callers set a profile id on paths that cannot
      * wait for a network round trip and must not fail because of one.
