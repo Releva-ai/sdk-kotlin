@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.7.1
+
+PATCH: three push-token fixes; no public API is added, removed or deprecated.
+
+### Fixed
+
+- **Registering a push token no longer discards the pending `/push` change flags.** After a
+  successful registration the client reset `cartChanged`, `wishlistChanged`, `profileChanged`
+  and `deviceIdChanged`, none of which `/api/v0/appPush/tokens` sends — they are inputs to the
+  next `/api/v0/push`. An app that set its device and profile ids, or changed the cart, and
+  then registered a token (the usual launch sequence, from the FCM token callback) sent its
+  next push with all four false: the server takes `skipUpdate` from `!deviceIdChanged &&
+  !profileChanged`, so an identified profile's device link and profile update were skipped, and
+  the cart/wishlist change was not applied. Only `push` clears the flags now, after the request
+  that carried them succeeded.
+- **A device with no profile id can now register a push token.** Registration threw
+  "Please provide profileId using client.setProfileId() before registering push token!", so an
+  app whose user never signs in never registered a token and could never be reached by push.
+  The token is now registered under the device id, which is the id `/api/v0/push` files an
+  anonymous device's profile under, so it lands on the same profile. Nothing is written to
+  profile storage, so a later `setProfileId` is still a first-time set and queues no merge.
+  A missing device id still throws.
+- **`setProfileId` re-registers the push token under the new profile.** A token belongs to
+  whichever profile it was registered under last, and nothing moved it on sign-in: a device
+  that registered while anonymous, or under the previously signed-in user, kept receiving that
+  profile's push and none of the new one's until the host happened to call `registerPushToken`
+  again. The client now records each accepted registration and re-sends it when the profile id
+  changes (including on logout, with `skipMergeWithPreviousProfileId`). It runs in the
+  background: `setProfileId` neither waits for it nor fails with it, and it touches neither the
+  change flags nor the merge queue.
+
 ## 1.7.0
 
 MINOR: adds public API; nothing is removed or changes behaviour for existing calls.

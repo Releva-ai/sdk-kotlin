@@ -547,7 +547,7 @@ class RelevaClientTest {
     }
 
     @Test
-    fun `registerPushToken still throws on a missing deviceId or profileId`() = runTest {
+    fun `registerPushToken still throws on a missing deviceId`() = runTest {
         val server = startTokenServer()
         val client = createTestClient(config = RelevaConfig.pushOnly())
         client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
@@ -559,15 +559,162 @@ class RelevaClientTest {
             // expected
         }
 
-        storageService.setDeviceId("device-1")
-        try {
-            client.registerPushToken(DeviceType.ANDROID, "token-xyz")
-            fail("Expected registerPushToken() to throw without a profileId")
-        } catch (e: Exception) {
-            // expected
-        }
-
         assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `a device with no profile id registers its token under the device id`() = runTest {
+        // An app whose user has never signed in never calls setProfileId, and /push files
+        // that device's profile under its deviceId — so that is the profile the token has to
+        // be registered against, rather than the registration failing and the device never
+        // becoming reachable by push at all.
+        storageService.setDeviceId("device-1")
+        val server = startTokenServer()
+        val client = createTestClient(config = RelevaConfig.pushOnly())
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+
+        client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+
+        assertEquals("device-1", JSONObject(server.takeRequest().body.readUtf8()).getString("profileId"))
+        assertNull(
+            "the fallback is for the request body only; storing it would make the next" +
+                " setProfileId queue a merge for an id the host never set",
+            storageService.getProfileId()
+        )
+    }
+
+    @Test
+    fun `a device with a profile id registers its token under that profile`() = runTest {
+        storageService.setDeviceId("device-1")
+        storageService.setProfileId("profile-1")
+        val server = startTokenServer()
+        val client = createTestClient(config = RelevaConfig.pushOnly())
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+
+        client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+
+        assertEquals("profile-1", JSONObject(server.takeRequest().body.readUtf8()).getString("profileId"))
+    }
+
+    @Test
+    fun `registering a token leaves the change flags for the next push to send`() = runTest {
+        // The flags are inputs to the NEXT /push and are on no token registration's wire, so
+        // clearing them here lost them: the server reads skipUpdate from deviceIdChanged and
+        // profileChanged, so the first push after a launch-time registration stopped linking
+        // the device to its profile and stopped applying the cart change.
+        val server = MockWebServer()
+        server.start()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = when (request.path) {
+                "/api/v0/appPush/tokens" -> MockResponse().setResponseCode(202).setBody("{}")
+                else -> MockResponse().setResponseCode(200).setBody("{}")
+            }
+        }
+        mockWebServer = server
+
+        val client = createTestClient()
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        client.setDeviceId("device-1")
+        client.setProfileId("profile-1")
+        client.setCart(Cart.active(listOf(CartProduct(id = "p1", price = 10.0, quantity = 1.0))))
+
+        client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+        client.push(PushRequest())
+
+        assertEquals("/api/v0/appPush/tokens", server.takeRequest().path)
+        val context = JSONObject(server.takeRequest().body.readUtf8()).getJSONObject("context")
+        assertTrue(context.getBoolean("deviceIdChanged"))
+        assertTrue(context.getBoolean("profileChanged"))
+        assertTrue(context.getBoolean("cartChanged"))
+    }
+
+    @Test
+    fun `signing in re-registers the token the device registered while anonymous`() = runTest {
+        storageService.setDeviceId("device-1")
+        val server = startTokenServer()
+        val client = createTestClient(config = RelevaConfig.pushOnly())
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+
+        client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+        assertEquals("device-1", JSONObject(server.takeRequest().body.readUtf8()).getString("profileId"))
+
+        client.setProfileId("profile-1")
+
+        // The re-registration is detached from setProfileId, so wait for the request rather
+        // than for the call that started it.
+        val reregistration = server.takeRequest(5, TimeUnit.SECONDS)
+        assertNotNull("expected the token to be re-registered after sign-in", reregistration)
+        val body = JSONObject(reregistration!!.body.readUtf8())
+        assertEquals("profile-1", body.getString("profileId"))
+        assertEquals("token-xyz", body.getString("pushToken"))
+        assertEquals("android", body.getString("deviceType"))
+    }
+
+    @Test
+    fun `re-asserting the stored profile id does not re-register the token`() = runTest {
+        // Hosts re-assert their stored profile id on every SDK initialisation, and the token
+        // is already on that profile, so that must not cost a request.
+        storageService.setDeviceId("device-1")
+        storageService.setProfileId("profile-1")
+        val server = startTokenServer()
+        val client = createTestClient(config = RelevaConfig.pushOnly())
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+
+        client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+        assertEquals("/api/v0/appPush/tokens", server.takeRequest().path)
+
+        client.setProfileId("profile-1")
+
+        assertNull(server.takeRequest(500, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun `a device with no registered token sends nothing when its profile id is set`() = runTest {
+        storageService.setDeviceId("device-1")
+        val server = startTokenServer()
+        val client = createTestClient(config = RelevaConfig.pushOnly())
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+
+        client.setProfileId("profile-1")
+
+        assertNull(server.takeRequest(500, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun `a re-registration the backend rejects does not fail setProfileId`() = runTest {
+        storageService.setDeviceId("device-1")
+        storageService.setProfileId("profile-1")
+        var requests = 0
+        val server = MockWebServer()
+        server.start()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                requests++
+                // 400 rather than 500: a 4xx is not retried, so the re-registration below is
+                // exactly one request and fails once.
+                return MockResponse().setResponseCode(if (requests == 1) 202 else 400).setBody("{}")
+            }
+        }
+        mockWebServer = server
+
+        val client = createTestClient(config = RelevaConfig.pushOnly())
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+        assertEquals("/api/v0/appPush/tokens", server.takeRequest().path)
+
+        client.setProfileId("profile-2")
+
+        assertNotNull(
+            "expected the rejected re-registration to have reached the server",
+            server.takeRequest(5, TimeUnit.SECONDS)
+        )
+        assertEquals("profile-2", storageService.getProfileId())
+
+        // The rejected request moved nothing, so the token is still the one registered under
+        // profile-1 and going back there is not worth a request.
+        client.setProfileId("profile-1")
+
+        assertNull(server.takeRequest(500, TimeUnit.MILLISECONDS))
     }
 
     // Session Management Tests

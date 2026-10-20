@@ -23,7 +23,11 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.VisibleForTesting
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -69,6 +73,9 @@ class RelevaClient(
 
     private val npsManager = NpsManagerService()
 
+    // For work that has to outlive the call that starts it: see [refreshPushToken].
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     var engagementTrackingService: EngagementTrackingService? = null
         private set
 
@@ -81,7 +88,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "1.7.0-kotlin"
+        private const val VERSION = "1.7.1-kotlin"
 
         // The Swift SDK's waits, kept identical so an outage costs both SDKs the same time:
         // a server that answered at all gets longer to recover than a network that did not.
@@ -102,7 +109,9 @@ class RelevaClient(
     }
 
     /**
-     * Set profile ID
+     * Set profile ID. A push token registered under a different id is re-registered under this
+     * one in the background, so the device receives this profile's push; the call neither waits
+     * for that nor fails with it.
      */
     suspend fun setProfileId(profileId: String, skipMergeWithPreviousProfileId: Boolean = false) = withContext(Dispatchers.IO) {
         val previousProfileId = storage.getProfileId()
@@ -143,6 +152,7 @@ class RelevaClient(
                 storage.addMergeProfileId(previousProfileId)
             }
             storage.setProfileId(profileId)
+            refreshPushToken(profileId)
         }
     }
 
@@ -257,22 +267,27 @@ class RelevaClient(
 
     /**
      * Register push token. A no-op when [RelevaConfig.enablePushNotifications] is false.
+     *
+     * With no profile id set, the token is registered under the device id: the endpoint
+     * requires a non-null `profileId`, and `/api/v0/push` already files an anonymous device's
+     * profile under its device id, so that is the profile the token belongs to. Nothing is
+     * written to profile storage, so a later [setProfileId] is still a first-time set — and it
+     * re-registers the token under the id it sets.
      */
     suspend fun registerPushToken(type: DeviceType, token: String) = withContext(Dispatchers.IO) {
         if (!config.enablePushNotifications) {
-            // Silent and ahead of the deviceId/profileId checks, like the enableTracking
-            // guards: a disabled feature is not a misconfigured caller, so it must not throw.
+            // Silent and ahead of the deviceId check, like the enableTracking guards: a
+            // disabled feature is not a misconfigured caller, so it must not throw.
             return@withContext
         }
 
         val deviceId = storage.getDeviceId()
             ?: throw Exception("Please provide deviceId using client.setDeviceId() before using the client!")
 
-        val profileId = storage.getProfileId()
-            ?: throw Exception("Please provide profileId using client.setProfileId() before registering push token!")
+        val hostProfileId = storage.getProfileId()
 
         val request = JSONObject().apply {
-            put("profileId", profileId)
+            put("profileId", hostProfileId ?: deviceId)
             put("deviceType", type.toApiValue())
             put("deviceId", deviceId)
             put("pushToken", token)
@@ -287,13 +302,42 @@ class RelevaClient(
             throw Exception("Backend API error: ${response.code} - ${response.body}")
         }
 
-        cartChanged = false
-        wishlistChanged = false
-        profileChanged = false
-        deviceIdChanged = false
-        // Deliberately does not clear the merge queue: the request body built above never
-        // carries mergeProfileIds, so clearing here would discard a merge that no request has
-        // delivered yet.
+        // Records the id the host set, which is null when the device id stood in for it:
+        // [refreshPushToken] asks whether the host's id has moved since, and a device id
+        // recorded here would answer that question with an id the host never set.
+        storage.setPushTokenRegistration(token, type.name, hostProfileId)
+
+        // Deliberately clears nothing else: the request body built above carries neither
+        // mergeProfileIds nor the four change flags, so clearing either here would discard
+        // state that no request has delivered yet. Only `push` sends them, so only `push`
+        // may clear them.
+    }
+
+    /**
+     * Re-registers the stored push token under [profileId] when it was last registered under a
+     * different one.
+     *
+     * The backend keys a token by (domain, platform, token), so a token belongs to whichever
+     * profile it was registered under last. A device that registered while anonymous, or under
+     * the profile of whoever was signed in before, keeps that profile's push — and receives
+     * none of the one now signed in — until something re-registers it. Nothing merges it over:
+     * the merge queue moves profile data, not the token row. Mirrors the Swift SDK's
+     * `refreshPushToken`.
+     *
+     * Detached and silent on failure, like Swift: callers set a profile id on paths that cannot
+     * wait for a network round trip and must not fail because of one.
+     */
+    private fun refreshPushToken(profileId: String) {
+        val registration = storage.getPushTokenRegistration() ?: return
+        if (registration.profileId == profileId) return
+
+        scope.launch {
+            try {
+                registerPushToken(DeviceType.valueOf(registration.deviceType), registration.token)
+            } catch (e: Exception) {
+                Log.w(TAG, "Re-registering the push token for the new profile failed: $e")
+            }
+        }
     }
 
     /**
@@ -550,6 +594,7 @@ class RelevaClient(
      * Releases resources held by this client.
      */
     fun dispose() {
+        scope.cancel()
         npsManager.dispose()
         SessionService.getInstance().dispose()
     }
