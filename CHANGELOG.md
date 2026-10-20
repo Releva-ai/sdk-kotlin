@@ -28,10 +28,17 @@ once on 1.7.1. Call it at launch with the current FCM token rather than relying 
   profile storage, so a later `setProfileId` is still a first-time set and queues no merge.
   A missing device id still throws.
 - **`setProfileId` re-registers the push token under the new profile.** A token belongs to
-  whichever profile it was registered under last, and nothing moved it on sign-in: a device
-  that registered while anonymous, or under the previously signed-in user, kept receiving that
-  profile's push and none of the new one's until the host happened to call `registerPushToken`
-  again. The client now records each accepted registration and re-sends it whenever `setProfileId`
+  whichever profile it was registered under last. An ordinary sign-in from a previously set id
+  was already covered: the merge it queues maps the old profile onto the new one, and sends to
+  the new profile resolve the old one's token through that mapping. Three transitions had no
+  such mapping, so the token stayed with the old profile until the host happened to call
+  `registerPushToken` again:
+  - **logout or account switch** (`skipMergeWithPreviousProfileId = true`): the signed-out user's
+    pushes kept reaching the device, and the new profile's did not;
+  - **first sign-in on a device that never had a profile id set**: no merge is queued;
+  - **a merge the backend refuses** because the old profile already belongs to someone else.
+
+  The client now records each accepted registration and re-sends it whenever `setProfileId`
   finds the recorded id differs from the one set (including on logout, with
   `skipMergeWithPreviousProfileId`), and when a registration completes after the host's id has
   moved on. It runs in the background: `setProfileId` neither waits for it nor fails with it, and
