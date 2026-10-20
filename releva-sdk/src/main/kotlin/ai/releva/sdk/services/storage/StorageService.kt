@@ -143,7 +143,7 @@ class StorageService private constructor(context: Context) {
      * One edit for all three: they are read back together, and a token paired with another
      * registration's profile id would be re-registered for the wrong profile, or not at all.
      */
-    fun setPushTokenRegistration(token: String, deviceType: String, profileId: String?) {
+    internal fun setPushTokenRegistration(token: String, deviceType: String, profileId: String?) {
         val editor = preferences.edit()
             .putString(KEY_PUSH_TOKEN, token)
             .putString(KEY_PUSH_TOKEN_DEVICE_TYPE, deviceType)
@@ -156,7 +156,7 @@ class StorageService private constructor(context: Context) {
     }
 
     /** @see setPushTokenRegistration */
-    fun getPushTokenRegistration(): PushTokenRegistration? {
+    internal fun getPushTokenRegistration(): PushTokenRegistration? {
         val token = preferences.getString(KEY_PUSH_TOKEN, null) ?: return null
         val deviceType = preferences.getString(KEY_PUSH_TOKEN_DEVICE_TYPE, null) ?: return null
         return PushTokenRegistration(
@@ -357,7 +357,7 @@ class StorageService private constructor(context: Context) {
 }
 
 /** @see StorageService.setPushTokenRegistration */
-data class PushTokenRegistration(
+internal data class PushTokenRegistration(
     val token: String,
     val deviceType: String,
     val profileId: String?

@@ -772,13 +772,15 @@ On **logout** you want the opposite: start a fresh anonymous profile *without* m
 
 Either way, you do not have to re-register the push token yourself: a token belongs to whichever profile it was registered under last, so `setProfileId` re-registers the stored one under the new id in the background (a merge would not move it — it moves profile data, not the token).
 
+Installs whose token was registered by 1.7.0 or earlier have no registration recorded, and `onNewToken` does not fire on an app update. Call `registerPushToken` once with the current FCM token at launch (after `setDeviceId`/`setProfileId`) so those installs get one; from then on `setProfileId` keeps it current.
+
 ```kotlin
 import java.util.UUID
 
 class AuthManager(private val relevaClient: RelevaClient) {
 
     suspend fun onUserLogin(userId: String) {
-        // Default behavior: merges the prior anonymous profile into the logged-in user
+        // Default behavior: merges the previously set profile id, if any, into the logged-in user
         relevaClient.setProfileId(userId)
     }
 

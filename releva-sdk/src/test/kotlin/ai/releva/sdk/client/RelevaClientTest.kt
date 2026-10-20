@@ -717,6 +717,53 @@ class RelevaClientTest {
         assertNull(server.takeRequest(500, TimeUnit.MILLISECONDS))
     }
 
+    @Test
+    fun `signing out re-registers the token under the new anonymous profile`() = runTest {
+        storageService.setDeviceId("device-1")
+        storageService.setProfileId("profile-1")
+        val server = startTokenServer()
+        val client = createTestClient(config = RelevaConfig.pushOnly())
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+        assertEquals("profile-1", JSONObject(server.takeRequest().body.readUtf8()).getString("profileId"))
+
+        client.setProfileId("anon-1", skipMergeWithPreviousProfileId = true)
+
+        val reregistration = server.takeRequest(5, TimeUnit.SECONDS)
+        assertNotNull("expected the token to be re-registered after sign-out", reregistration)
+        assertEquals("anon-1", JSONObject(reregistration!!.body.readUtf8()).getString("profileId"))
+    }
+
+    @Test
+    fun `re-asserting the stored id retries a re-registration that failed`() = runTest {
+        storageService.setDeviceId("device-1")
+        storageService.setProfileId("profile-1")
+        var requests = 0
+        val server = MockWebServer()
+        server.start()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                requests++
+                // 400 is not retried, so the failed re-registration is exactly one request.
+                return MockResponse().setResponseCode(if (requests == 2) 400 else 202).setBody("{}")
+            }
+        }
+        mockWebServer = server
+        val client = createTestClient(config = RelevaConfig.pushOnly())
+        client.setEndpointOverride(server.url("/").toString().trimEnd('/'))
+        client.registerPushToken(DeviceType.ANDROID, "token-xyz")
+        server.takeRequest()
+
+        client.setProfileId("profile-2")
+        assertNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+
+        client.setProfileId("profile-2")
+
+        val retry = server.takeRequest(5, TimeUnit.SECONDS)
+        assertNotNull("expected the failed re-registration to be retried", retry)
+        assertEquals("profile-2", JSONObject(retry!!.body.readUtf8()).getString("profileId"))
+    }
+
     // Session Management Tests
 
     @Test

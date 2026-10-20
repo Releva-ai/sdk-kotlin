@@ -23,6 +23,7 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.VisibleForTesting
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -152,8 +153,12 @@ class RelevaClient(
                 storage.addMergeProfileId(previousProfileId)
             }
             storage.setProfileId(profileId)
-            refreshPushToken(profileId)
         }
+
+        // Outside the change guard: hosts re-assert their stored id on every initialisation, so
+        // a re-registration that failed, was raced, or never ran (a token registered before the
+        // registration was recorded) is retried there. In sync, this is one prefs read.
+        refreshPushToken(profileId)
     }
 
     /**
@@ -334,6 +339,8 @@ class RelevaClient(
         scope.launch {
             try {
                 registerPushToken(DeviceType.valueOf(registration.deviceType), registration.token)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Re-registering the push token for the new profile failed: $e")
             }
