@@ -581,6 +581,10 @@ class RelevaClientTest {
                 " setProfileId queue a merge for an id the host never set",
             storageService.getProfileId()
         )
+        assertNull(
+            "the registration records the host's id, so the device id must not stand in for it",
+            storageService.getPushTokenRegistration()!!.profileId
+        )
     }
 
     @Test

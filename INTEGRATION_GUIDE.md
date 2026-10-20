@@ -99,6 +99,8 @@ package com.example.myapp
 import android.app.Application
 import ai.releva.sdk.client.RelevaClient
 import ai.releva.sdk.config.RelevaConfig
+import ai.releva.sdk.types.device.DeviceType
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -128,11 +130,23 @@ class MyApplication : Application() {
             val deviceId = getDeviceId()
             relevaClient.setDeviceId(deviceId)
 
-            // Set profile ID when user logs in
+            // Set profile ID when user logs in, and again with the current id at every launch
             // relevaClient.setProfileId("user-123")
 
             // Enable push tracking (optional)
             relevaClient.enablePushEngagementTracking()
+
+            // Register the current push token at every launch, once the ids are set:
+            // onNewToken fires only when the token changes, not on an app update
+            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                applicationScope.launch {
+                    try {
+                        relevaClient.registerPushToken(DeviceType.ANDROID, token)
+                    } catch (e: Exception) {
+                        android.util.Log.e("MyApplication", "Error registering push token", e)
+                    }
+                }
+            }
         }
     }
 

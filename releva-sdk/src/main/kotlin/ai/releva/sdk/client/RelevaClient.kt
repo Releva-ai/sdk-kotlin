@@ -349,7 +349,11 @@ class RelevaClient(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "Re-registering the push token for the new profile failed: $e")
+                // Not `$e`: a non-202 message carries the response body, which `execute` keeps
+                // out of the log for a 4xx because validation errors echo the profile id.
+                if (config.enableRequestLogging) {
+                    Log.w(TAG, "Re-registering the push token for the new profile failed: ${e.javaClass.simpleName}")
+                }
             }
         }
     }
