@@ -37,6 +37,9 @@ class StorageService private constructor(context: Context) {
         private const val KEY_DEVICE_FIRST_SEEN = "device_first_seen"
         private const val KEY_DEVICE_LAST_SESSION_TS = "device_last_session_ts"
         private const val KEY_DEVICE_VIEWS = "device_views"
+        private const val KEY_PUSH_TOKEN = "push_token"
+        private const val KEY_PUSH_TOKEN_DEVICE_TYPE = "push_token_device_type"
+        private const val KEY_PUSH_TOKEN_PROFILE_ID = "push_token_profile_id"
 
         @Volatile
         private var instance: StorageService? = null
@@ -131,6 +134,37 @@ class StorageService private constructor(context: Context) {
     }
 
     fun getDeviceId(): String? = preferences.getString(KEY_DEVICE_ID, null)
+
+    // Push Token Registration
+    /**
+     * Records a push token the backend has accepted, so a later profile change can re-register
+     * it. [profileId] is the id the host had set at the time, null when none was set.
+     *
+     * One edit for all three: they are read back together, and a token paired with another
+     * registration's profile id would be re-registered for the wrong profile, or not at all.
+     */
+    internal fun setPushTokenRegistration(token: String, deviceType: String, profileId: String?) {
+        val editor = preferences.edit()
+            .putString(KEY_PUSH_TOKEN, token)
+            .putString(KEY_PUSH_TOKEN_DEVICE_TYPE, deviceType)
+        if (profileId == null) {
+            editor.remove(KEY_PUSH_TOKEN_PROFILE_ID)
+        } else {
+            editor.putString(KEY_PUSH_TOKEN_PROFILE_ID, profileId)
+        }
+        editor.apply()
+    }
+
+    /** @see setPushTokenRegistration */
+    internal fun getPushTokenRegistration(): PushTokenRegistration? {
+        val token = preferences.getString(KEY_PUSH_TOKEN, null) ?: return null
+        val deviceType = preferences.getString(KEY_PUSH_TOKEN_DEVICE_TYPE, null) ?: return null
+        return PushTokenRegistration(
+            token = token,
+            deviceType = deviceType,
+            profileId = preferences.getString(KEY_PUSH_TOKEN_PROFILE_ID, null)
+        )
+    }
 
     // Session Management
     fun setSessionId(sessionId: String) {
@@ -321,3 +355,10 @@ class StorageService private constructor(context: Context) {
         preferences.edit().clear().apply()
     }
 }
+
+/** @see StorageService.setPushTokenRegistration */
+internal data class PushTokenRegistration(
+    val token: String,
+    val deviceType: String,
+    val profileId: String?
+)

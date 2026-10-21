@@ -99,6 +99,8 @@ package com.example.myapp
 import android.app.Application
 import ai.releva.sdk.client.RelevaClient
 import ai.releva.sdk.config.RelevaConfig
+import ai.releva.sdk.types.device.DeviceType
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -128,11 +130,23 @@ class MyApplication : Application() {
             val deviceId = getDeviceId()
             relevaClient.setDeviceId(deviceId)
 
-            // Set profile ID when user logs in
+            // Set profile ID when user logs in, and again with the current id at every launch
             // relevaClient.setProfileId("user-123")
 
             // Enable push tracking (optional)
             relevaClient.enablePushEngagementTracking()
+
+            // Register the current push token at every launch, once the ids are set:
+            // onNewToken fires only when the token changes, not on an app update
+            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                applicationScope.launch {
+                    try {
+                        relevaClient.registerPushToken(DeviceType.ANDROID, token)
+                    } catch (e: Exception) {
+                        android.util.Log.e("MyApplication", "Error registering push token", e)
+                    }
+                }
+            }
         }
     }
 
@@ -766,42 +780,29 @@ suspend fun setProfileId(
 )
 ```
 
-By default (`skipMergeWithPreviousProfileId = false`), changing the profile ID merges the previous profile into the new one — this is what you want on **login**, so the user's anonymous behavior carries over to their account.
+By default (`skipMergeWithPreviousProfileId = false`), changing the profile ID merges the previous profile into the new one — this is what you want on **login**, so the user's earlier behavior carries over to their account (a device that never had a profile id set has no previous profile to merge).
 
-On **logout** you want the opposite: start a fresh anonymous profile *without* merging the logged-in user's data into it. Pass `skipMergeWithPreviousProfileId = true` and re-register the push token against the new anonymous profile (the merge that would normally carry the token over was skipped).
+On **logout** you want the opposite: start a fresh anonymous profile *without* merging the logged-in user's data into it. Pass `skipMergeWithPreviousProfileId = true`.
+
+Either way, you do not have to re-register the push token yourself: a token belongs to whichever profile it was registered under last, so `setProfileId` re-registers the stored one under the new id in the background. On a merged login the merge alone would already route the new profile's pushes to the old token, but on logout (no merge, by design) and on a first login from a device that never had a profile id set (nothing to merge), only the re-registration moves it.
+
+Installs whose token was registered by 1.7.0 or earlier have no registration recorded, and `onNewToken` does not fire on an app update. Call `registerPushToken` with the current FCM token at every launch (after `setDeviceId`/`setProfileId`) so those installs get one. Also call `setProfileId` with the current id at every launch: a re-registration that failed (for example, signing in while offline) is retried by the next `setProfileId` or `registerPushToken` call.
 
 ```kotlin
-import ai.releva.sdk.types.device.DeviceType
-import com.google.firebase.messaging.FirebaseMessaging
 import java.util.UUID
 
 class AuthManager(private val relevaClient: RelevaClient) {
 
     suspend fun onUserLogin(userId: String) {
-        // Default behavior: merges the prior anonymous profile into the logged-in user
+        // Default behavior: merges the previously set profile id, if any, into the logged-in user
         relevaClient.setProfileId(userId)
-
-        // Optionally re-register push token
-        FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-            CoroutineScope(Dispatchers.IO).launch {
-                relevaClient.registerPushToken(DeviceType.ANDROID, token)
-            }
-        }
     }
 
     suspend fun onUserLogout() {
-        // 1. Assign a fresh anonymous profile, skipping the merge so the
-        //    logged-out user's data is NOT linked to the new anonymous profile.
+        // Assign a fresh anonymous profile, skipping the merge so the
+        // logged-out user's data is NOT linked to the new anonymous profile.
         val anonymousProfileId = UUID.randomUUID().toString()
         relevaClient.setProfileId(anonymousProfileId, skipMergeWithPreviousProfileId = true)
-
-        // 2. Re-register the push token against the new anonymous profile.
-        //    Required because the merge that would normally carry it over was skipped.
-        FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-            CoroutineScope(Dispatchers.IO).launch {
-                relevaClient.registerPushToken(DeviceType.ANDROID, token)
-            }
-        }
     }
 }
 ```

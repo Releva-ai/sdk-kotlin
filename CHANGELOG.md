@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.7.1
+
+PATCH: three push-token fixes; no public API is added, removed or deprecated.
+
+**Upgrading:** installs whose token was registered by 1.7.0 or earlier have no recorded
+registration, so `setProfileId` has nothing to re-register until `registerPushToken` is called
+once on 1.7.1. Call it at launch with the current FCM token rather than relying on
+`onNewToken`, which does not fire on an app update.
+
+### Fixed
+
+- **Registering a push token no longer discards the pending `/push` change flags.** After a
+  successful registration the client reset `cartChanged`, `wishlistChanged`, `profileChanged`
+  and `deviceIdChanged`, none of which `/api/v0/appPush/tokens` sends — they are inputs to the
+  next `/api/v0/push`. An app that set its device and profile ids, or changed the cart, and
+  then registered a token (the usual launch sequence, from the FCM token callback) sent its
+  next push with all four false: the server takes `skipUpdate` from `!deviceIdChanged &&
+  !profileChanged`, so an identified profile's device link and profile update were skipped, and
+  the cart/wishlist change was not applied. Only `push` clears the flags now, after the request
+  that carried them succeeded.
+- **A device with no profile id can now register a push token.** Registration threw
+  "Please provide profileId using client.setProfileId() before registering push token!", so an
+  app whose user never signs in never registered a token and could never be reached by push.
+  The token is now registered under the device id, which is the id `/api/v0/push` files an
+  anonymous device's profile under, so it lands on the same profile. Nothing is written to
+  profile storage, so a later `setProfileId` is still a first-time set and queues no merge.
+  A missing device id still throws.
+- **`setProfileId` re-registers the push token under the new profile.** A token belongs to
+  whichever profile it was registered under last. An ordinary sign-in from a previously set id
+  was already covered: the merge it queues maps the old profile onto the new one, and sends to
+  the new profile resolve the old one's token through that mapping. Three transitions had no
+  such mapping, so the token stayed with the old profile until the host happened to call
+  `registerPushToken` again:
+  - **logout or account switch** (`skipMergeWithPreviousProfileId = true`): the signed-out user's
+    pushes kept reaching the device, and the new profile's did not;
+  - **first sign-in on a device that never had a profile id set**: no merge is queued;
+  - **a merge the backend refuses** because the old profile already belongs to someone else.
+
+  The client now records each accepted registration and re-sends it whenever `setProfileId`
+  finds the recorded id differs from the one set (including on logout, with
+  `skipMergeWithPreviousProfileId`), and when a registration completes after the host's id has
+  moved on. It runs in the background: `setProfileId` neither waits for it nor fails with it, and
+  it touches neither the change flags nor the merge queue. A failed re-registration is retried
+  the next time the host calls `setProfileId` or `registerPushToken`, so call them at every
+  launch.
+
 ## 1.7.0
 
 MINOR: adds public API; nothing is removed or changes behaviour for existing calls.
