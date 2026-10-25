@@ -89,7 +89,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "1.7.1-kotlin"
+        private const val VERSION = "1.8.0-kotlin"
 
         // The Swift SDK's waits, kept identical so an outage costs both SDKs the same time:
         // a server that answered at all gets longer to recover than a network that did not.
@@ -831,6 +831,22 @@ class RelevaClient(
 
         return push(request)
     }
+
+    // The 1.7.x signature, kept so callers compiled against it still link.
+    @Deprecated("Binary compatibility only", level = DeprecationLevel.HIDDEN)
+    suspend fun trackProductView(
+        pageUrl: String? = null,
+        productId: String,
+        screenToken: String? = null,
+        customFields: Map<String, Any?>? = null,
+        categories: List<String>? = null,
+        locale: String? = null,
+        currency: String? = null,
+        recommenderClick: Map<String, String>? = null
+    ): RelevaResponse = trackProductView(
+        pageUrl, productId, screenToken, customFields, categories, locale, currency,
+        recommenderClick, null
+    )
 
     /**
      * Track product view.

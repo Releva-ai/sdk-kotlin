@@ -4,8 +4,6 @@ import ai.releva.sdk.types.event.CustomEvent
 import ai.releva.sdk.types.filter.AbstractFilter
 import ai.releva.sdk.types.cart.Cart
 import ai.releva.sdk.types.product.ViewedProduct
-import java.net.URI
-import java.net.URISyntaxException
 import java.net.URLDecoder
 
 
@@ -120,8 +118,8 @@ class PushRequest {
      * `rlv_rid` for a product block).
      *
      * The web SDK reads the same parameters from the landing page URL; an app has no landing
-     * URL, so it passes the URL of the product the shopper tapped. A null URL, one that does
-     * not parse, or one without those parameters sets nothing.
+     * URL, so it passes the URL of the product the shopper tapped. A null URL, one with no
+     * query, or one without those parameters sets nothing.
      */
     fun attributionUrl(url: String?): PushRequest {
         attributionUrl = url?.let { attributionUrlContext(it) }
@@ -152,9 +150,12 @@ class PushRequest {
 
         /**
          * The push context fields the `rlv_*` query parameters of [url] carry. Each surface is
-         * credited by a complete pair — `aid`/`apid` for search, `said`/`sapid` for the
-         * shopping assistant, `rid` for a product block — so a group with one half missing is
-         * left out whole, and so is a malformed value, for the reason above.
+         * credited by its required fields — `aid` and `apid` for search, `said` and `sapid` for
+         * the shopping assistant, `rid` for a product block — so a group missing one is left
+         * out whole, and so is a malformed value, for the reason above.
+         *
+         * The query is read leniently, as the web SDK does: Releva's own assistant URLs come
+         * back with their percent-escapes decoded, which `java.net.URI` would reject.
          */
         fun attributionUrlContext(url: String): Map<String, Any>? {
             val parameters = queryParameters(url)
@@ -184,18 +185,19 @@ class PushRequest {
         }
 
         private fun queryParameters(url: String): Map<String, String> {
-            val query = try {
-                URI(url).rawQuery
-            } catch (e: URISyntaxException) {
-                null
-            } ?: return emptyMap()
-
+            val query = url.substringAfter('?', "").substringBefore('#')
             return query.split("&").mapNotNull { pair ->
                 val separator = pair.indexOf('=')
                 if (separator <= 0) {
                     null
                 } else {
-                    decode(pair.substring(0, separator)) to decode(pair.substring(separator + 1))
+                    try {
+                        decode(pair.substring(0, separator)) to decode(pair.substring(separator + 1))
+                    } catch (e: IllegalArgumentException) {
+                        // A merchant's own parameter may carry a bare `%`; it must not take the
+                        // `rlv_*` pairs down with it.
+                        null
+                    }
                 }
             }.toMap()
         }

@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.8.0
+
+MINOR: `trackProductView` gains an `attributionUrl` parameter. Source- and binary-compatible: the
+1.7.x signature stays as a hidden overload, so callers compiled against it still link.
+
+### Added
+
+- **Clicks from Releva search and the shopping assistant can now be credited.** Pass the tapped
+  product's `url`, exactly as Releva returned it, as `trackProductView(attributionUrl = ...)`
+  (or `PushRequest.attributionUrl`). The `rlv_*` query parameters on it are sent with the
+  product view as `aid`/`apid`/`apos`/`pfid` (search), `said`/`sapid` (assistant) and
+  `rid`/`rpid`/`rpos`/`pfid` (product block), mirroring the web SDK. A group missing a required
+  field, or carrying a malformed value, is left out rather than sent. An explicit
+  `recommenderClick` wins over the URL on a shared key. Pass it only for the view that came from
+  the tap.
+
 ## 1.7.1
 
 PATCH: three push-token fixes; no public API is added, removed or deprecated.

@@ -1128,9 +1128,18 @@ class RelevaClientTest {
     }
 
     @Test
-    fun `a null or unparseable url sets nothing`() {
+    fun `a null url or one with no query sets nothing`() {
         assertNull(PushRequest().attributionUrl(null).attributionUrl)
-        assertNull(PushRequest.attributionUrlContext("not a url?rlv_aid=1&rlv_apid=sku-1"))
+        assertNull(PushRequest.attributionUrlContext("not a url"))
+    }
+
+    @Test
+    fun `an assistant url with its escapes decoded still credits the click`() {
+        val context = PushRequest.attributionUrlContext(
+            "https://shop.example.com/products/red dress?discount=10%&releva_chat=product" +
+                "&rlv_said=1&rlv_sapid=sku-1#top"
+        )
+        assertEquals(mapOf<String, Any>("said" to "1", "sapid" to "sku-1"), context)
     }
 
     @Test
