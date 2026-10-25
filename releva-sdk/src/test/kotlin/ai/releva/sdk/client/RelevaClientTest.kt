@@ -1167,6 +1167,15 @@ class RelevaClientTest {
     }
 
     @Test
+    fun `a decoded hash in a merchant parameter does not hide the assistant parameters`() {
+        val context = PushRequest.attributionUrlContext(
+            "https://shop.example.com/p/sku-1?color=#ff0000&releva_chat=product" +
+                "&rlv_said=1&rlv_sapid=sku-1"
+        )
+        assertEquals(mapOf<String, Any>("said" to "1", "sapid" to "sku-1"), context)
+    }
+
+    @Test
     fun `a product opened from search sends the click context the API credits`() = runTest {
         val context = pushedContext {
             it.trackProductView(

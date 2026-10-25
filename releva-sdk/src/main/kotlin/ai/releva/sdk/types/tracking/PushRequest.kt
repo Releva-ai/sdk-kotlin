@@ -155,7 +155,9 @@ class PushRequest {
          * out whole, while a malformed value is dropped on its own, for the reason above.
          *
          * The query is read leniently, as the web SDK does: Releva's own assistant URLs come
-         * back with their percent-escapes decoded, which `java.net.URI` would reject.
+         * back with their percent-escapes decoded, which `java.net.URI` would reject, and a
+         * decoded `#` can precede the `rlv_*` pairs, so each value is cut at its first `#`
+         * rather than the query at the first one.
          */
         fun attributionUrlContext(url: String): Map<String, Any>? {
             val parameters = queryParameters(url)
@@ -185,14 +187,17 @@ class PushRequest {
         }
 
         private fun queryParameters(url: String): Map<String, String> {
-            val query = url.substringAfter('?', "").substringBefore('#')
+            // The fragment is cut per value, not off the whole query: a decoded `%23` in a
+            // merchant parameter leaves a raw `#` ahead of the appended `rlv_*` pairs.
+            val query = url.substringAfter('?', "")
             return query.split("&").mapNotNull { pair ->
                 val separator = pair.indexOf('=')
                 if (separator <= 0) {
                     null
                 } else {
                     try {
-                        decode(pair.substring(0, separator)) to decode(pair.substring(separator + 1))
+                        decode(pair.substring(0, separator)) to
+                            decode(pair.substring(separator + 1).substringBefore('#'))
                     } catch (e: IllegalArgumentException) {
                         // A merchant's own parameter may carry a bare `%`; it must not take the
                         // `rlv_*` pairs down with it.
