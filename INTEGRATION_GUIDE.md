@@ -392,8 +392,8 @@ PushRequest()
 ```
 
 A URL without those parameters sets nothing. As with `recommenderClick`, pass it only for the
-view that came from the tap, not when the product is reopened later from history or the cart. When the same field
-is set both ways, `recommenderClick` wins over the URL.
+view that came from the tap, not when the product is reopened later from history or the
+cart. When the same field is set both ways, `recommenderClick` wins over the URL.
 
 ## Step 4: Track Cart and Wishlist
 

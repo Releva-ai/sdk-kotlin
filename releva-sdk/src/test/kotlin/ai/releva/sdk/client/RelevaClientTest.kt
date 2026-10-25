@@ -29,6 +29,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -1039,6 +1041,28 @@ class RelevaClientTest {
         assertEquals(3, context.get("rpos"))
         assertEquals(30202L, (context.get("pfid") as Number).toLong())
         assertEquals("sku-1", context.getJSONObject("product").getString("id"))
+    }
+
+    @Test
+    fun `the 1_7 trackProductView signature still links and forwards the click`() = runTest {
+        val legacyParams = arrayOf<Class<*>>(
+            String::class.java, String::class.java, String::class.java, Map::class.java,
+            List::class.java, String::class.java, String::class.java, Map::class.java,
+        )
+        RelevaClient::class.java.getDeclaredMethod(
+            "trackProductView\$default",
+            RelevaClient::class.java, *legacyParams, Continuation::class.java,
+            Int::class.javaPrimitiveType, Any::class.java,
+        )
+        val legacy = RelevaClient::class.java.getDeclaredMethod(
+            "trackProductView", *legacyParams, Continuation::class.java,
+        )
+        val context = pushedContext { client ->
+            suspendCoroutineUninterceptedOrReturn<Any?> { cont ->
+                legacy.invoke(client, null, "sku-1", null, null, null, null, null, mergeContext, cont)
+            }
+        }
+        assertEquals("0233781a-f836-40a9-a67a-2220814b5db4", context.getString("rid"))
     }
 
     @Test

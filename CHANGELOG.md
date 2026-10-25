@@ -12,7 +12,7 @@ MINOR: `trackProductView` gains an `attributionUrl` parameter. Source- and binar
   (or `PushRequest.attributionUrl`). The `rlv_*` query parameters on it are sent with the
   product view as `aid`/`apid`/`apos`/`pfid` (search), `said`/`sapid` (assistant) and
   `rid`/`rpid`/`rpos`/`pfid` (product block), mirroring the web SDK. A group missing a required
-  field, or carrying a malformed value, is left out rather than sent. An explicit
+  field is left out; a malformed value is dropped on its own rather than sent. An explicit
   `recommenderClick` wins over the URL on a shared key. Pass it only for the view that came from
   the tap.
 

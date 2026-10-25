@@ -152,7 +152,7 @@ class PushRequest {
          * The push context fields the `rlv_*` query parameters of [url] carry. Each surface is
          * credited by its required fields — `aid` and `apid` for search, `said` and `sapid` for
          * the shopping assistant, `rid` for a product block — so a group missing one is left
-         * out whole, and so is a malformed value, for the reason above.
+         * out whole, while a malformed value is dropped on its own, for the reason above.
          *
          * The query is read leniently, as the web SDK does: Releva's own assistant URLs come
          * back with their percent-escapes decoded, which `java.net.URI` would reject.
