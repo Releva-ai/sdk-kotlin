@@ -369,6 +369,31 @@ PushRequest()
 Send it only for a view that came from a tap on that product's card; a later visit to the same
 product is a plain product view.
 
+### Crediting Clicks from Releva Search and the Shopping Assistant
+
+A product opened from Releva search or from the shopping assistant is credited the same way,
+except that the attribution rides on the product's `url` rather than on a `mergeContext`. Pass
+that URL exactly as Releva returned it — the `rlv_*` query parameters on it are what gets read —
+and the SDK sends the fields the click needs.
+
+```kotlin
+// `product` is a product from a search or shopping-assistant response
+relevaClient.trackProductView(
+    pageUrl = "myapp://product/details",
+    productId = product.id,
+    attributionUrl = product.url,
+)
+
+// or with the builder
+PushRequest()
+    .url("myapp://product/details")
+    .productView(ViewedProduct(productId = product.id, custom = CustomFields.empty()))
+    .attributionUrl(product.url)
+```
+
+A URL without those parameters sets nothing, so passing one is always safe. When the same field
+is set both ways, `recommenderClick` wins over the URL.
+
 ## Step 4: Track Cart and Wishlist
 
 `setCart()` and `setWishlist()` are stateful: the SDK stores the values locally and automatically syncs changes to the backend. Checkout success is a tracking event and goes through the builder.

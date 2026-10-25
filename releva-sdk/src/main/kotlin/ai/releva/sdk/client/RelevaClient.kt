@@ -469,6 +469,9 @@ class RelevaClient(
             })
 
             request.viewedProduct?.let { put("product", JSONObject(it.toMap())) }
+            // recommenderClick last: a key set both ways takes the value the caller passed
+            // explicitly rather than the one read off the URL.
+            request.attributionUrl?.forEach { (key, value) -> put(key, value) }
             request.recommenderClick?.forEach { (key, value) -> put(key, value) }
 
             // Carrying merge ids implies the profile changed, so keep the two in step even when
@@ -835,6 +838,9 @@ class RelevaClient(
      * @param recommenderClick when the shopper opened this product from a Releva product block,
      *   that product's [ai.releva.sdk.types.response.ProductRecommendation.mergeContext], so the
      *   click is credited to the block. See [PushRequest.recommenderClick].
+     * @param attributionUrl when the shopper opened this product from Releva search or from the
+     *   shopping assistant, that product's `url` as Releva returned it, so the click is credited
+     *   to that surface. See [PushRequest.attributionUrl].
      */
     suspend fun trackProductView(
         pageUrl: String? = null,
@@ -844,7 +850,8 @@ class RelevaClient(
         categories: List<String>? = null,
         locale: String? = null,
         currency: String? = null,
-        recommenderClick: Map<String, String>? = null
+        recommenderClick: Map<String, String>? = null,
+        attributionUrl: String? = null
     ): RelevaResponse {
         if (!config.enableTracking) {
             return RelevaResponse(emptyList(), emptyList())
@@ -863,6 +870,7 @@ class RelevaClient(
             custom = customFields?.let { CustomFields.fromMap(it) } ?: CustomFields.empty()
         ))
         recommenderClick?.let { request.recommenderClick(it) }
+        attributionUrl?.let { request.attributionUrl(it) }
 
         return push(request)
     }

@@ -4,6 +4,9 @@ import ai.releva.sdk.types.event.CustomEvent
 import ai.releva.sdk.types.filter.AbstractFilter
 import ai.releva.sdk.types.cart.Cart
 import ai.releva.sdk.types.product.ViewedProduct
+import java.net.URI
+import java.net.URISyntaxException
+import java.net.URLDecoder
 
 
 /**
@@ -22,6 +25,7 @@ class PushRequest {
     internal var pageCurrency: String? = null
     internal var cart: Cart? = null
     internal var recommenderClick: Map<String, Any>? = null
+    internal var attributionUrl: Map<String, Any>? = null
 
     fun getScreenToken(): String? = pageToken
 
@@ -108,9 +112,27 @@ class PushRequest {
         return this
     }
 
+    /**
+     * Mark this request as the shopper opening a product from Releva search or from the
+     * shopping assistant, so the click is credited to that surface. Pass the product's `url`
+     * exactly as Releva returned it; the `rlv_*` query parameters on it carry the attribution
+     * (`rlv_aid`/`rlv_apid` for search, `rlv_said`/`rlv_sapid` for the assistant, and
+     * `rlv_rid` for a product block).
+     *
+     * The web SDK reads the same parameters from the landing page URL; an app has no landing
+     * URL, so it passes the URL of the product the shopper tapped. A null URL, one that does
+     * not parse, or one without those parameters sets nothing.
+     */
+    fun attributionUrl(url: String?): PushRequest {
+        attributionUrl = url?.let { attributionUrlContext(it) }
+        return this
+    }
+
     internal companion object {
         private val UUID_PATTERN =
             Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+        private val RECOMMENDER_KEYS = listOf("rid", "rpid", "rpos", "pfid")
 
         /**
          * The push context fields for a recommender click. The API validates `rid` as a uuid
@@ -127,5 +149,57 @@ class PushRequest {
             // Without the block token there is nothing to credit.
             return context.takeIf { it.containsKey("rid") }
         }
+
+        /**
+         * The push context fields the `rlv_*` query parameters of [url] carry. Each surface is
+         * credited by a complete pair — `aid`/`apid` for search, `said`/`sapid` for the
+         * shopping assistant, `rid` for a product block — so a group with one half missing is
+         * left out whole, and so is a malformed value, for the reason above.
+         */
+        fun attributionUrlContext(url: String): Map<String, Any>? {
+            val parameters = queryParameters(url)
+            val context = buildMap<String, Any> {
+                val aid = parameters["rlv_aid"]?.takeIf { it.isNotBlank() }
+                val apid = parameters["rlv_apid"]?.takeIf { it.isNotBlank() }
+                if (aid != null && apid != null) {
+                    put("aid", aid)
+                    put("apid", apid)
+                    parameters["rlv_apos"]?.toIntOrNull()?.takeIf { it >= 0 }?.let { put("apos", it) }
+                    parameters["rlv_pfid"]?.toLongOrNull()?.let { put("pfid", it) }
+                }
+
+                val said = parameters["rlv_said"]?.takeIf { it.isNotBlank() }
+                val sapid = parameters["rlv_sapid"]?.takeIf { it.isNotBlank() }
+                if (said != null && sapid != null) {
+                    put("said", said)
+                    put("sapid", sapid)
+                }
+
+                val recommender = RECOMMENDER_KEYS
+                    .mapNotNull { key -> parameters["rlv_$key"]?.let { key to it } }
+                    .toMap()
+                recommenderClickContext(recommender)?.let { putAll(it) }
+            }
+            return context.takeIf { it.isNotEmpty() }
+        }
+
+        private fun queryParameters(url: String): Map<String, String> {
+            val query = try {
+                URI(url).rawQuery
+            } catch (e: URISyntaxException) {
+                null
+            } ?: return emptyMap()
+
+            return query.split("&").mapNotNull { pair ->
+                val separator = pair.indexOf('=')
+                if (separator <= 0) {
+                    null
+                } else {
+                    decode(pair.substring(0, separator)) to decode(pair.substring(separator + 1))
+                }
+            }.toMap()
+        }
+
+        private fun decode(value: String): String = URLDecoder.decode(value, "UTF-8")
     }
 }

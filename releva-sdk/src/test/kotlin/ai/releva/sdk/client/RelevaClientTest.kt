@@ -1064,6 +1064,105 @@ class RelevaClientTest {
         assertNull(PushRequest.recommenderClickContext(mergeContext + mapOf("rid" to "block-1")))
     }
 
+    // Attribution read off a product URL
+
+    @Test
+    fun `a search url carries the search click context`() {
+        val ctx = PushRequest.attributionUrlContext(
+            "https://shop.example.com/p/sku-1?rlv_aid=1&rlv_apid=sku-1&rlv_apos=0&rlv_pfid=30202"
+        )!!
+        assertEquals(mapOf("aid" to "1", "apid" to "sku-1", "apos" to 0, "pfid" to 30202L), ctx)
+    }
+
+    @Test
+    fun `a shopping assistant url carries the assistant click context`() {
+        val ctx = PushRequest.attributionUrlContext(
+            "https://shop.example.com/p/sku-1?releva_chat=product&rlv_said=1&rlv_sapid=sku-1"
+        )!!
+        assertEquals(mapOf("said" to "1", "sapid" to "sku-1"), ctx)
+    }
+
+    @Test
+    fun `a product block url carries the recommender click context`() {
+        val ctx = PushRequest.attributionUrlContext(
+            "https://shop.example.com/p/sku-1?rlv_rid=0233781a-f836-40a9-a67a-2220814b5db4" +
+                "&rlv_rpid=sku-1&rlv_rpos=3&rlv_pfid=30202"
+        )!!
+        assertEquals(
+            mapOf(
+                "rid" to "0233781a-f836-40a9-a67a-2220814b5db4",
+                "rpid" to "sku-1",
+                "rpos" to 3,
+                "pfid" to 30202L,
+            ),
+            ctx,
+        )
+    }
+
+    @Test
+    fun `a search id without a product id is nothing to credit`() {
+        assertNull(PushRequest.attributionUrlContext("https://shop.example.com/p/sku-1?rlv_aid=1"))
+    }
+
+    @Test
+    fun `a malformed position is dropped while the rest of the search context is kept`() {
+        val ctx = PushRequest.attributionUrlContext(
+            "https://shop.example.com/p/sku-1?rlv_aid=1&rlv_apid=sku-1&rlv_apos=-1&rlv_pfid=x"
+        )!!
+        assertEquals(mapOf("aid" to "1", "apid" to "sku-1"), ctx)
+    }
+
+    @Test
+    fun `ids are url-decoded`() {
+        val ctx = PushRequest.attributionUrlContext(
+            "https://shop.example.com/p?rlv_aid=1&rlv_apid=sku%2F1"
+        )!!
+        assertEquals("sku/1", ctx["apid"])
+    }
+
+    @Test
+    fun `a url without releva parameters sets nothing`() {
+        assertNull(
+            PushRequest.attributionUrlContext("https://shop.example.com/p/sku-1?utm_source=newsletter")
+        )
+    }
+
+    @Test
+    fun `a null or unparseable url sets nothing`() {
+        assertNull(PushRequest().attributionUrl(null).attributionUrl)
+        assertNull(PushRequest.attributionUrlContext("not a url?rlv_aid=1&rlv_apid=sku-1"))
+    }
+
+    @Test
+    fun `a product opened from search sends the click context the API credits`() = runTest {
+        val context = pushedContext {
+            it.trackProductView(
+                productId = "sku-1",
+                attributionUrl =
+                    "https://shop.example.com/p/sku-1?rlv_aid=1&rlv_apid=sku-1&rlv_apos=0&rlv_pfid=30202",
+            )
+        }
+        assertEquals("1", context.getString("aid"))
+        assertEquals("sku-1", context.getString("apid"))
+        // The API validates apos and pfid as numbers, not strings.
+        assertEquals(0, context.get("apos"))
+        assertEquals(30202L, (context.get("pfid") as Number).toLong())
+    }
+
+    @Test
+    fun `an explicit click context wins over the one on the url`() = runTest {
+        val context = pushedContext {
+            it.trackProductView(
+                productId = "sku-1",
+                recommenderClick = mergeContext,
+                attributionUrl =
+                    "https://shop.example.com/p/sku-1?rlv_rid=1f0a0b2c-3d4e-4f50-8617-2a3b4c5d6e7f&rlv_rpos=9",
+            )
+        }
+        assertEquals("0233781a-f836-40a9-a67a-2220814b5db4", context.getString("rid"))
+        assertEquals(3, context.get("rpos"))
+    }
+
     // Helper Methods
 
     private fun createTestClient(
