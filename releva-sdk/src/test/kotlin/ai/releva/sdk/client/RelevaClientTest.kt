@@ -1145,6 +1145,14 @@ class RelevaClientTest {
     }
 
     @Test
+    fun `a literal plus in an id is not turned into a space`() {
+        val ctx = PushRequest.attributionUrlContext(
+            "https://shop.example.com/p?rlv_said=1&rlv_sapid=sku%2B1"
+        )!!
+        assertEquals("sku+1", ctx["sapid"])
+    }
+
+    @Test
     fun `a url without releva parameters sets nothing`() {
         assertNull(
             PushRequest.attributionUrlContext("https://shop.example.com/p/sku-1?utm_source=newsletter")

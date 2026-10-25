@@ -207,6 +207,10 @@ class PushRequest {
             }.toMap()
         }
 
-        private fun decode(value: String): String = URLDecoder.decode(value, "UTF-8")
+        // URLDecoder is form decoding and would turn a literal `+` into a space; the web SDK's
+        // decodeURIComponent does not, and an assistant URL arrives with its escapes already
+        // decoded, so a `%2B` in an id reaches us as a bare `+`.
+        private fun decode(value: String): String =
+            URLDecoder.decode(value.replace("+", "%2B"), "UTF-8")
     }
 }
