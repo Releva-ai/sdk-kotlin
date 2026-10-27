@@ -2,7 +2,7 @@
 
 ## 2.0.0
 
-MAJOR: click attribution becomes one mechanism for every Releva placement. `recommenderClick`
+MAJOR: click attribution becomes one mechanism for every attribution parameter. `recommenderClick`
 is removed with no deprecated overload left behind.
 
 ### Migration
@@ -30,17 +30,14 @@ ClickAttribution.fromFields(product.mergeContext)
 
 ### Added
 
-- **Clicks from every Releva placement can now be credited, not only product blocks.**
-  `ClickAttribution.fromUrl` reads all eighteen attribution parameters the web SDK reads from a
-  landing page — `rlv_rid`/`rlv_rpid`/`rlv_rpos` (product block), `rlv_aid`/`rlv_apid`/`rlv_apos`
-  (search), `rlv_said`/`rlv_sapid` (shopping assistant), `rlv_bid` (banner), `rlv_cid`/`rlv_mid`/
-  `rlv_sid`/`rlv_ctid`/`rlv_fsid` (campaign, message, send, campaign id, flow), `rlv_stid`
-  (accepted by the API but not read there),
-  `rlv_odid`, `rlv_pfid` and `fbclid` — and sends them at the top level of the push context.
-  Every field is validated against the type the API enforces; a value that fails its type is
-  dropped rather than sent, so one bad parameter cannot make the API reject the whole push.
+- **Every attribution parameter the web SDK reads can now be sent, not only a product block's.**
+  `ClickAttribution.fromUrl` reads all eighteen parameters the web SDK reads from a landing page
+  (the seventeen `rlv_*` parameters and `fbclid`) and sends them at the top level of the push
+  context. Every field is validated against the type the API enforces; a value that fails its
+  type is dropped rather than sent, so one bad parameter cannot make the API reject the whole
+  push.
 - **`trackScreenView`, `trackScreenViewWithEvents` and `trackSearchView` take
-  `clickAttribution` too**, for a screen opened from a campaign link or a banner.
+  `clickAttribution` too**, for a screen opened from a Releva link.
 - **`ProductRecommendation.clickAttribution`**, the attribution for a tap on that product.
 - **`ClickAttribution.plus`**, which merges two attributions, the right-hand side winning.
 
@@ -52,6 +49,11 @@ ClickAttribution.fromFields(product.mergeContext)
   as a table row in a minor release rather than as a new parameter or type. Parameters that are
   not in the table are ignored rather than forwarded, because the push context schema is strict
   and an unknown key would make the API reject the request.
+- **A mergeContext without a valid `rid` is no longer discarded whole**; its other valid fields
+  are sent.
+- **The new trailing `clickAttribution` parameter changes the JVM signatures** of
+  `trackScreenView`, `trackScreenViewWithEvents` and `trackSearchView`. Source is compatible;
+  code compiled against 1.7.1 must be recompiled.
 
 ## 1.7.1
 

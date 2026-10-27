@@ -95,7 +95,7 @@ lifecycleScope.launch {
 
 ### Crediting Clicks
 
-When a shopper opens something from a Releva placement — a product block, a search result, a banner, a campaign or email link, the shopping assistant — pass a `ClickAttribution` with the view that tap opened, so Releva credits the click and any purchase after it. On the web the same values ride on the landing page's `rlv_*` URL parameters; an app has no landing URL, so it sends them itself.
+When a shopper opens something from a Releva response or a Releva link, pass a `ClickAttribution` with the view that tap opened. It carries the `rlv_*` attribution parameters the web SDK reads from a landing page's URL; an app has no landing URL, so it sends them itself.
 
 ```kotlin
 import ai.releva.sdk.types.tracking.ClickAttribution
@@ -114,14 +114,14 @@ relevaClient.trackProductView(
     clickAttribution = ClickAttribution.fromUrl(tappedUrl),
 )
 
-// A screen opened from a campaign link or banner
+// A screen opened from a Releva link
 relevaClient.trackScreenView(
     pageUrl = "myapp://home",
     clickAttribution = ClickAttribution.fromUrl(linkUrl),
 )
 ```
 
-Send it only for the view that came from the tap; a later visit to the same screen is a plain view. Values that are not valid for their field are dropped rather than sent, and parameters Releva does not define are ignored.
+Send it only for the view that came from the tap; a later visit to the same screen is a plain view. Values that are not valid for their field are dropped rather than sent, and parameters Releva does not define are ignored. `fromUrl` returns null for a URL with no `rlv_*` parameters, such as a link inside a banner shown by `BannerDisplayManager`; those banners report their own clicks.
 
 ## Documentation
 

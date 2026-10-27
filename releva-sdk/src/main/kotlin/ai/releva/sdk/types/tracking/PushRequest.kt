@@ -93,7 +93,7 @@ class PushRequest {
     }
 
     /**
-     * Credit this request's view to the Releva placement the shopper came from. Build the
+     * Send the attribution of the Releva tap that opened this request's view. Build the
      * attribution with [ClickAttribution.fromUrl] or [ClickAttribution.fromFields], or take it
      * from [ai.releva.sdk.types.response.ProductRecommendation.clickAttribution].
      *

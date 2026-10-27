@@ -11,13 +11,12 @@ private val UUID_PATTERN = Regex(
 )
 
 /**
- * The attribution a Releva click carries, so the click — and any purchase after it — is
- * credited to the placement the shopper came from: a product block, a search result, a banner,
- * an email or campaign link, the shopping assistant.
+ * The attribution fields a Releva click carries: the `rlv_*` parameters the web SDK reads from a
+ * landing page's URL, sent with the view the tap opened so the API can credit the click.
  *
- * Build one with [fromUrl] from a Releva URL the shopper tapped, or with [fromFields] when the
- * placement handed the values over directly, then pass it to the tracking call for the screen
- * that tap opened.
+ * Build one with [fromUrl] from a Releva URL the shopper tapped, or with [fromFields] from the
+ * same values keyed by context field name, then pass it to the tracking call for the screen that
+ * tap opened.
  *
  * Only the fields listed in this class's table are read; anything else on the URL or in the map
  * is ignored, because the push context schema is strict and an unknown key would make the API
@@ -95,9 +94,8 @@ class ClickAttribution private constructor(internal val fields: Map<String, Any>
         )
 
         /**
-         * The attribution on a Releva URL the shopper tapped — a product block link, a search
-         * result, a banner link, an email or campaign link, a shopping-assistant link.
-         * Pass the URL exactly as Releva returned it. Null when it carries no valid field.
+         * The attribution on a Releva URL the shopper tapped. Pass the URL exactly as Releva
+         * returned it. Null when it carries no valid field.
          */
         fun fromUrl(url: String?): ClickAttribution? {
             val parameters = url?.let { queryParameters(it) } ?: return null

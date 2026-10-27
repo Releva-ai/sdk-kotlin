@@ -773,9 +773,8 @@ class RelevaClient(
     /**
      * Track screen view.
      *
-     * @param clickAttribution when the shopper opened this screen from a Releva placement — a
-     *   campaign or email link, a banner — what to credit that click to. See
-     *   [PushRequest.clickAttribution].
+     * @param clickAttribution when the shopper opened this screen from a Releva link, the
+     *   attribution that link carries. See [PushRequest.clickAttribution].
      */
     suspend fun trackScreenView(
         pageUrl: String? = null,
@@ -842,9 +841,8 @@ class RelevaClient(
     /**
      * Track product view.
      *
-     * @param clickAttribution when the shopper opened this product from a Releva placement —
-     *   a product block, a search result, the shopping assistant — what to credit that click
-     *   to, usually that product's
+     * @param clickAttribution when the shopper opened this product from a Releva response or
+     *   link, the attribution it carries, usually that product's
      *   [ai.releva.sdk.types.response.ProductRecommendation.clickAttribution]. See
      *   [PushRequest.clickAttribution].
      */
