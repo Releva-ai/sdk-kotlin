@@ -1,5 +1,6 @@
 package ai.releva.sdk.types.response
 
+import ai.releva.sdk.types.tracking.ClickAttribution
 import org.json.JSONObject
 import java.util.Date
 
@@ -70,6 +71,16 @@ data class ProductRecommendation(
     val updatedAt: Date? = null,
     val url: String? = null
 ) {
+    /**
+     * What to credit a tap on this product to: its [mergeContext], with the `rlv_*` parameters
+     * on its [url] filling in anything the mergeContext does not carry. Null when neither does.
+     */
+    val clickAttribution: ClickAttribution?
+        get() {
+            val fromMergeContext = ClickAttribution.fromFields(mergeContext)
+            return ClickAttribution.fromUrl(url)?.plus(fromMergeContext) ?: fromMergeContext
+        }
+
     companion object {
         @Suppress("UNCHECKED_CAST")
         fun fromMap(map: Map<String, Any?>): ProductRecommendation {

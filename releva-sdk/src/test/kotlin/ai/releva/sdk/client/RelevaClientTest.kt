@@ -9,6 +9,7 @@ import ai.releva.sdk.types.device.DeviceType
 import ai.releva.sdk.types.event.CustomEvent
 import ai.releva.sdk.types.filter.SimpleFilter
 import ai.releva.sdk.types.response.BannerResponse
+import ai.releva.sdk.types.tracking.ClickAttribution
 import ai.releva.sdk.types.tracking.PushRequest
 import ai.releva.sdk.types.wishlist.WishlistProduct
 import android.content.Context
@@ -1012,7 +1013,7 @@ class RelevaClientTest {
         // Both clients share the same StorageService singleton
     }
 
-    // Recommender click attribution
+    // Click attribution
 
     private val mergeContext = mapOf(
         "rid" to "0233781a-f836-40a9-a67a-2220814b5db4",
@@ -1032,7 +1033,12 @@ class RelevaClientTest {
 
     @Test
     fun `a product opened from a block sends the click context the API credits`() = runTest {
-        val context = pushedContext { it.trackProductView(productId = "sku-1", recommenderClick = mergeContext) }
+        val context = pushedContext {
+            it.trackProductView(
+                productId = "sku-1",
+                clickAttribution = ClickAttribution.fromFields(mergeContext),
+            )
+        }
         assertEquals("0233781a-f836-40a9-a67a-2220814b5db4", context.getString("rid"))
         assertEquals("sku-1", context.getString("rpid"))
         // The API validates rpos and pfid as numbers, not strings.
@@ -1049,19 +1055,41 @@ class RelevaClientTest {
     }
 
     @Test
-    fun `malformed click values are left out rather than failing the push`() {
-        val ctx = PushRequest.recommenderClickContext(mergeContext + mapOf("rpos" to "0", "pfid" to "x"))!!
-        assertEquals(setOf("rid", "rpid"), ctx.keys)
+    fun `a screen opened from a campaign link sends that link's click context`() = runTest {
+        val context = pushedContext {
+            it.trackScreenView(
+                pageUrl = "myapp://home",
+                clickAttribution = ClickAttribution.fromUrl(
+                    "https://shop.example.com/?rlv_cid=42&rlv_mid=7&rlv_ctid=campaign-1"
+                ),
+            )
+        }
+        assertEquals(42L, (context.get("cid") as Number).toLong())
+        assertEquals(7L, (context.get("mid") as Number).toLong())
+        assertEquals("campaign-1", context.getString("ctid"))
     }
 
     @Test
-    fun `no block token means no click to credit`() {
-        assertNull(PushRequest.recommenderClickContext(mapOf("rpid" to "sku-1", "rpos" to "1")))
+    fun `every attribution field reaches the push body it is read from a url into`() = runTest {
+        val url = ClickAttribution.SPECS.joinToString("&", prefix = "https://shop.example.com/p?") {
+            "${it.urlParam}=${sampleValue(it.type)}"
+        }
+        val attribution = ClickAttribution.fromUrl(url)!!
+        assertEquals(
+            ClickAttribution.SPECS.map { it.contextName }.toSet(),
+            attribution.fields.keys,
+        )
+
+        val context = pushedContext { it.trackScreenView(clickAttribution = attribution) }
+        ClickAttribution.SPECS.forEach { assertTrue(it.contextName, context.has(it.contextName)) }
     }
 
-    @Test
-    fun `a malformed rid is dropped rather than sent as a non-uuid`() {
-        assertNull(PushRequest.recommenderClickContext(mergeContext + mapOf("rid" to "block-1")))
+    private fun sampleValue(type: ClickAttribution.FieldType) = when (type) {
+        ClickAttribution.FieldType.UUID -> "0233781a-f836-40a9-a67a-2220814b5db4"
+        ClickAttribution.FieldType.STRING -> "value"
+        ClickAttribution.FieldType.POSITION -> "3"
+        ClickAttribution.FieldType.OFFSET -> "0"
+        ClickAttribution.FieldType.NUMBER -> "30202"
     }
 
     // Helper Methods

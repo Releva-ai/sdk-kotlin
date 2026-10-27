@@ -38,7 +38,7 @@ Add SDK dependency to your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.Releva-ai:sdk-kotlin:1.7.1")
+    implementation("com.github.Releva-ai:sdk-kotlin:2.0.0")
 }
 ```
 
@@ -92,6 +92,36 @@ lifecycleScope.launch {
     }
 }
 ```
+
+### Crediting Clicks
+
+When a shopper opens something from a Releva placement — a product block, a search result, a banner, a campaign or email link, a story, the shopping assistant — pass a `ClickAttribution` with the view that tap opened, so Releva credits the click and any purchase after it. On the web the same values ride on the landing page's `rlv_*` URL parameters; an app has no landing URL, so it sends them itself.
+
+```kotlin
+import ai.releva.sdk.types.tracking.ClickAttribution
+
+// From a product in a Releva response (its mergeContext, with its url filling in the rest)
+relevaClient.trackProductView(
+    pageUrl = "myapp://product/details",
+    productId = product.id,
+    clickAttribution = product.clickAttribution,
+)
+
+// From a Releva URL the shopper tapped
+relevaClient.trackProductView(
+    pageUrl = "myapp://product/details",
+    productId = product.id,
+    clickAttribution = ClickAttribution.fromUrl(tappedUrl),
+)
+
+// A screen opened from a campaign link, banner or story
+relevaClient.trackScreenView(
+    pageUrl = "myapp://home",
+    clickAttribution = ClickAttribution.fromUrl(linkUrl),
+)
+```
+
+Send it only for the view that came from the tap; a later visit to the same screen is a plain view. Values that are not valid for their field are dropped rather than sent, and parameters Releva does not define are ignored.
 
 ## Documentation
 

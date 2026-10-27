@@ -49,7 +49,7 @@ Add to your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.Releva-ai:sdk-kotlin:1.7.1")
+    implementation("com.github.Releva-ai:sdk-kotlin:2.0.0")
 }
 ```
 
@@ -57,7 +57,7 @@ Or in `build.gradle`:
 
 ```groovy
 dependencies {
-    implementation 'com.github.Releva-ai:sdk-kotlin:1.7.1'
+    implementation 'com.github.Releva-ai:sdk-kotlin:2.0.0'
 }
 ```
 
@@ -343,31 +343,49 @@ class ProductViewModel : ViewModel() {
 }
 ```
 
-### Crediting Clicks on Recommended Products
+### Crediting Clicks
 
-When the shopper opens a product from a Releva product block, pass that product's
-`mergeContext` with the product view. Releva then credits the click (and any later purchase)
-to the block, and, when the feed bandit is on, to the feed that filled it. On the web the same
-values ride on the landing page's `rlv_*` URL parameters; an app has no landing URL, so the
-product view carries them.
+When the shopper opens something from a Releva placement — a product block, a search result, a
+banner, a campaign or email link, a story, the shopping assistant — pass a `ClickAttribution`
+with the view that tap opened. Releva then credits the click, and any later purchase, to that
+placement. On the web the same values ride on the landing page's `rlv_*` URL parameters; an app
+has no landing URL, so it sends them itself.
+
+A product in a Releva response already knows what to credit: `product.clickAttribution` reads
+its `mergeContext` and fills in anything missing from the `rlv_*` parameters on its `url`.
 
 ```kotlin
+import ai.releva.sdk.types.tracking.ClickAttribution
+
 // `product` is a ProductRecommendation from response.recommenders[…].response
 relevaClient.trackProductView(
     pageUrl = "myapp://product/details",
     productId = product.id,
-    recommenderClick = product.mergeContext,
+    clickAttribution = product.clickAttribution,
 )
 
 // or with the builder
 PushRequest()
     .url("myapp://product/details")
     .productView(ViewedProduct(productId = product.id, custom = CustomFields.empty()))
-    .recommenderClick(product.mergeContext)
+    .clickAttribution(product.clickAttribution)
 ```
 
-Send it only for a view that came from a tap on that product's card; a later visit to the same
-product is a plain product view.
+For anything else the shopper tapped, build the attribution from that URL exactly as Releva
+returned it. The same parameter applies to `trackScreenView`, `trackScreenViewWithEvents` and
+`trackSearchView`, for a screen opened from a campaign link, a banner or a story.
+
+```kotlin
+relevaClient.trackScreenView(
+    pageUrl = "myapp://home",
+    clickAttribution = ClickAttribution.fromUrl(linkUrl),
+)
+```
+
+Send it only for the view that came from the tap; a later visit to the same screen or product is
+a plain view. Values that are not valid for their field are dropped rather than sent, and
+parameters Releva does not define are ignored — a new attribution source becomes available in a
+later SDK version without any change to these calls.
 
 ## Step 4: Track Cart and Wishlist
 

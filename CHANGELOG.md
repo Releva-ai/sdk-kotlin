@@ -1,5 +1,57 @@
 # Changelog
 
+## 2.0.0
+
+MAJOR: click attribution becomes one mechanism for every Releva placement. `recommenderClick`
+is removed with no deprecated overload left behind.
+
+### Migration
+
+`recommenderClick` took a product block's `mergeContext`. It is replaced by `clickAttribution`,
+which takes a `ClickAttribution` built from either a mergeContext or a Releva URL:
+
+```kotlin
+// before
+relevaClient.trackProductView(productId = product.id, recommenderClick = product.mergeContext)
+PushRequest().recommenderClick(product.mergeContext)
+
+// after
+relevaClient.trackProductView(productId = product.id, clickAttribution = product.clickAttribution)
+PushRequest().clickAttribution(product.clickAttribution)
+
+// or, from any Releva URL the shopper tapped
+ClickAttribution.fromUrl(tappedUrl)
+// or, from context field names such as a mergeContext
+ClickAttribution.fromFields(product.mergeContext)
+```
+
+`product.clickAttribution` is the mergeContext with the `rlv_*` parameters on the product's
+`url` filling in what it does not carry, and is what most call sites want.
+
+### Added
+
+- **Clicks from every Releva placement can now be credited, not only product blocks.**
+  `ClickAttribution.fromUrl` reads all eighteen attribution parameters the web SDK reads from a
+  landing page — `rlv_rid`/`rlv_rpid`/`rlv_rpos` (product block), `rlv_aid`/`rlv_apid`/`rlv_apos`
+  (search), `rlv_said`/`rlv_sapid` (shopping assistant), `rlv_bid` (banner), `rlv_cid`/`rlv_mid`/
+  `rlv_sid`/`rlv_ctid`/`rlv_fsid` (campaign, message, send, flow), `rlv_stid` (story),
+  `rlv_odid`, `rlv_pfid` and `fbclid` — and sends them at the top level of the push context.
+  Every field is validated against the type the API enforces; a value that fails its type is
+  dropped rather than sent, so one bad parameter cannot make the API reject the whole push.
+- **`trackScreenView`, `trackScreenViewWithEvents` and `trackSearchView` take
+  `clickAttribution` too**, for a screen opened from a campaign link, a banner or a story.
+- **`ProductRecommendation.clickAttribution`**, the attribution for a tap on that product.
+- **`ClickAttribution.plus`**, which merges two attributions, the right-hand side winning.
+
+### Changed
+
+- **Adding an attribution source no longer needs a breaking change.** Parsing, validation and
+  serialization are driven by one internal table of fields, and `ClickAttribution` is an opaque
+  final class with a private constructor and no per-field accessors, so a future source arrives
+  as a table row in a minor release rather than as a new parameter or type. Parameters that are
+  not in the table are ignored rather than forwarded, because the push context schema is strict
+  and an unknown key would make the API reject the request.
+
 ## 1.7.1
 
 PATCH: three push-token fixes; no public API is added, removed or deprecated.
