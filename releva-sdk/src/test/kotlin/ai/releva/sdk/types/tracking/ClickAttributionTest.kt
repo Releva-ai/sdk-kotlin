@@ -54,6 +54,21 @@ class ClickAttributionTest {
     }
 
     @Test
+    fun `a uuid the API's rule rejects is dropped`() {
+        val base = "https://shop.example.com/p?rlv_aid=1&rlv_rid="
+        listOf(
+            "0233781a-f836-40a9-c67a-2220814b5db4",
+            "1f0a0b2c-3d4e-0f50-8617-2a3b4c5d6e7f",
+            "1f0a0b2c-3d4e-9f50-8617-2a3b4c5d6e7f",
+        ).forEach { assertNull(it, ClickAttribution.fromUrl(base + it)!!.fields["rid"]) }
+        listOf(
+            "0233781A-F836-40A9-A67A-2220814B5DB4",
+            "00000000-0000-0000-0000-000000000000",
+            "1f0a0b2c-3d4e-1f50-c617-2a3b4c5d6e7f",
+        ).forEach { assertEquals(it, ClickAttribution.fromUrl(base + it)!!.fields["rid"]) }
+    }
+
+    @Test
     fun `an fbclid past the length the schema allows is dropped`() {
         val url = "https://shop.example.com/p?rlv_aid=1&fbclid="
         assertEquals("x".repeat(256), ClickAttribution.fromUrl(url + "x".repeat(256))!!.fields["fbclid"])
@@ -61,7 +76,7 @@ class ClickAttributionTest {
     }
 
     @Test
-    fun `encoded values are decoded, and a literal plus stays a plus`() {
+    fun `encoded values are decoded, a plus is a space and an escaped plus stays a plus`() {
         val fields = ClickAttribution.fromUrl(
             "https://shop.example.com/p?rlv_rpid=sku%2F1&rlv_apid=sku%231" +
                 "&rlv_sapid=sku%2B1&rlv_odid=order+1"
@@ -70,7 +85,7 @@ class ClickAttributionTest {
         assertEquals("sku/1", fields["rpid"])
         assertEquals("sku#1", fields["apid"])
         assertEquals("sku+1", fields["sapid"])
-        assertEquals("order+1", fields["odid"])
+        assertEquals("order 1", fields["odid"])
     }
 
     @Test

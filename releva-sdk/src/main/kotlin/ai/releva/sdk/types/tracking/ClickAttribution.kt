@@ -2,8 +2,13 @@ package ai.releva.sdk.types.tracking
 
 import java.net.URLDecoder
 
-private val UUID_PATTERN =
-    Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+// The API's uuid rule: version digit 1-8, and a variant digit of 8/9/a/b for versions 3, 4, 5, 7
+// and 8; only the all-zero nil UUID may fall outside that.
+private val UUID_PATTERN = Regex(
+    "^(?:[0-9a-f]{8}-[0-9a-f]{4}-(?:[126][0-9a-f]{3}-[0-9a-f]{4}|[34578][0-9a-f]{3}-[89ab][0-9a-f]{3})" +
+        "-[0-9a-f]{12}|0{8}-0{4}-0{4}-0{4}-0{12})$",
+    RegexOption.IGNORE_CASE,
+)
 
 /**
  * The attribution a Releva click carries, so the click — and any purchase after it — is
@@ -20,6 +25,8 @@ private val UUID_PATTERN =
  * a minor release — never as a change to the signatures here.
  */
 class ClickAttribution private constructor(internal val fields: Map<String, Any>) {
+
+    override fun toString(): String = "ClickAttribution$fields"
 
     /** True when nothing is credited; the factories return null rather than an empty one. */
     val isEmpty: Boolean
@@ -139,10 +146,8 @@ class ClickAttribution private constructor(internal val fields: Map<String, Any>
             }.toMap()
         }
 
-        // URLDecoder is form decoding and would turn a literal `+` into a space; the web SDK's
-        // decodeURIComponent does not, and an assistant URL arrives with its escapes already
-        // decoded, so a `%2B` in an id reaches us as a bare `+`.
-        private fun decode(value: String): String =
-            URLDecoder.decode(value.replace("+", "%2B"), "UTF-8")
+        // Form decoding is the web SDK's `+` to space followed by decodeURIComponent, and the API
+        // writes these URLs with URLSearchParams, which encodes a space as `+`.
+        private fun decode(value: String): String = URLDecoder.decode(value, "UTF-8")
     }
 }

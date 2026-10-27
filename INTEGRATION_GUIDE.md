@@ -373,7 +373,7 @@ PushRequest()
 
 For anything else the shopper tapped, build the attribution from that URL exactly as Releva
 returned it. The same parameter applies to `trackScreenView`, `trackScreenViewWithEvents` and
-`trackSearchView`, for a screen opened from a campaign link, a banner or a story.
+`trackSearchView`, for a screen opened from a campaign link or a banner.
 
 ```kotlin
 relevaClient.trackScreenView(

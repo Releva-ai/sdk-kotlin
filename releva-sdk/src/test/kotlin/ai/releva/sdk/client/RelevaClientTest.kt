@@ -1070,6 +1070,30 @@ class RelevaClientTest {
     }
 
     @Test
+    fun `a screen with events opened from a search result sends the click context`() = runTest {
+        val context = pushedContext {
+            it.trackScreenViewWithEvents(
+                pageUrl = "myapp://home",
+                customEvents = emptyList(),
+                clickAttribution = ClickAttribution.fromUrl("https://shop.example.com/?rlv_aid=search-1"),
+            )
+        }
+        assertEquals("search-1", context.getString("aid"))
+    }
+
+    @Test
+    fun `a search screen opened from a search result sends the click context`() = runTest {
+        val context = pushedContext {
+            it.trackSearchView(
+                query = "dress",
+                clickAttribution = ClickAttribution.fromUrl("https://shop.example.com/?rlv_aid=search-1&rlv_apos=2"),
+            )
+        }
+        assertEquals("search-1", context.getString("aid"))
+        assertEquals(2, context.get("apos"))
+    }
+
+    @Test
     fun `every attribution field reaches the push body it is read from a url into`() = runTest {
         val url = ClickAttribution.SPECS.joinToString("&", prefix = "https://shop.example.com/p?") {
             "${it.urlParam}=${sampleValue(it.type)}"

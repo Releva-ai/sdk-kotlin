@@ -114,7 +114,7 @@ relevaClient.trackProductView(
     clickAttribution = ClickAttribution.fromUrl(tappedUrl),
 )
 
-// A screen opened from a campaign link, banner or story
+// A screen opened from a campaign link or banner
 relevaClient.trackScreenView(
     pageUrl = "myapp://home",
     clickAttribution = ClickAttribution.fromUrl(linkUrl),

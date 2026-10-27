@@ -774,7 +774,7 @@ class RelevaClient(
      * Track screen view.
      *
      * @param clickAttribution when the shopper opened this screen from a Releva placement — a
-     *   campaign or email link, a banner, a story — what to credit that click to. See
+     *   campaign or email link, a banner — what to credit that click to. See
      *   [PushRequest.clickAttribution].
      */
     suspend fun trackScreenView(

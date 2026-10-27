@@ -39,7 +39,7 @@ ClickAttribution.fromFields(product.mergeContext)
   Every field is validated against the type the API enforces; a value that fails its type is
   dropped rather than sent, so one bad parameter cannot make the API reject the whole push.
 - **`trackScreenView`, `trackScreenViewWithEvents` and `trackSearchView` take
-  `clickAttribution` too**, for a screen opened from a campaign link, a banner or a story.
+  `clickAttribution` too**, for a screen opened from a campaign link or a banner.
 - **`ProductRecommendation.clickAttribution`**, the attribution for a tap on that product.
 - **`ClickAttribution.plus`**, which merges two attributions, the right-hand side winning.
 
