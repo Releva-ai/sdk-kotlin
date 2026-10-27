@@ -121,6 +121,19 @@ relevaClient.trackScreenView(
 )
 ```
 
+The `track*` methods are shortcuts over `PushRequest`. Anything they send, and anything they don't take yet, can be sent by building the request yourself:
+
+```kotlin
+import ai.releva.sdk.types.tracking.PushRequest
+
+relevaClient.push(
+    PushRequest()
+        .url("myapp://home")
+        .screenToken(screenToken)
+        .clickAttribution(ClickAttribution.fromUrl(linkUrl))
+)
+```
+
 Send it only for the view that came from the tap; a later visit to the same screen is a plain view. Values that are not valid for their field are dropped rather than sent, and parameters Releva does not define are ignored. `fromUrl` returns null for a URL with no `rlv_*` parameters, such as a link inside a banner shown by `BannerDisplayManager`; those banners report their own clicks.
 
 ## Documentation
