@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.8.0
+
+MINOR: adds public API; nothing is removed or changes behaviour for existing callers.
+
+### Added
+
+- **Every attribution parameter the web SDK reads can now be sent, not only a product block's.**
+  `PushRequest.clickAttribution(ClickAttribution)` takes a `ClickAttribution` built with
+  `ClickAttribution.fromUrl`, which reads all eighteen parameters the web SDK reads from a
+  landing page (the seventeen `rlv_*` parameters and `fbclid`), or `ClickAttribution.fromFields`,
+  which takes context field names such as a mergeContext. The fields are sent at the top level of
+  the push context. Every field is validated against the type the API enforces; a value that
+  fails its type is dropped rather than sent, so one bad parameter cannot make the API reject
+  the whole push.
+- **`ProductRecommendation.clickAttribution`**: the attribution for a tap on that product, from
+  its `mergeContext`, with the `rlv_*` parameters on its `url` filling in what that lacks.
+- **`ClickAttribution.plus`**, which merges two attributions, the right-hand side winning.
+
+`recommenderClick` and the `track*` methods are unchanged; send any other attribution through the
+builder. When a request sets both `recommenderClick` and `clickAttribution`, `clickAttribution`
+wins on a field both set.
+
+Adding an attribution source later doesn't need a breaking change. Parsing, validation and
+serialization are driven by one internal table of fields, and `ClickAttribution` is an opaque
+final class with no per-field accessors, so a new source is a table row in a minor release.
+Parameters that are not in the table are ignored rather than forwarded, because the push context
+schema is strict and an unknown key would make the API reject the request.
+
+### Build
+
+- **The public API is recorded and checked.** The binary-compatibility validator's dump is
+  committed at `releva-sdk/api/releva-sdk.api`, and `apiCheck` runs as part of `check`, so CI
+  fails on a public API change that hasn't been deliberately re-dumped. See "Public API and
+  compatibility" in `DEVELOPMENT.md`.
+
 ## 1.7.1
 
 PATCH: three push-token fixes; no public API is added, removed or deprecated.
@@ -60,7 +95,7 @@ MINOR: adds public API; nothing is removed or changes behaviour for existing cal
   `PushRequest.recommenderClick(mergeContext)` and a `recommenderClick` parameter on
   `trackProductView`, taken from the product's `mergeContext` as Releva returned it. `rpos` and
   `pfid` are sent as numbers, which is what the API validates; malformed values are left out
-  rather than failing the push. See "Crediting Clicks on Recommended Products" in
+  rather than failing the push. See "Crediting Clicks" in
   `INTEGRATION_GUIDE.md`.
 - **Numeric `mergeContext` values are no longer blanked when parsing recommendations.** The API
   sends `rpos` and `pfid` as JSON numbers, and `ProductRecommendation` parsed every non-string

@@ -89,7 +89,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "1.7.1-kotlin"
+        private const val VERSION = "1.8.0-kotlin"
 
         // The Swift SDK's waits, kept identical so an outage costs both SDKs the same time:
         // a server that answered at all gets longer to recover than a network that did not.
@@ -470,6 +470,8 @@ class RelevaClient(
 
             request.viewedProduct?.let { put("product", JSONObject(it.toMap())) }
             request.recommenderClick?.forEach { (key, value) -> put(key, value) }
+            // After recommenderClick, so the general attribution wins on a field both set.
+            request.clickAttribution?.fields?.forEach { (key, value) -> put(key, value) }
 
             // Carrying merge ids implies the profile changed, so keep the two in step even when
             // the change happened in an earlier process. Before the queue was durable an id

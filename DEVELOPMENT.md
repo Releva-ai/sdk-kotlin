@@ -349,6 +349,32 @@ Three levels of configuration:
 ./gradlew :releva-sdk:publishToMavenLocal
 ```
 
+## Public API and compatibility
+
+The public API is recorded in `releva-sdk/api/releva-sdk.api`, and `:releva-sdk:apiCheck` (run by
+`check`, and so by CI's `:releva-sdk:build`) fails when it changes. A deliberate change means
+running `./gradlew :releva-sdk:apiDump` and committing the diff with the change, so it shows in
+review. Use the dump diff to decide the version: an added line is a minor release; a changed or
+removed line breaks callers built against the previous version and needs a major one.
+
+Rules that keep most changes additive:
+
+- **`PushRequest` is the extensible API; the `track*` methods are conveniences over it.** A new
+  thing to send gets a builder method on `PushRequest` first. Adding a method never breaks a
+  caller.
+- **Don't add parameters to existing `track*` methods outside a major release.** A new parameter
+  changes the method's JVM signature even with a default value (there is no `@JvmOverloads`), so
+  apps compiled against the previous version fail with `NoSuchMethodError`. Until the next major,
+  callers who need the new option use the builder.
+- **A new click-attribution source is a row in `ClickAttribution`'s field table**, not a new
+  parameter, property or factory. The public surface of `ClickAttribution` (`fromUrl`,
+  `fromFields`, `plus`, `isEmpty`) does not change, so it ships in a minor release. Add the row
+  only once the push API accepts the field: unknown fields are dropped rather than sent, because
+  an unexpected key can fail the whole push.
+- **Prefer final classes with private constructors for new public types.** Avoid public `data class`
+  (its `copy` and `componentN` freeze the field list) and public enums or sealed hierarchies that
+  callers might match exhaustively.
+
 ## Testing Strategy
 
 ### Unit Tests

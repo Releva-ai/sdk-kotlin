@@ -9,6 +9,8 @@ import ai.releva.sdk.types.device.DeviceType
 import ai.releva.sdk.types.event.CustomEvent
 import ai.releva.sdk.types.filter.SimpleFilter
 import ai.releva.sdk.types.response.BannerResponse
+import ai.releva.sdk.types.product.ViewedProduct
+import ai.releva.sdk.types.tracking.ClickAttribution
 import ai.releva.sdk.types.tracking.PushRequest
 import ai.releva.sdk.types.wishlist.WishlistProduct
 import android.content.Context
@@ -1062,6 +1064,87 @@ class RelevaClientTest {
     @Test
     fun `a malformed rid is dropped rather than sent as a non-uuid`() {
         assertNull(PushRequest.recommenderClickContext(mergeContext + mapOf("rid" to "block-1")))
+    }
+
+    // Click attribution through the builder
+
+    @Test
+    fun `a product opened from a block can be credited through the builder`() = runTest {
+        val context = pushedContext {
+            it.push(
+                PushRequest()
+                    .productView(ViewedProduct(productId = "sku-1", custom = CustomFields.empty()))
+                    .clickAttribution(ClickAttribution.fromFields(mergeContext))
+            )
+        }
+        assertEquals("0233781a-f836-40a9-a67a-2220814b5db4", context.getString("rid"))
+        assertEquals("sku-1", context.getString("rpid"))
+        assertEquals(3, context.get("rpos"))
+    }
+
+    @Test
+    fun `a screen opened from a campaign link sends that link's click context`() = runTest {
+        val context = pushedContext {
+            it.push(
+                PushRequest()
+                    .url("myapp://home")
+                    .clickAttribution(
+                        ClickAttribution.fromUrl("https://shop.example.com/?rlv_cid=42&rlv_mid=7&rlv_ctid=campaign-1")
+                    )
+            )
+        }
+        assertEquals(42L, (context.get("cid") as Number).toLong())
+        assertEquals(7L, (context.get("mid") as Number).toLong())
+        assertEquals("campaign-1", context.getString("ctid"))
+    }
+
+    @Test
+    fun `a search result sends its click context`() = runTest {
+        val context = pushedContext {
+            it.push(
+                PushRequest()
+                    .productView(ViewedProduct(productId = "sku-1", custom = CustomFields.empty()))
+                    .clickAttribution(ClickAttribution.fromUrl("https://shop.example.com/p?rlv_aid=1&rlv_apid=sku-1&rlv_apos=0"))
+            )
+        }
+        assertEquals("1", context.getString("aid"))
+        assertEquals("sku-1", context.getString("apid"))
+        assertEquals(0, context.get("apos"))
+    }
+
+    @Test
+    fun `clickAttribution wins over recommenderClick on a shared field`() = runTest {
+        val context = pushedContext {
+            it.push(
+                PushRequest()
+                    .productView(ViewedProduct(productId = "sku-1", custom = CustomFields.empty()))
+                    .recommenderClick(mergeContext)
+                    .clickAttribution(ClickAttribution.fromFields(mapOf("rpid" to "sku-2", "aid" to "1")))
+            )
+        }
+        assertEquals("sku-2", context.getString("rpid"))
+        assertEquals("0233781a-f836-40a9-a67a-2220814b5db4", context.getString("rid"))
+        assertEquals("1", context.getString("aid"))
+    }
+
+    @Test
+    fun `every attribution field reaches the push body it is read from a url into`() = runTest {
+        val url = ClickAttribution.SPECS.joinToString("&", prefix = "https://shop.example.com/p?") {
+            "${it.urlParam}=${sampleValue(it.type)}"
+        }
+        val attribution = ClickAttribution.fromUrl(url)!!
+        assertEquals(ClickAttribution.SPECS.map { it.contextName }.toSet(), attribution.fields.keys)
+
+        val context = pushedContext { it.push(PushRequest().url("myapp://home").clickAttribution(attribution)) }
+        ClickAttribution.SPECS.forEach { assertTrue(it.contextName, context.has(it.contextName)) }
+    }
+
+    private fun sampleValue(type: ClickAttribution.FieldType) = when (type) {
+        ClickAttribution.FieldType.UUID -> "0233781a-f836-40a9-a67a-2220814b5db4"
+        ClickAttribution.FieldType.STRING -> "value"
+        ClickAttribution.FieldType.POSITION -> "3"
+        ClickAttribution.FieldType.OFFSET -> "0"
+        ClickAttribution.FieldType.NUMBER -> "30202"
     }
 
     // Helper Methods

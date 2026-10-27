@@ -22,6 +22,7 @@ class PushRequest {
     internal var pageCurrency: String? = null
     internal var cart: Cart? = null
     internal var recommenderClick: Map<String, Any>? = null
+    internal var clickAttribution: ClickAttribution? = null
 
     fun getScreenToken(): String? = pageToken
 
@@ -102,9 +103,30 @@ class PushRequest {
      *
      * The web SDK reads the same values from the `rlv_*` URL parameters of the landing page;
      * an app has no landing URL, so it sends them with the product view instead.
+     *
+     * For any Releva source, product blocks included, see [clickAttribution].
      */
     fun recommenderClick(mergeContext: Map<String, String>?): PushRequest {
         recommenderClick = mergeContext?.let { recommenderClickContext(it) }
+        return this
+    }
+
+    /**
+     * Send the attribution of the Releva tap that opened this request's view: a product block,
+     * a search result, a banner, an email or campaign link, a shopping-assistant link, or any
+     * source Releva adds later. Build it with [ClickAttribution.fromUrl] or
+     * [ClickAttribution.fromFields], or take it from
+     * [ai.releva.sdk.types.response.ProductRecommendation.clickAttribution].
+     *
+     * Its fields are sent at the top level of the push context, where the web SDK puts the ones
+     * it reads from the landing page's `rlv_*` URL parameters; an app has no landing URL, so it
+     * sends them with the view the tap opened. Send it only for that view; a later visit to the
+     * same screen is a plain view. The merge with [recommenderClick] is field by field, not
+     * whole-attribution: on any field both set, this one wins, so a push can end up crediting a
+     * `rid` from one and an `rpid` from the other. Prefer setting only one of the two.
+     */
+    fun clickAttribution(attribution: ClickAttribution?): PushRequest {
+        clickAttribution = attribution
         return this
     }
 

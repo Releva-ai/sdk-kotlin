@@ -38,7 +38,7 @@ Add SDK dependency to your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.Releva-ai:sdk-kotlin:1.7.1")
+    implementation("com.github.Releva-ai:sdk-kotlin:1.8.0")
 }
 ```
 
@@ -92,6 +92,38 @@ lifecycleScope.launch {
     }
 }
 ```
+
+### Crediting Clicks
+
+When a shopper opens something from a Releva response or a Releva link, send a `ClickAttribution` with the view that tap opened, using the `PushRequest` builder. It carries the `rlv_*` attribution parameters the web SDK reads from a landing page's URL; an app has no landing URL, so it sends them itself.
+
+```kotlin
+import ai.releva.sdk.types.tracking.ClickAttribution
+import ai.releva.sdk.types.tracking.PushRequest
+import ai.releva.sdk.types.product.ViewedProduct
+import ai.releva.sdk.types.customfield.CustomFields
+
+lifecycleScope.launch {
+    // A product opened from a Releva response (its mergeContext, with its url filling in the rest)
+    relevaClient.push(
+        PushRequest()
+            .url("myapp://product/details")
+            .productView(ViewedProduct(productId = product.id, custom = CustomFields.empty()))
+            .clickAttribution(product.clickAttribution)
+    )
+
+    // A screen opened from a Releva URL the shopper tapped
+    relevaClient.push(
+        PushRequest()
+            .url("myapp://home")
+            .clickAttribution(ClickAttribution.fromUrl(linkUrl))
+    )
+}
+```
+
+The `track*` methods are shortcuts over `PushRequest`; anything they don't take, such as `clickAttribution`, is sent by building the request yourself. For a product block, `trackProductView(..., recommenderClick = product.mergeContext)` remains a shortcut.
+
+Send it only for the view that came from the tap; a later visit to the same screen is a plain view. Values that are not valid for their field are dropped rather than sent, and parameters Releva does not define are ignored. `fromUrl` returns null for a URL with none of these recognised parameters — note that `fbclid` counts even though it isn't `rlv_*`, so a link carrying only `fbclid` still yields a non-null attribution — such as a link inside a banner shown by `BannerDisplayManager`; those banners report their own clicks.
 
 ## Documentation
 

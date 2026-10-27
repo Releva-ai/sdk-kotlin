@@ -1,6 +1,5 @@
 package ai.releva.sdk.types.response
 
-import ai.releva.sdk.types.tracking.PushRequest
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -30,10 +29,41 @@ class ProductRecommendationMergeContextTest {
     }
 
     @Test
-    fun `a parsed mergeContext round-trips into the click context`() {
+    fun `a parsed mergeContext round-trips into the click attribution`() {
         val p = product(mapOf("rid" to "0233781a-f836-40a9-a67a-2220814b5db4", "rpid" to "sku-1", "rpos" to 3, "pfid" to 30202.0))
-        val ctx = PushRequest.recommenderClickContext(p.mergeContext!!)!!
-        assertEquals(3, ctx["rpos"])
-        assertEquals(30202L, ctx["pfid"])
+        val fields = p.clickAttribution!!.fields
+        assertEquals(3, fields["rpos"])
+        assertEquals(30202L, fields["pfid"])
+    }
+
+    @Test
+    fun `the product url fills in what the mergeContext does not carry`() {
+        val p = ProductRecommendation.fromMap(
+            mapOf(
+                "id" to "sku-1", "name" to "Sandal", "price" to 10.0, "available" to true,
+                "mergeContext" to mapOf("rid" to "0233781a-f836-40a9-a67a-2220814b5db4"),
+                "url" to "https://shop.example.com/p/sku-1" +
+                    "?rlv_rid=1f0a0b2c-3d4e-4f50-8617-2a3b4c5d6e7f&rlv_aid=1&rlv_apid=sku-1",
+            )
+        )
+        assertEquals(
+            mapOf(
+                "rid" to "0233781a-f836-40a9-a67a-2220814b5db4",
+                "aid" to "1",
+                "apid" to "sku-1",
+            ),
+            p.clickAttribution!!.fields,
+        )
+    }
+
+    @Test
+    fun `a product with no mergeContext is credited from its url alone`() {
+        val p = ProductRecommendation.fromMap(
+            mapOf(
+                "id" to "sku-1", "name" to "Sandal", "price" to 10.0, "available" to true,
+                "url" to "https://shop.example.com/p/sku-1?rlv_aid=1&rlv_apid=sku-1",
+            )
+        )
+        assertEquals(mapOf("aid" to "1", "apid" to "sku-1"), p.clickAttribution!!.fields)
     }
 }
