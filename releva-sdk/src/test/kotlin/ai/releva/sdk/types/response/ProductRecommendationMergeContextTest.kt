@@ -55,4 +55,15 @@ class ProductRecommendationMergeContextTest {
             p.clickAttribution!!.fields,
         )
     }
+
+    @Test
+    fun `a product with no mergeContext is credited from its url alone`() {
+        val p = ProductRecommendation.fromMap(
+            mapOf(
+                "id" to "sku-1", "name" to "Sandal", "price" to 10.0, "available" to true,
+                "url" to "https://shop.example.com/p/sku-1?rlv_aid=1&rlv_apid=sku-1",
+            )
+        )
+        assertEquals(mapOf("aid" to "1", "apid" to "sku-1"), p.clickAttribution!!.fields)
+    }
 }

@@ -355,29 +355,33 @@ URL, so it sends them itself. A product in a Releva response already knows what 
 ```kotlin
 import ai.releva.sdk.types.tracking.ClickAttribution
 import ai.releva.sdk.types.tracking.PushRequest
+import ai.releva.sdk.types.product.ViewedProduct
+import ai.releva.sdk.types.customfield.CustomFields
 
-// A product opened from a Releva response: a product block, a search result, an assistant card…
-relevaClient.push(
-    PushRequest()
-        .url("myapp://product/details")
-        .productView(ViewedProduct(productId = product.id, custom = CustomFields.empty()))
-        .clickAttribution(product.clickAttribution)
-)
+viewLifecycleOwner.lifecycleScope.launch {
+    // A product opened from a Releva response: a product block, a search result, an assistant card…
+    relevaClient.push(
+        PushRequest()
+            .url("myapp://product/details")
+            .productView(ViewedProduct(productId = product.id, custom = CustomFields.empty()))
+            .clickAttribution(product.clickAttribution)
+    )
 
-// A screen opened from any other Releva link (an email or campaign link, a banner…),
-// built from that URL exactly as Releva returned it
-relevaClient.push(
-    PushRequest()
-        .url("myapp://home")
-        .screenToken(screenToken)
-        .clickAttribution(ClickAttribution.fromUrl(linkUrl))
-)
+    // A screen opened from any other Releva link (an email or campaign link, a banner…),
+    // built from that URL exactly as Releva returned it
+    relevaClient.push(
+        PushRequest()
+            .url("myapp://home")
+            .screenToken(screenToken)
+            .clickAttribution(ClickAttribution.fromUrl(linkUrl))
+    )
+}
 ```
 
 For a product block there is also the shortcut `trackProductView(..., recommenderClick =
 product.mergeContext)`, which credits the block's own fields. `fromUrl` returns null for a URL
-with no `rlv_*` parameters, such as a link inside a banner shown by `BannerDisplayManager`; those
-banners report their own clicks.
+with none of these recognised parameters — `fbclid` counts even though it isn't `rlv_*` — such as
+a link inside a banner shown by `BannerDisplayManager`; those banners report their own clicks.
 
 Send it only for the view that came from the tap; a later visit to the same screen or product is
 a plain view. Values that are not valid for their field are dropped rather than sent, and

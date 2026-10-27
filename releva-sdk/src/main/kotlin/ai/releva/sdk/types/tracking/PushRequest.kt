@@ -121,7 +121,9 @@ class PushRequest {
      * Its fields are sent at the top level of the push context, where the web SDK puts the ones
      * it reads from the landing page's `rlv_*` URL parameters; an app has no landing URL, so it
      * sends them with the view the tap opened. Send it only for that view; a later visit to the
-     * same screen is a plain view. On a field [recommenderClick] also sets, this one wins.
+     * same screen is a plain view. The merge with [recommenderClick] is field by field, not
+     * whole-attribution: on any field both set, this one wins, so a push can end up crediting a
+     * `rid` from one and an `rpid` from the other. Prefer setting only one of the two.
      */
     fun clickAttribution(attribution: ClickAttribution?): PushRequest {
         clickAttribution = attribution
