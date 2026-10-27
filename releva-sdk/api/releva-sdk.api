@@ -37,14 +37,14 @@ public final class ai/releva/sdk/client/RelevaClient : ai/releva/sdk/services/in
 	public final fun trackCustomEvent (Lai/releva/sdk/types/event/CustomEvent;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun trackCustomEvent$default (Lai/releva/sdk/client/RelevaClient;Lai/releva/sdk/types/event/CustomEvent;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public final fun trackEvent (Ljava/lang/String;)V
-	public final fun trackProductView (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun trackProductView$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public final fun trackScreenView (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun trackScreenView$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public final fun trackScreenViewWithEvents (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun trackScreenViewWithEvents$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public final fun trackSearchView (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun trackSearchView$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun trackProductView (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun trackProductView$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun trackScreenView (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun trackScreenView$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun trackScreenViewWithEvents (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun trackScreenViewWithEvents$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun trackSearchView (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun trackSearchView$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public final class ai/releva/sdk/client/RelevaClient$Companion {
@@ -1141,6 +1141,7 @@ public final class ai/releva/sdk/types/tracking/PushRequest {
 	public final fun pageProductIds (Ljava/util/List;)Lai/releva/sdk/types/tracking/PushRequest;
 	public final fun pageQuery (Ljava/lang/String;)Lai/releva/sdk/types/tracking/PushRequest;
 	public final fun productView (Lai/releva/sdk/types/product/ViewedProduct;)Lai/releva/sdk/types/tracking/PushRequest;
+	public final fun recommenderClick (Ljava/util/Map;)Lai/releva/sdk/types/tracking/PushRequest;
 	public final fun screenToken (Ljava/lang/String;)Lai/releva/sdk/types/tracking/PushRequest;
 	public final fun url (Ljava/lang/String;)Lai/releva/sdk/types/tracking/PushRequest;
 }

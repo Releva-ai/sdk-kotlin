@@ -89,7 +89,7 @@ class RelevaClient(
 
     companion object {
         private const val TAG = "RelevaClient"
-        private const val VERSION = "2.0.0-kotlin"
+        private const val VERSION = "1.8.0-kotlin"
 
         // The Swift SDK's waits, kept identical so an outage costs both SDKs the same time:
         // a server that answered at all gets longer to recover than a network that did not.
@@ -469,6 +469,8 @@ class RelevaClient(
             })
 
             request.viewedProduct?.let { put("product", JSONObject(it.toMap())) }
+            request.recommenderClick?.forEach { (key, value) -> put(key, value) }
+            // After recommenderClick, so the general attribution wins on a field both set.
             request.clickAttribution?.fields?.forEach { (key, value) -> put(key, value) }
 
             // Carrying merge ids implies the profile changed, so keep the two in step even when
@@ -771,10 +773,7 @@ class RelevaClient(
     }
 
     /**
-     * Track screen view.
-     *
-     * @param clickAttribution when the shopper opened this screen from a Releva link, the
-     *   attribution that link carries. See [PushRequest.clickAttribution].
+     * Track screen view
      */
     suspend fun trackScreenView(
         pageUrl: String? = null,
@@ -783,8 +782,7 @@ class RelevaClient(
         categories: List<String>? = null,
         filter: AbstractFilter? = null,
         locale: String? = null,
-        currency: String? = null,
-        clickAttribution: ClickAttribution? = null
+        currency: String? = null
     ): RelevaResponse {
         if (!config.enableTracking) {
             return RelevaResponse(emptyList(), emptyList())
@@ -799,15 +797,12 @@ class RelevaClient(
         productIds?.let { request.pageProductIds(it) }
         categories?.let { request.pageCategories(it) }
         filter?.let { request.pageFilter(it) }
-        clickAttribution?.let { request.clickAttribution(it) }
 
         return push(request)
     }
 
     /**
-     * Track screen view with custom events.
-     *
-     * @param clickAttribution as on [trackScreenView].
+     * Track screen view with custom events
      */
     suspend fun trackScreenViewWithEvents(
         pageUrl: String? = null,
@@ -817,8 +812,7 @@ class RelevaClient(
         categories: List<String>? = null,
         filter: AbstractFilter? = null,
         locale: String? = null,
-        currency: String? = null,
-        clickAttribution: ClickAttribution? = null
+        currency: String? = null
     ): RelevaResponse {
         if (!config.enableTracking) {
             return RelevaResponse(emptyList(), emptyList())
@@ -833,7 +827,6 @@ class RelevaClient(
         productIds?.let { request.pageProductIds(it) }
         categories?.let { request.pageCategories(it) }
         filter?.let { request.pageFilter(it) }
-        clickAttribution?.let { request.clickAttribution(it) }
 
         return push(request)
     }
@@ -841,10 +834,9 @@ class RelevaClient(
     /**
      * Track product view.
      *
-     * @param clickAttribution when the shopper opened this product from a Releva response or
-     *   link, the attribution it carries, usually that product's
-     *   [ai.releva.sdk.types.response.ProductRecommendation.clickAttribution]. See
-     *   [PushRequest.clickAttribution].
+     * @param recommenderClick when the shopper opened this product from a Releva product block,
+     *   that product's [ai.releva.sdk.types.response.ProductRecommendation.mergeContext], so the
+     *   click is credited to the block. See [PushRequest.recommenderClick].
      */
     suspend fun trackProductView(
         pageUrl: String? = null,
@@ -854,7 +846,7 @@ class RelevaClient(
         categories: List<String>? = null,
         locale: String? = null,
         currency: String? = null,
-        clickAttribution: ClickAttribution? = null
+        recommenderClick: Map<String, String>? = null
     ): RelevaResponse {
         if (!config.enableTracking) {
             return RelevaResponse(emptyList(), emptyList())
@@ -872,15 +864,13 @@ class RelevaClient(
             productId = productId,
             custom = customFields?.let { CustomFields.fromMap(it) } ?: CustomFields.empty()
         ))
-        clickAttribution?.let { request.clickAttribution(it) }
+        recommenderClick?.let { request.recommenderClick(it) }
 
         return push(request)
     }
 
     /**
-     * Track search view.
-     *
-     * @param clickAttribution as on [trackScreenView].
+     * Track search view
      */
     suspend fun trackSearchView(
         pageUrl: String? = null,
@@ -889,8 +879,7 @@ class RelevaClient(
         resultProductIds: List<String>? = null,
         filter: AbstractFilter? = null,
         locale: String? = null,
-        currency: String? = null,
-        clickAttribution: ClickAttribution? = null
+        currency: String? = null
     ): RelevaResponse {
         if (!config.enableTracking) {
             return RelevaResponse(emptyList(), emptyList())
@@ -906,7 +895,7 @@ class RelevaClient(
         currency?.let { request.currency(it) }
         filter?.let { request.pageFilter(it) }
         query?.let { request.pageQuery(it) }
-        clickAttribution?.let { request.clickAttribution(it) }
+
 
         return push(request)
     }

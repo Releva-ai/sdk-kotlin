@@ -38,7 +38,7 @@ Add SDK dependency to your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.Releva-ai:sdk-kotlin:2.0.0")
+    implementation("com.github.Releva-ai:sdk-kotlin:1.8.0")
 }
 ```
 
@@ -95,44 +95,29 @@ lifecycleScope.launch {
 
 ### Crediting Clicks
 
-When a shopper opens something from a Releva response or a Releva link, pass a `ClickAttribution` with the view that tap opened. It carries the `rlv_*` attribution parameters the web SDK reads from a landing page's URL; an app has no landing URL, so it sends them itself.
+When a shopper opens something from a Releva response or a Releva link, send a `ClickAttribution` with the view that tap opened, using the `PushRequest` builder. It carries the `rlv_*` attribution parameters the web SDK reads from a landing page's URL; an app has no landing URL, so it sends them itself.
 
 ```kotlin
 import ai.releva.sdk.types.tracking.ClickAttribution
-
-// From a product in a Releva response (its mergeContext, with its url filling in the rest)
-relevaClient.trackProductView(
-    pageUrl = "myapp://product/details",
-    productId = product.id,
-    clickAttribution = product.clickAttribution,
-)
-
-// From a Releva URL the shopper tapped
-relevaClient.trackProductView(
-    pageUrl = "myapp://product/details",
-    productId = product.id,
-    clickAttribution = ClickAttribution.fromUrl(tappedUrl),
-)
-
-// A screen opened from a Releva link
-relevaClient.trackScreenView(
-    pageUrl = "myapp://home",
-    clickAttribution = ClickAttribution.fromUrl(linkUrl),
-)
-```
-
-The `track*` methods are shortcuts over `PushRequest`. Anything they send, and anything they don't take yet, can be sent by building the request yourself:
-
-```kotlin
 import ai.releva.sdk.types.tracking.PushRequest
 
+// A product opened from a Releva response (its mergeContext, with its url filling in the rest)
+relevaClient.push(
+    PushRequest()
+        .url("myapp://product/details")
+        .productView(ViewedProduct(productId = product.id, custom = CustomFields.empty()))
+        .clickAttribution(product.clickAttribution)
+)
+
+// A screen opened from a Releva URL the shopper tapped
 relevaClient.push(
     PushRequest()
         .url("myapp://home")
-        .screenToken(screenToken)
         .clickAttribution(ClickAttribution.fromUrl(linkUrl))
 )
 ```
+
+The `track*` methods are shortcuts over `PushRequest`; anything they don't take, such as `clickAttribution`, is sent by building the request yourself. For a product block, `trackProductView(..., recommenderClick = product.mergeContext)` remains a shortcut.
 
 Send it only for the view that came from the tap; a later visit to the same screen is a plain view. Values that are not valid for their field are dropped rather than sent, and parameters Releva does not define are ignored. `fromUrl` returns null for a URL with no `rlv_*` parameters, such as a link inside a banner shown by `BannerDisplayManager`; those banners report their own clicks.
 

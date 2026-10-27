@@ -1,59 +1,39 @@
 # Changelog
 
-## 2.0.0
+## 1.8.0
 
-MAJOR: click attribution becomes one mechanism for every attribution parameter. `recommenderClick`
-is removed with no deprecated overload left behind.
-
-### Migration
-
-`recommenderClick` took a product block's `mergeContext`. It is replaced by `clickAttribution`,
-which takes a `ClickAttribution` built from either a mergeContext or a Releva URL:
-
-```kotlin
-// before
-relevaClient.trackProductView(productId = product.id, recommenderClick = product.mergeContext)
-PushRequest().recommenderClick(product.mergeContext)
-
-// after
-relevaClient.trackProductView(productId = product.id, clickAttribution = product.clickAttribution)
-PushRequest().clickAttribution(product.clickAttribution)
-
-// or, from any Releva URL the shopper tapped
-ClickAttribution.fromUrl(tappedUrl)
-// or, from context field names such as a mergeContext
-ClickAttribution.fromFields(product.mergeContext)
-```
-
-`product.clickAttribution` is the mergeContext with the `rlv_*` parameters on the product's
-`url` filling in what it does not carry, and is what most call sites want.
+MINOR: adds public API; nothing is removed or changes behaviour for existing callers.
 
 ### Added
 
 - **Every attribution parameter the web SDK reads can now be sent, not only a product block's.**
-  `ClickAttribution.fromUrl` reads all eighteen parameters the web SDK reads from a landing page
-  (the seventeen `rlv_*` parameters and `fbclid`) and sends them at the top level of the push
-  context. Every field is validated against the type the API enforces; a value that fails its
-  type is dropped rather than sent, so one bad parameter cannot make the API reject the whole
-  push.
-- **`trackScreenView`, `trackScreenViewWithEvents` and `trackSearchView` take
-  `clickAttribution` too**, for a screen opened from a Releva link.
-- **`ProductRecommendation.clickAttribution`**, the attribution for a tap on that product.
+  `PushRequest.clickAttribution(ClickAttribution)` takes a `ClickAttribution` built with
+  `ClickAttribution.fromUrl`, which reads all eighteen parameters the web SDK reads from a
+  landing page (the seventeen `rlv_*` parameters and `fbclid`), or `ClickAttribution.fromFields`,
+  which takes context field names such as a mergeContext. The fields are sent at the top level of
+  the push context. Every field is validated against the type the API enforces; a value that
+  fails its type is dropped rather than sent, so one bad parameter cannot make the API reject
+  the whole push.
+- **`ProductRecommendation.clickAttribution`**: the attribution for a tap on that product, from
+  its `mergeContext`, with the `rlv_*` parameters on its `url` filling in what that lacks.
 - **`ClickAttribution.plus`**, which merges two attributions, the right-hand side winning.
 
-### Changed
+`recommenderClick` and the `track*` methods are unchanged; send any other attribution through the
+builder. When a request sets both `recommenderClick` and `clickAttribution`, `clickAttribution`
+wins on a field both set.
 
-- **Adding an attribution source no longer needs a breaking change.** Parsing, validation and
-  serialization are driven by one internal table of fields, and `ClickAttribution` is an opaque
-  final class with a private constructor and no per-field accessors, so a future source arrives
-  as a table row in a minor release rather than as a new parameter or type. Parameters that are
-  not in the table are ignored rather than forwarded, because the push context schema is strict
-  and an unknown key would make the API reject the request.
-- **A mergeContext without a valid `rid` is no longer discarded whole**; its other valid fields
-  are sent.
-- **The new trailing `clickAttribution` parameter changes the JVM signatures** of
-  `trackScreenView`, `trackScreenViewWithEvents` and `trackSearchView`. Source is compatible;
-  code compiled against 1.7.1 must be recompiled.
+Adding an attribution source later doesn't need a breaking change. Parsing, validation and
+serialization are driven by one internal table of fields, and `ClickAttribution` is an opaque
+final class with no per-field accessors, so a new source is a table row in a minor release.
+Parameters that are not in the table are ignored rather than forwarded, because the push context
+schema is strict and an unknown key would make the API reject the request.
+
+### Build
+
+- **The public API is recorded and checked.** The binary-compatibility validator's dump is
+  committed at `releva-sdk/api/releva-sdk.api`, and `apiCheck` runs as part of `check`, so CI
+  fails on a public API change that hasn't been deliberately re-dumped. See "Public API and
+  compatibility" in `DEVELOPMENT.md`.
 
 ## 1.7.1
 
