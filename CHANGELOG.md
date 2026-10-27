@@ -34,7 +34,8 @@ ClickAttribution.fromFields(product.mergeContext)
   `ClickAttribution.fromUrl` reads all eighteen attribution parameters the web SDK reads from a
   landing page — `rlv_rid`/`rlv_rpid`/`rlv_rpos` (product block), `rlv_aid`/`rlv_apid`/`rlv_apos`
   (search), `rlv_said`/`rlv_sapid` (shopping assistant), `rlv_bid` (banner), `rlv_cid`/`rlv_mid`/
-  `rlv_sid`/`rlv_ctid`/`rlv_fsid` (campaign, message, send, flow), `rlv_stid` (story),
+  `rlv_sid`/`rlv_ctid`/`rlv_fsid` (campaign, message, send, campaign id, flow), `rlv_stid`
+  (accepted by the API but not read there),
   `rlv_odid`, `rlv_pfid` and `fbclid` — and sends them at the top level of the push context.
   Every field is validated against the type the API enforces; a value that fails its type is
   dropped rather than sent, so one bad parameter cannot make the API reject the whole push.
@@ -112,7 +113,7 @@ MINOR: adds public API; nothing is removed or changes behaviour for existing cal
   `PushRequest.recommenderClick(mergeContext)` and a `recommenderClick` parameter on
   `trackProductView`, taken from the product's `mergeContext` as Releva returned it. `rpos` and
   `pfid` are sent as numbers, which is what the API validates; malformed values are left out
-  rather than failing the push. See "Crediting Clicks on Recommended Products" in
+  rather than failing the push. See "Crediting Clicks" in
   `INTEGRATION_GUIDE.md`.
 - **Numeric `mergeContext` values are no longer blanked when parsing recommendations.** The API
   sends `rpos` and `pfid` as JSON numbers, and `ProductRecommendation` parsed every non-string

@@ -95,7 +95,7 @@ lifecycleScope.launch {
 
 ### Crediting Clicks
 
-When a shopper opens something from a Releva placement — a product block, a search result, a banner, a campaign or email link, a story, the shopping assistant — pass a `ClickAttribution` with the view that tap opened, so Releva credits the click and any purchase after it. On the web the same values ride on the landing page's `rlv_*` URL parameters; an app has no landing URL, so it sends them itself.
+When a shopper opens something from a Releva placement — a product block, a search result, a banner, a campaign or email link, the shopping assistant — pass a `ClickAttribution` with the view that tap opened, so Releva credits the click and any purchase after it. On the web the same values ride on the landing page's `rlv_*` URL parameters; an app has no landing URL, so it sends them itself.
 
 ```kotlin
 import ai.releva.sdk.types.tracking.ClickAttribution

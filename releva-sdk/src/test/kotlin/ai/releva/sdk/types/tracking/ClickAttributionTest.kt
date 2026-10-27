@@ -69,6 +69,24 @@ class ClickAttributionTest {
     }
 
     @Test
+    fun `a decimal is kept as a double`() {
+        assertEquals(
+            mapOf("cid" to 1.5),
+            ClickAttribution.fromUrl("https://shop.example.com/p?rlv_cid=1.5")!!.fields,
+        )
+    }
+
+    @Test
+    fun `a number that is not finite is dropped so the push body can be serialized`() {
+        assertEquals(
+            mapOf<String, Any>("aid" to "1"),
+            ClickAttribution.fromUrl(
+                "https://shop.example.com/p?rlv_cid=NaN&rlv_mid=Infinity&rlv_sid=1e999&rlv_pfid=-Infinity&rlv_aid=1"
+            )!!.fields,
+        )
+    }
+
+    @Test
     fun `an fbclid past the length the schema allows is dropped`() {
         val url = "https://shop.example.com/p?rlv_aid=1&fbclid="
         assertEquals("x".repeat(256), ClickAttribution.fromUrl(url + "x".repeat(256))!!.fields["fbclid"])

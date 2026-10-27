@@ -346,7 +346,7 @@ class ProductViewModel : ViewModel() {
 ### Crediting Clicks
 
 When the shopper opens something from a Releva placement — a product block, a search result, a
-banner, a campaign or email link, a story, the shopping assistant — pass a `ClickAttribution`
+banner, a campaign or email link, the shopping assistant — pass a `ClickAttribution`
 with the view that tap opened. Releva then credits the click, and any later purchase, to that
 placement. On the web the same values ride on the landing page's `rlv_*` URL parameters; an app
 has no landing URL, so it sends them itself.
