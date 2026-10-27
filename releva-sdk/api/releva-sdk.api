@@ -1,0 +1,1225 @@
+public final class ai/releva/sdk/client/RelevaClient : ai/releva/sdk/services/inbox/InboxApiClient {
+	public static final field Companion Lai/releva/sdk/client/RelevaClient$Companion;
+	public fun <init> (Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/config/RelevaConfig;)V
+	public synthetic fun <init> (Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/config/RelevaConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun bannerAction (Lai/releva/sdk/types/response/BannerResponse;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun bannerAction$default (Lai/releva/sdk/client/RelevaClient;Lai/releva/sdk/types/response/BannerResponse;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun bannerClicked (Lai/releva/sdk/types/response/BannerResponse;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun bannerClicked$default (Lai/releva/sdk/client/RelevaClient;Lai/releva/sdk/types/response/BannerResponse;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun bannerImpression (Lai/releva/sdk/types/response/BannerResponse;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun clearCartStorage (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun dispose ()V
+	public final fun enablePushEngagementTracking ()V
+	public final fun getEngagementTrackingService ()Lai/releva/sdk/services/engagement/EngagementTrackingService;
+	public final fun getInbox ()Lai/releva/sdk/services/inbox/InboxService;
+	public fun inboxDeleteMessage (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun inboxFetchMessages (ILjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun inboxFetchUnreadCount (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun inboxMarkAllAsRead (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun inboxMarkAsRead (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun inboxTrackAction (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun initializeInbox (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun push (Lai/releva/sdk/types/tracking/PushRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun registerPushToken (Lai/releva/sdk/types/device/DeviceType;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun setCart (Lai/releva/sdk/types/cart/Cart;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun setDeviceId (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun setEndpointOverride (Ljava/lang/String;)V
+	public final fun setProfileId (Ljava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun setProfileId$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;ZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun setWishlist (Ljava/util/List;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun storyAction (Lai/releva/sdk/types/response/StoryResponse;Ljava/lang/String;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun storyAction$default (Lai/releva/sdk/client/RelevaClient;Lai/releva/sdk/types/response/StoryResponse;Ljava/lang/String;Ljava/lang/Object;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun storyImpression (Lai/releva/sdk/types/response/StoryResponse;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun submitNpsResponse (Ljava/lang/String;ILjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun submitNpsResponse$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;ILjava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun trackCheckoutSuccess (Ljava/lang/String;Lai/releva/sdk/types/cart/Cart;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun trackCheckoutSuccess$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Lai/releva/sdk/types/cart/Cart;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun trackCustomEvent (Lai/releva/sdk/types/event/CustomEvent;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun trackCustomEvent$default (Lai/releva/sdk/client/RelevaClient;Lai/releva/sdk/types/event/CustomEvent;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun trackEvent (Ljava/lang/String;)V
+	public final fun trackProductView (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun trackProductView$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun trackScreenView (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun trackScreenView$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun trackScreenViewWithEvents (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun trackScreenViewWithEvents$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun trackSearchView (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun trackSearchView$default (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Lai/releva/sdk/types/filter/AbstractFilter;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/tracking/ClickAttribution;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class ai/releva/sdk/client/RelevaClient$Companion {
+}
+
+public final class ai/releva/sdk/config/RelevaConfig {
+	public static final field Companion Lai/releva/sdk/config/RelevaConfig$Companion;
+	public fun <init> ()V
+	public fun <init> (ZZZZZZZI)V
+	public synthetic fun <init> (ZZZZZZZIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Z
+	public final fun component3 ()Z
+	public final fun component4 ()Z
+	public final fun component5 ()Z
+	public final fun component6 ()Z
+	public final fun component7 ()Z
+	public final fun component8 ()I
+	public final fun copy (ZZZZZZZI)Lai/releva/sdk/config/RelevaConfig;
+	public static synthetic fun copy$default (Lai/releva/sdk/config/RelevaConfig;ZZZZZZZIILjava/lang/Object;)Lai/releva/sdk/config/RelevaConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnableAnalytics ()Z
+	public final fun getEnableInAppMessaging ()Z
+	public final fun getEnableInbox ()Z
+	public final fun getEnablePushNotifications ()Z
+	public final fun getEnableRequestLogging ()Z
+	public final fun getEnableScreenTracking ()Z
+	public final fun getEnableTracking ()Z
+	public final fun getMaxRetryAttempts ()I
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/config/RelevaConfig$Companion {
+	public final fun full ()Lai/releva/sdk/config/RelevaConfig;
+	public final fun messagingOnly ()Lai/releva/sdk/config/RelevaConfig;
+	public final fun pushOnly ()Lai/releva/sdk/config/RelevaConfig;
+	public final fun trackingOnly ()Lai/releva/sdk/config/RelevaConfig;
+}
+
+public final class ai/releva/sdk/services/banner/BannerDisplayController {
+	public static final field INSTANCE Lai/releva/sdk/services/banner/BannerDisplayController;
+	public final fun getBannerFlow ()Lkotlinx/coroutines/flow/SharedFlow;
+	public final fun showBanner (Lai/releva/sdk/types/response/BannerResponse;)V
+}
+
+public final class ai/releva/sdk/services/banner/BannerManagerService {
+	public static final field Companion Lai/releva/sdk/services/banner/BannerManagerService$Companion;
+	public fun <init> ()V
+	public final fun dispose ()V
+	public final fun initialize (Ljava/util/List;Lkotlin/jvm/functions/Function0;)V
+	public static synthetic fun initialize$default (Lai/releva/sdk/services/banner/BannerManagerService;Ljava/util/List;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)V
+	public final fun onCartChanged ()V
+	public final fun onWishlistChanged ()V
+}
+
+public final class ai/releva/sdk/services/banner/BannerManagerService$Companion {
+}
+
+public final class ai/releva/sdk/services/engagement/EngagementTrackingService {
+	public static final field Companion Lai/releva/sdk/services/engagement/EngagementTrackingService$Companion;
+	public fun <init> (Landroid/content/Context;)V
+	public final fun clearPendingEvents ()V
+	public final fun dispose ()V
+	public final fun forceSendPendingEvents (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getPendingEvents ()Ljava/util/List;
+	public final fun getPendingEventsCount ()I
+	public final fun initialize ()V
+	public final fun isRelevaMessage (Ljava/util/Map;)Z
+	public final fun sendPendingEvents (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun trackEngagement (Ljava/util/Map;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class ai/releva/sdk/services/engagement/EngagementTrackingService$Companion {
+}
+
+public abstract interface class ai/releva/sdk/services/inbox/InboxApiClient {
+	public abstract fun inboxDeleteMessage (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun inboxFetchMessages (ILjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun inboxFetchUnreadCount (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun inboxMarkAllAsRead (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun inboxMarkAsRead (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun inboxTrackAction (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class ai/releva/sdk/services/inbox/InboxApiClient$DefaultImpls {
+	public static synthetic fun inboxFetchMessages$default (Lai/releva/sdk/services/inbox/InboxApiClient;ILjava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class ai/releva/sdk/services/inbox/InboxService : androidx/lifecycle/DefaultLifecycleObserver {
+	public static final field Companion Lai/releva/sdk/services/inbox/InboxService$Companion;
+	public final fun deleteMessage (Ljava/lang/String;)V
+	public final fun getMessageById (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun handleSyncSignal (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun initialize (Lai/releva/sdk/services/inbox/InboxApiClient;Lai/releva/sdk/services/storage/StorageService;)V
+	public final fun loadMore (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun markAllAsRead ()V
+	public final fun markAsRead (Ljava/lang/String;)V
+	public fun onResume (Landroidx/lifecycle/LifecycleOwner;)V
+	public final fun refresh (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun refreshIfStale (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun resetForTest ()V
+	public final fun trackAction (Ljava/lang/String;)V
+}
+
+public final class ai/releva/sdk/services/inbox/InboxService$Companion {
+	public final fun getInstance ()Lai/releva/sdk/services/inbox/InboxService;
+}
+
+public abstract interface class ai/releva/sdk/services/navigation/NavigationHandler {
+	public abstract fun getScreenMappings ()Ljava/util/Map;
+	public abstract fun navigateToScreen (Ljava/lang/String;Landroid/os/Bundle;)V
+}
+
+public final class ai/releva/sdk/services/navigation/NavigationService {
+	public static final field Companion Lai/releva/sdk/services/navigation/NavigationService$Companion;
+	public final fun clearNavigationHandler ()V
+	public final fun createNotificationIntent (Landroid/content/Context;Ljava/lang/Class;Ljava/util/Map;)Landroid/content/Intent;
+	public final fun handleNotificationNavigation (Landroid/content/Context;Landroid/content/Intent;)Z
+	public final fun setNavigationHandler (Lai/releva/sdk/services/navigation/NavigationHandler;)V
+}
+
+public final class ai/releva/sdk/services/navigation/NavigationService$Companion {
+	public final fun getInstance ()Lai/releva/sdk/services/navigation/NavigationService;
+}
+
+public final class ai/releva/sdk/services/navigation/NotificationActionReceiver : android/content/BroadcastReceiver {
+	public static final field ACTION_NOTIFICATION_BUTTON_CLICKED Ljava/lang/String;
+	public static final field Companion Lai/releva/sdk/services/navigation/NotificationActionReceiver$Companion;
+	public static final field EXTRA_ACTIVITY_CLASS Ljava/lang/String;
+	public static final field EXTRA_NAVIGATE_TO_PARAMETERS Ljava/lang/String;
+	public static final field EXTRA_NAVIGATE_TO_SCREEN Ljava/lang/String;
+	public static final field EXTRA_NAVIGATE_TO_URL Ljava/lang/String;
+	public static final field EXTRA_NOTIFICATION_ID Ljava/lang/String;
+	public static final field EXTRA_TARGET Ljava/lang/String;
+	public fun <init> ()V
+	public fun onReceive (Landroid/content/Context;Landroid/content/Intent;)V
+}
+
+public final class ai/releva/sdk/services/navigation/NotificationActionReceiver$Companion {
+}
+
+public final class ai/releva/sdk/services/navigation/NotificationTrampolineActivity : android/app/Activity {
+	public static final field Companion Lai/releva/sdk/services/navigation/NotificationTrampolineActivity$Companion;
+	public static final field EXTRA_NAVIGATE_TO_INBOX Ljava/lang/String;
+	public static final field EXTRA_NAVIGATE_TO_PARAMETERS Ljava/lang/String;
+	public static final field EXTRA_NAVIGATE_TO_SCREEN Ljava/lang/String;
+	public static final field EXTRA_TARGET Ljava/lang/String;
+	public fun <init> ()V
+}
+
+public final class ai/releva/sdk/services/navigation/NotificationTrampolineActivity$Companion {
+}
+
+public abstract class ai/releva/sdk/services/navigation/RelevaFirebaseMessagingService : com/google/firebase/messaging/FirebaseMessagingService {
+	public static final field Companion Lai/releva/sdk/services/navigation/RelevaFirebaseMessagingService$Companion;
+	public fun <init> ()V
+	public fun getDefaultNotificationTitle ()Ljava/lang/String;
+	public abstract fun getMainActivityClass ()Ljava/lang/Class;
+	public fun getNotificationChannelId ()Ljava/lang/String;
+	public abstract fun getNotificationIcon ()I
+	public fun onDestroy ()V
+	public fun onMessageReceived (Lcom/google/firebase/messaging/RemoteMessage;)V
+	public fun onNewToken (Ljava/lang/String;)V
+	public abstract fun onPushTokenGenerated (Ljava/lang/String;)V
+}
+
+public final class ai/releva/sdk/services/navigation/RelevaFirebaseMessagingService$Companion {
+}
+
+public final class ai/releva/sdk/services/nps/NpsDisplayController {
+	public static final field INSTANCE Lai/releva/sdk/services/nps/NpsDisplayController;
+	public final fun consumeNps ()V
+	public final fun getNpsFlow ()Lkotlinx/coroutines/flow/SharedFlow;
+	public final fun showNps (Lai/releva/sdk/types/response/NpsConfig;)V
+}
+
+public final class ai/releva/sdk/services/nps/NpsManagerService {
+	public static final field Companion Lai/releva/sdk/services/nps/NpsManagerService$Companion;
+	public fun <init> ()V
+	public final fun dispose ()V
+	public final fun initialize (Lai/releva/sdk/types/response/NpsConfig;)V
+	public final fun startNewSession ()V
+	public final fun trackEvent (Ljava/lang/String;)V
+}
+
+public final class ai/releva/sdk/services/nps/NpsManagerService$Companion {
+}
+
+public final class ai/releva/sdk/services/session/SessionService : androidx/lifecycle/DefaultLifecycleObserver {
+	public static final field Companion Lai/releva/sdk/services/session/SessionService$Companion;
+	public final fun dispose ()V
+	public final fun getSessionId ()Ljava/lang/String;
+	public final fun initialize (Lai/releva/sdk/services/storage/StorageService;Lai/releva/sdk/services/nps/NpsManagerService;)V
+	public fun onStart (Landroidx/lifecycle/LifecycleOwner;)V
+	public fun onStop (Landroidx/lifecycle/LifecycleOwner;)V
+}
+
+public final class ai/releva/sdk/services/session/SessionService$Companion {
+	public final fun getInstance ()Lai/releva/sdk/services/session/SessionService;
+}
+
+public final class ai/releva/sdk/services/storage/StorageService {
+	public static final field Companion Lai/releva/sdk/services/storage/StorageService$Companion;
+	public synthetic fun <init> (Landroid/content/Context;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun addMergeProfileId (Ljava/lang/String;)V
+	public final fun clear ()V
+	public final fun clearMergeProfileIds ()V
+	public final fun containsKey (Ljava/lang/String;)Z
+	public final fun getBoolean (Ljava/lang/String;)Ljava/lang/Boolean;
+	public final fun getCartData ()Ljava/lang/String;
+	public final fun getDeviceFirstSeenAt ()Ljava/lang/String;
+	public final fun getDeviceId ()Ljava/lang/String;
+	public final fun getDeviceLastSessionTimestamp ()Ljava/lang/Long;
+	public final fun getDeviceSessionCount ()I
+	public final fun getDeviceViewsCount ()J
+	public final fun getInt (Ljava/lang/String;)Ljava/lang/Integer;
+	public final fun getLastMessageFetch ()Ljava/lang/Long;
+	public final fun getLong (Ljava/lang/String;)Ljava/lang/Long;
+	public final fun getMergeProfileIds ()Ljava/util/List;
+	public final fun getPendingEngagementEvents ()Ljava/util/List;
+	public final fun getPendingMessageEvents ()Ljava/util/List;
+	public final fun getProfileId ()Ljava/lang/String;
+	public final fun getSessionId ()Ljava/lang/String;
+	public final fun getSessionTimestamp ()Ljava/lang/Long;
+	public final fun getString (Ljava/lang/String;)Ljava/lang/String;
+	public final fun getWishlistData ()Ljava/util/List;
+	public final fun incrementDeviceSessionCount ()I
+	public final fun incrementDeviceViewsCount ()J
+	public final fun remove (Ljava/lang/String;)V
+	public final fun removeMergeProfileIds (Ljava/util/List;)V
+	public final fun setBoolean (Ljava/lang/String;Z)V
+	public final fun setCartData (Ljava/lang/String;)V
+	public final fun setDeviceFirstSeenAt (Ljava/lang/String;)V
+	public final fun setDeviceId (Ljava/lang/String;)V
+	public final fun setDeviceLastSessionTimestamp (J)V
+	public final fun setDeviceSessionCount (I)V
+	public final fun setDeviceViewsCount (J)V
+	public final fun setInt (Ljava/lang/String;I)V
+	public final fun setLastMessageFetch (J)V
+	public final fun setLong (Ljava/lang/String;J)V
+	public final fun setPendingEngagementEvents (Ljava/util/List;)V
+	public final fun setPendingMessageEvents (Ljava/util/List;)V
+	public final fun setProfileId (Ljava/lang/String;)V
+	public final fun setSessionId (Ljava/lang/String;)V
+	public final fun setSessionTimestamp (J)V
+	public final fun setString (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun setWishlistData (Ljava/util/List;)V
+}
+
+public final class ai/releva/sdk/services/storage/StorageService$Companion {
+	public final fun getInstance (Landroid/content/Context;)Lai/releva/sdk/services/storage/StorageService;
+}
+
+public final class ai/releva/sdk/services/story/StoryDisplayController {
+	public static final field INSTANCE Lai/releva/sdk/services/story/StoryDisplayController;
+	public final fun getStoryFlow ()Lkotlinx/coroutines/flow/SharedFlow;
+	public final fun showStory (Lai/releva/sdk/types/response/StoryResponse;)V
+}
+
+public final class ai/releva/sdk/services/story/StoryManagerService {
+	public static final field Companion Lai/releva/sdk/services/story/StoryManagerService$Companion;
+	public fun <init> ()V
+	public final fun dispose ()V
+	public final fun initialize (Ljava/util/List;)V
+	public final fun onCartChanged ()V
+	public final fun onScrollPercentageReached (I)V
+	public final fun onWishlistChanged ()V
+}
+
+public final class ai/releva/sdk/services/story/StoryManagerService$Companion {
+}
+
+public final class ai/releva/sdk/types/cart/Cart {
+	public static final field Companion Lai/releva/sdk/types/cart/Cart$Companion;
+	public fun <init> (Ljava/util/List;Ljava/lang/String;Z)V
+	public synthetic fun <init> (Ljava/util/List;Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Z
+	public final fun contains (Ljava/lang/String;)Z
+	public final fun copy (Ljava/util/List;Ljava/lang/String;Z)Lai/releva/sdk/types/cart/Cart;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/cart/Cart;Ljava/util/List;Ljava/lang/String;ZILjava/lang/Object;)Lai/releva/sdk/types/cart/Cart;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCartPaid ()Z
+	public final fun getItemCount ()I
+	public final fun getOrderId ()Ljava/lang/String;
+	public final fun getProducts ()Ljava/util/List;
+	public final fun getTotalPrice ()D
+	public final fun getTotalQuantity ()D
+	public fun hashCode ()I
+	public final fun isEmpty ()Z
+	public final fun product (Ljava/lang/String;)Lai/releva/sdk/types/cart/CartProduct;
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/cart/Cart$Companion {
+	public final fun active (Ljava/util/List;)Lai/releva/sdk/types/cart/Cart;
+	public final fun paid (Ljava/util/List;Ljava/lang/String;)Lai/releva/sdk/types/cart/Cart;
+}
+
+public final class ai/releva/sdk/types/cart/CartProduct {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Double;Ljava/lang/Double;Lai/releva/sdk/types/customfield/CustomFields;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Double;Ljava/lang/Double;Lai/releva/sdk/types/customfield/CustomFields;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/Double;
+	public final fun component3 ()Ljava/lang/Double;
+	public final fun component4 ()Lai/releva/sdk/types/customfield/CustomFields;
+	public final fun copy (Ljava/lang/String;Ljava/lang/Double;Ljava/lang/Double;Lai/releva/sdk/types/customfield/CustomFields;)Lai/releva/sdk/types/cart/CartProduct;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/cart/CartProduct;Ljava/lang/String;Ljava/lang/Double;Ljava/lang/Double;Lai/releva/sdk/types/customfield/CustomFields;ILjava/lang/Object;)Lai/releva/sdk/types/cart/CartProduct;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCustom ()Lai/releva/sdk/types/customfield/CustomFields;
+	public final fun getHasPrice ()Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getPrice ()Ljava/lang/Double;
+	public final fun getQuantity ()Ljava/lang/Double;
+	public final fun getTotalPrice ()D
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/customfield/CustomFields {
+	public static final field Companion Lai/releva/sdk/types/customfield/CustomFields$Companion;
+	public fun <init> ()V
+	public fun <init> (Ljava/util/List;Ljava/util/List;Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/util/List;Ljava/util/List;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Ljava/util/List;
+	public final fun copy (Ljava/util/List;Ljava/util/List;Ljava/util/List;)Lai/releva/sdk/types/customfield/CustomFields;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/customfield/CustomFields;Ljava/util/List;Ljava/util/List;Ljava/util/List;ILjava/lang/Object;)Lai/releva/sdk/types/customfield/CustomFields;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDate ()Ljava/util/List;
+	public final fun getNumeric ()Ljava/util/List;
+	public final fun getString ()Ljava/util/List;
+	public fun hashCode ()I
+	public final fun isEmpty ()Z
+	public final fun toJson ()Lorg/json/JSONObject;
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/customfield/CustomFields$Companion {
+	public final fun empty ()Lai/releva/sdk/types/customfield/CustomFields;
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/customfield/CustomFields;
+}
+
+public final class ai/releva/sdk/types/customfield/DateField {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;)Lai/releva/sdk/types/customfield/DateField;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/customfield/DateField;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Lai/releva/sdk/types/customfield/DateField;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getValues ()Ljava/util/List;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/customfield/NumericField {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;)Lai/releva/sdk/types/customfield/NumericField;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/customfield/NumericField;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Lai/releva/sdk/types/customfield/NumericField;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getValues ()Ljava/util/List;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/customfield/StringField {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;)Lai/releva/sdk/types/customfield/StringField;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/customfield/StringField;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Lai/releva/sdk/types/customfield/StringField;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getValues ()Ljava/util/List;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/device/DeviceType : java/lang/Enum {
+	public static final field ANDROID Lai/releva/sdk/types/device/DeviceType;
+	public static final field HUAWEI Lai/releva/sdk/types/device/DeviceType;
+	public static final field IOS Lai/releva/sdk/types/device/DeviceType;
+	public static final field OTHER Lai/releva/sdk/types/device/DeviceType;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun toApiValue ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lai/releva/sdk/types/device/DeviceType;
+	public static fun values ()[Lai/releva/sdk/types/device/DeviceType;
+}
+
+public final class ai/releva/sdk/types/event/CustomEvent {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/customfield/CustomFields;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/customfield/CustomFields;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Lai/releva/sdk/types/customfield/CustomFields;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/customfield/CustomFields;)Lai/releva/sdk/types/event/CustomEvent;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/event/CustomEvent;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/customfield/CustomFields;ILjava/lang/Object;)Lai/releva/sdk/types/event/CustomEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAction ()Ljava/lang/String;
+	public final fun getCustom ()Lai/releva/sdk/types/customfield/CustomFields;
+	public final fun getProducts ()Ljava/util/List;
+	public final fun getTags ()Ljava/util/List;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/event/CustomEventProduct {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Double;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Double;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/Double;
+	public final fun copy (Ljava/lang/String;Ljava/lang/Double;)Lai/releva/sdk/types/event/CustomEventProduct;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/event/CustomEventProduct;Ljava/lang/String;Ljava/lang/Double;ILjava/lang/Object;)Lai/releva/sdk/types/event/CustomEventProduct;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getQuantity ()Ljava/lang/Double;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class ai/releva/sdk/types/filter/AbstractFilter {
+	public abstract fun toMap ()Ljava/util/Map;
+}
+
+public final class ai/releva/sdk/types/filter/FilterAction : java/lang/Enum {
+	public static final field BOOST Lai/releva/sdk/types/filter/FilterAction;
+	public static final field BURY Lai/releva/sdk/types/filter/FilterAction;
+	public static final field EXCLUDE Lai/releva/sdk/types/filter/FilterAction;
+	public static final field INCLUDE Lai/releva/sdk/types/filter/FilterAction;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getValue ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lai/releva/sdk/types/filter/FilterAction;
+	public static fun values ()[Lai/releva/sdk/types/filter/FilterAction;
+}
+
+public final class ai/releva/sdk/types/filter/FilterOperator : java/lang/Enum {
+	public static final field EQ Lai/releva/sdk/types/filter/FilterOperator;
+	public static final field GT Lai/releva/sdk/types/filter/FilterOperator;
+	public static final field GTE Lai/releva/sdk/types/filter/FilterOperator;
+	public static final field GTE_LT Lai/releva/sdk/types/filter/FilterOperator;
+	public static final field GTE_LTE Lai/releva/sdk/types/filter/FilterOperator;
+	public static final field GT_LT Lai/releva/sdk/types/filter/FilterOperator;
+	public static final field GT_LTE Lai/releva/sdk/types/filter/FilterOperator;
+	public static final field LT Lai/releva/sdk/types/filter/FilterOperator;
+	public static final field LTE Lai/releva/sdk/types/filter/FilterOperator;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getValue ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lai/releva/sdk/types/filter/FilterOperator;
+	public static fun values ()[Lai/releva/sdk/types/filter/FilterOperator;
+}
+
+public final class ai/releva/sdk/types/filter/NestedFilter : ai/releva/sdk/types/filter/AbstractFilter {
+	public static final field Companion Lai/releva/sdk/types/filter/NestedFilter$Companion;
+	public fun <init> (Lai/releva/sdk/types/filter/NestedFilterOperation;Ljava/util/List;)V
+	public final fun component1 ()Lai/releva/sdk/types/filter/NestedFilterOperation;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Lai/releva/sdk/types/filter/NestedFilterOperation;Ljava/util/List;)Lai/releva/sdk/types/filter/NestedFilter;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/filter/NestedFilter;Lai/releva/sdk/types/filter/NestedFilterOperation;Ljava/util/List;ILjava/lang/Object;)Lai/releva/sdk/types/filter/NestedFilter;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getNested ()Ljava/util/List;
+	public final fun getOperation ()Lai/releva/sdk/types/filter/NestedFilterOperation;
+	public fun hashCode ()I
+	public fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/filter/NestedFilter$Companion {
+	public final fun and (Ljava/util/List;)Lai/releva/sdk/types/filter/NestedFilter;
+	public final fun or (Ljava/util/List;)Lai/releva/sdk/types/filter/NestedFilter;
+}
+
+public final class ai/releva/sdk/types/filter/NestedFilterOperation : java/lang/Enum {
+	public static final field AND Lai/releva/sdk/types/filter/NestedFilterOperation;
+	public static final field OR Lai/releva/sdk/types/filter/NestedFilterOperation;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getValue ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lai/releva/sdk/types/filter/NestedFilterOperation;
+	public static fun values ()[Lai/releva/sdk/types/filter/NestedFilterOperation;
+}
+
+public final class ai/releva/sdk/types/filter/SimpleFilter : ai/releva/sdk/types/filter/AbstractFilter {
+	public static final field Companion Lai/releva/sdk/types/filter/SimpleFilter$Companion;
+	public fun <init> (Ljava/lang/String;Lai/releva/sdk/types/filter/FilterOperator;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;)V
+	public synthetic fun <init> (Ljava/lang/String;Lai/releva/sdk/types/filter/FilterOperator;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lai/releva/sdk/types/filter/FilterOperator;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Lai/releva/sdk/types/filter/FilterAction;
+	public final fun component5 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/String;Lai/releva/sdk/types/filter/FilterOperator;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/filter/SimpleFilter;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterOperator;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;ILjava/lang/Object;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAction ()Lai/releva/sdk/types/filter/FilterAction;
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getOperator ()Lai/releva/sdk/types/filter/FilterOperator;
+	public final fun getValue ()Ljava/lang/String;
+	public final fun getWeight ()Ljava/lang/Integer;
+	public fun hashCode ()I
+	public fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/filter/SimpleFilter$Companion {
+	public final fun brand (Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public static synthetic fun brand$default (Lai/releva/sdk/types/filter/SimpleFilter$Companion;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;ILjava/lang/Object;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public final fun color (Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public static synthetic fun color$default (Lai/releva/sdk/types/filter/SimpleFilter$Companion;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;ILjava/lang/Object;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public final fun customDate (Ljava/lang/String;Lai/releva/sdk/types/filter/FilterOperator;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public static synthetic fun customDate$default (Lai/releva/sdk/types/filter/SimpleFilter$Companion;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterOperator;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;ILjava/lang/Object;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public final fun customNumeric (Ljava/lang/String;Lai/releva/sdk/types/filter/FilterOperator;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public static synthetic fun customNumeric$default (Lai/releva/sdk/types/filter/SimpleFilter$Companion;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterOperator;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;ILjava/lang/Object;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public final fun customString (Ljava/lang/String;Lai/releva/sdk/types/filter/FilterOperator;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public static synthetic fun customString$default (Lai/releva/sdk/types/filter/SimpleFilter$Companion;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterOperator;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;ILjava/lang/Object;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public final fun priceRange (DDLai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public static synthetic fun priceRange$default (Lai/releva/sdk/types/filter/SimpleFilter$Companion;DDLai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;ILjava/lang/Object;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public final fun size (Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public static synthetic fun size$default (Lai/releva/sdk/types/filter/SimpleFilter$Companion;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;ILjava/lang/Object;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public final fun standardField (Ljava/lang/String;Lai/releva/sdk/types/filter/FilterOperator;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;)Lai/releva/sdk/types/filter/SimpleFilter;
+	public static synthetic fun standardField$default (Lai/releva/sdk/types/filter/SimpleFilter$Companion;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterOperator;Ljava/lang/String;Lai/releva/sdk/types/filter/FilterAction;Ljava/lang/Integer;ILjava/lang/Object;)Lai/releva/sdk/types/filter/SimpleFilter;
+}
+
+public final class ai/releva/sdk/types/inbox/InboxMessage {
+	public static final field Companion Lai/releva/sdk/types/inbox/InboxMessage$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ZLjava/util/Date;I)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun component4 ()Z
+	public final fun component5 ()Ljava/util/Date;
+	public final fun component6 ()I
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ZLjava/util/Date;I)Lai/releva/sdk/types/inbox/InboxMessage;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/inbox/InboxMessage;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ZLjava/util/Date;IILjava/lang/Object;)Lai/releva/sdk/types/inbox/InboxMessage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCreatedAt ()Ljava/util/Date;
+	public final fun getDesign ()Ljava/util/Map;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getInboxMessageId ()I
+	public final fun getRead ()Z
+	public final fun getTitle ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/inbox/InboxMessage$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/inbox/InboxMessage;
+}
+
+public final class ai/releva/sdk/types/inbox/InboxState {
+	public static final field Companion Lai/releva/sdk/types/inbox/InboxState$Companion;
+	public static final field STALE_THRESHOLD_MS J
+	public fun <init> ()V
+	public fun <init> (Ljava/util/List;ILjava/lang/String;ZZLjava/lang/Long;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/util/List;ILjava/lang/String;ZZLjava/lang/Long;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()I
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Z
+	public final fun component5 ()Z
+	public final fun component6 ()Ljava/lang/Long;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun copy (Ljava/util/List;ILjava/lang/String;ZZLjava/lang/Long;Ljava/lang/String;)Lai/releva/sdk/types/inbox/InboxState;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/inbox/InboxState;Ljava/util/List;ILjava/lang/String;ZZLjava/lang/Long;Ljava/lang/String;ILjava/lang/Object;)Lai/releva/sdk/types/inbox/InboxState;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getHasMore ()Z
+	public final fun getLastFetchTime ()Ljava/lang/Long;
+	public final fun getLastRefreshError ()Ljava/lang/String;
+	public final fun getMessages ()Ljava/util/List;
+	public final fun getNextCursor ()Ljava/lang/String;
+	public final fun getUnreadCount ()I
+	public fun hashCode ()I
+	public final fun isLoading ()Z
+	public final fun isStale ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/inbox/InboxState$Companion {
+}
+
+public final class ai/releva/sdk/types/product/ViewedProduct {
+	public fun <init> (Ljava/lang/String;Lai/releva/sdk/types/customfield/CustomFields;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lai/releva/sdk/types/customfield/CustomFields;
+	public final fun copy (Ljava/lang/String;Lai/releva/sdk/types/customfield/CustomFields;)Lai/releva/sdk/types/product/ViewedProduct;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/product/ViewedProduct;Ljava/lang/String;Lai/releva/sdk/types/customfield/CustomFields;ILjava/lang/Object;)Lai/releva/sdk/types/product/ViewedProduct;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCustom ()Lai/releva/sdk/types/customfield/CustomFields;
+	public final fun getProductId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/BannerResponse {
+	public static final field Companion Lai/releva/sdk/types/response/BannerResponse$Companion;
+	public fun <init> (Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/Map;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/Map;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/lang/Integer;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component13 ()Ljava/lang/String;
+	public final fun component14 ()Ljava/lang/String;
+	public final fun component15 ()Ljava/lang/Boolean;
+	public final fun component16 ()Ljava/util/Map;
+	public final fun component17 ()Ljava/util/Map;
+	public final fun component18 ()Ljava/lang/String;
+	public final fun component19 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component20 ()Ljava/lang/String;
+	public final fun component21 ()Ljava/util/Map;
+	public final fun component3 ()I
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/util/List;
+	public final fun component7 ()Ljava/util/Map;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/Map;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)Lai/releva/sdk/types/response/BannerResponse;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/BannerResponse;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/Map;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Lai/releva/sdk/types/response/BannerResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAdvancedStyling ()Ljava/lang/Boolean;
+	public final fun getBannerId ()I
+	public final fun getContent ()Ljava/lang/String;
+	public final fun getCssSelector ()Ljava/lang/String;
+	public final fun getCssStyles ()Ljava/util/Map;
+	public final fun getDelaySeconds ()Ljava/lang/Integer;
+	public final fun getDesign ()Ljava/util/Map;
+	public final fun getDisplayPosition ()Ljava/lang/String;
+	public final fun getDisplayStrategy ()Ljava/lang/String;
+	public final fun getDisplayType ()Ljava/lang/String;
+	public final fun getHtml ()Ljava/lang/String;
+	public final fun getImageUrl ()Ljava/lang/String;
+	public final fun getMergeContext ()Ljava/util/Map;
+	public final fun getMeta ()Ljava/util/Map;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getScrollPercentage ()Ljava/lang/Integer;
+	public final fun getSegmentId ()I
+	public final fun getTags ()Ljava/util/List;
+	public final fun getTargetUrl ()Ljava/lang/String;
+	public final fun getToken ()Ljava/lang/String;
+	public final fun getTrigger ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/BannerResponse$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/BannerResponse;
+}
+
+public final class ai/releva/sdk/types/response/NpsAppearance {
+	public static final field Companion Lai/releva/sdk/types/response/NpsAppearance$Companion;
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/NpsAppearanceDark;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/NpsAppearanceDark;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Lai/releva/sdk/types/response/NpsAppearanceDark;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/NpsAppearanceDark;)Lai/releva/sdk/types/response/NpsAppearance;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/NpsAppearance;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/NpsAppearanceDark;ILjava/lang/Object;)Lai/releva/sdk/types/response/NpsAppearance;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBackgroundColor ()Ljava/lang/String;
+	public final fun getButtonStyle ()Ljava/lang/String;
+	public final fun getDark ()Lai/releva/sdk/types/response/NpsAppearanceDark;
+	public final fun getLogoUrl ()Ljava/lang/String;
+	public final fun getPosition ()Ljava/lang/String;
+	public final fun getPrimaryColor ()Ljava/lang/String;
+	public final fun getTextColor ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/NpsAppearance$Companion {
+	public final fun defaults ()Lai/releva/sdk/types/response/NpsAppearance;
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/NpsAppearance;
+}
+
+public final class ai/releva/sdk/types/response/NpsAppearanceDark {
+	public static final field Companion Lai/releva/sdk/types/response/NpsAppearanceDark$Companion;
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lai/releva/sdk/types/response/NpsAppearanceDark;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/NpsAppearanceDark;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lai/releva/sdk/types/response/NpsAppearanceDark;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBackgroundColor ()Ljava/lang/String;
+	public final fun getPrimaryColor ()Ljava/lang/String;
+	public final fun getTextColor ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/NpsAppearanceDark$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/NpsAppearanceDark;
+}
+
+public final class ai/releva/sdk/types/response/NpsConfig {
+	public static final field Companion Lai/releva/sdk/types/response/NpsConfig$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/NpsFollowUp;ZLjava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/NpsThankYou;Lai/releva/sdk/types/response/NpsAppearance;Ljava/util/List;ILjava/util/List;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/NpsFollowUp;ZLjava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/NpsThankYou;Lai/releva/sdk/types/response/NpsAppearance;Ljava/util/List;ILjava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Lai/releva/sdk/types/response/NpsAppearance;
+	public final fun component11 ()Ljava/util/List;
+	public final fun component12 ()I
+	public final fun component13 ()Ljava/util/List;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Lai/releva/sdk/types/response/NpsFollowUp;
+	public final fun component6 ()Z
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Lai/releva/sdk/types/response/NpsThankYou;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/NpsFollowUp;ZLjava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/NpsThankYou;Lai/releva/sdk/types/response/NpsAppearance;Ljava/util/List;ILjava/util/List;)Lai/releva/sdk/types/response/NpsConfig;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/NpsConfig;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/NpsFollowUp;ZLjava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/NpsThankYou;Lai/releva/sdk/types/response/NpsAppearance;Ljava/util/List;ILjava/util/List;ILjava/lang/Object;)Lai/releva/sdk/types/response/NpsConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAppearance ()Lai/releva/sdk/types/response/NpsAppearance;
+	public final fun getCancelOnEvents ()Ljava/util/List;
+	public final fun getFollowUp ()Lai/releva/sdk/types/response/NpsFollowUp;
+	public final fun getFollowUpRequired ()Z
+	public final fun getQuestion ()Ljava/lang/String;
+	public final fun getScaleHighLabel ()Ljava/lang/String;
+	public final fun getScaleLowLabel ()Ljava/lang/String;
+	public final fun getSkipLabel ()Ljava/lang/String;
+	public final fun getSubmitLabel ()Ljava/lang/String;
+	public final fun getThankYou ()Lai/releva/sdk/types/response/NpsThankYou;
+	public final fun getToken ()Ljava/lang/String;
+	public final fun getTriggerDelaySeconds ()I
+	public final fun getTriggers ()Ljava/util/List;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/NpsConfig$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/NpsConfig;
+}
+
+public final class ai/releva/sdk/types/response/NpsFollowUp {
+	public static final field Companion Lai/releva/sdk/types/response/NpsFollowUp$Companion;
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lai/releva/sdk/types/response/NpsFollowUp;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/NpsFollowUp;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lai/releva/sdk/types/response/NpsFollowUp;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun forScore (I)Ljava/lang/String;
+	public final fun getDetractor ()Ljava/lang/String;
+	public final fun getPassive ()Ljava/lang/String;
+	public final fun getPromoter ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/NpsFollowUp$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/NpsFollowUp;
+}
+
+public final class ai/releva/sdk/types/response/NpsThankYou {
+	public static final field Companion Lai/releva/sdk/types/response/NpsThankYou$Companion;
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lai/releva/sdk/types/response/NpsThankYou;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/NpsThankYou;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lai/releva/sdk/types/response/NpsThankYou;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun forScore (I)Ljava/lang/String;
+	public final fun getDetractor ()Ljava/lang/String;
+	public final fun getPassive ()Ljava/lang/String;
+	public final fun getPromoter ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/NpsThankYou$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/NpsThankYou;
+}
+
+public final class ai/releva/sdk/types/response/NpsTrigger {
+	public static final field Companion Lai/releva/sdk/types/response/NpsTrigger$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;)Lai/releva/sdk/types/response/NpsTrigger;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/NpsTrigger;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;ILjava/lang/Object;)Lai/releva/sdk/types/response/NpsTrigger;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEventName ()Ljava/lang/String;
+	public final fun getMinSessions ()Ljava/lang/Integer;
+	public final fun getType ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/NpsTrigger$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/NpsTrigger;
+}
+
+public final class ai/releva/sdk/types/response/ProductRecommendation {
+	public static final field Companion Lai/releva/sdk/types/response/ProductRecommendation$Companion;
+	public fun <init> (ZLjava/util/List;Ljava/util/Date;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Double;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;DLjava/util/Date;Ljava/util/Date;Ljava/lang/String;)V
+	public synthetic fun <init> (ZLjava/util/List;Ljava/util/Date;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Double;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;DLjava/util/Date;Ljava/util/Date;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component10 ()Ljava/lang/Double;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component13 ()Ljava/lang/Double;
+	public final fun component14 ()Ljava/lang/String;
+	public final fun component15 ()Ljava/util/Map;
+	public final fun component16 ()Ljava/lang/String;
+	public final fun component17 ()D
+	public final fun component18 ()Ljava/util/Date;
+	public final fun component19 ()Ljava/util/Date;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component20 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/Date;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/util/Map;
+	public final fun component6 ()Ljava/util/Map;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/Double;
+	public final fun component9 ()Ljava/lang/Double;
+	public final fun copy (ZLjava/util/List;Ljava/util/Date;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Double;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;DLjava/util/Date;Ljava/util/Date;Ljava/lang/String;)Lai/releva/sdk/types/response/ProductRecommendation;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/ProductRecommendation;ZLjava/util/List;Ljava/util/Date;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Double;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;DLjava/util/Date;Ljava/util/Date;Ljava/lang/String;ILjava/lang/Object;)Lai/releva/sdk/types/response/ProductRecommendation;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAvailable ()Z
+	public final fun getCategories ()Ljava/util/List;
+	public final fun getClickAttribution ()Lai/releva/sdk/types/tracking/ClickAttribution;
+	public final fun getCreatedAt ()Ljava/util/Date;
+	public final fun getCurrency ()Ljava/lang/String;
+	public final fun getCustom ()Ljava/util/Map;
+	public final fun getData ()Ljava/util/Map;
+	public final fun getDescription ()Ljava/lang/String;
+	public final fun getDiscount ()Ljava/lang/Double;
+	public final fun getDiscountPercent ()Ljava/lang/Double;
+	public final fun getDiscountPrice ()Ljava/lang/Double;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getImageUrl ()Ljava/lang/String;
+	public final fun getListPrice ()Ljava/lang/Double;
+	public final fun getLocale ()Ljava/lang/String;
+	public final fun getMergeContext ()Ljava/util/Map;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getPrice ()D
+	public final fun getPublishedAt ()Ljava/util/Date;
+	public final fun getUpdatedAt ()Ljava/util/Date;
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/ProductRecommendation$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/ProductRecommendation;
+}
+
+public final class ai/releva/sdk/types/response/PushInfo {
+	public static final field Companion Lai/releva/sdk/types/response/PushInfo$Companion;
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lai/releva/sdk/types/response/PushInfo;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/PushInfo;Ljava/lang/String;ILjava/lang/Object;)Lai/releva/sdk/types/response/PushInfo;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getVapidPublicKey ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/PushInfo$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/PushInfo;
+}
+
+public final class ai/releva/sdk/types/response/RecommenderResponse {
+	public static final field Companion Lai/releva/sdk/types/response/RecommenderResponse$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/Template;Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/Template;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun component4 ()Ljava/util/List;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Lai/releva/sdk/types/response/Template;
+	public final fun component8 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/Template;Ljava/util/List;)Lai/releva/sdk/types/response/RecommenderResponse;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/RecommenderResponse;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/List;Ljava/lang/String;Ljava/lang/String;Lai/releva/sdk/types/response/Template;Ljava/util/List;ILjava/lang/Object;)Lai/releva/sdk/types/response/RecommenderResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCssSelector ()Ljava/lang/String;
+	public final fun getDisplayStrategy ()Ljava/lang/String;
+	public final fun getMeta ()Ljava/util/Map;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getResponse ()Ljava/util/List;
+	public final fun getTags ()Ljava/util/List;
+	public final fun getTemplate ()Lai/releva/sdk/types/response/Template;
+	public final fun getToken ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/RecommenderResponse$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/RecommenderResponse;
+}
+
+public final class ai/releva/sdk/types/response/RelevaResponse {
+	public static final field Companion Lai/releva/sdk/types/response/RelevaResponse$Companion;
+	public fun <init> (Ljava/util/List;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/response/PushInfo;Lai/releva/sdk/types/response/NpsConfig;)V
+	public synthetic fun <init> (Ljava/util/List;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/response/PushInfo;Lai/releva/sdk/types/response/NpsConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Lai/releva/sdk/types/response/PushInfo;
+	public final fun component5 ()Lai/releva/sdk/types/response/NpsConfig;
+	public final fun copy (Ljava/util/List;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/response/PushInfo;Lai/releva/sdk/types/response/NpsConfig;)Lai/releva/sdk/types/response/RelevaResponse;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/RelevaResponse;Ljava/util/List;Ljava/util/List;Ljava/util/List;Lai/releva/sdk/types/response/PushInfo;Lai/releva/sdk/types/response/NpsConfig;ILjava/lang/Object;)Lai/releva/sdk/types/response/RelevaResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBannerByToken (Ljava/lang/String;)Lai/releva/sdk/types/response/BannerResponse;
+	public final fun getBanners ()Ljava/util/List;
+	public final fun getBannersByTag (Ljava/lang/String;)Ljava/util/List;
+	public final fun getHasBanners ()Z
+	public final fun getHasRecommenders ()Z
+	public final fun getHasStories ()Z
+	public final fun getNps ()Lai/releva/sdk/types/response/NpsConfig;
+	public final fun getPush ()Lai/releva/sdk/types/response/PushInfo;
+	public final fun getRecommenderByToken (Ljava/lang/String;)Lai/releva/sdk/types/response/RecommenderResponse;
+	public final fun getRecommenders ()Ljava/util/List;
+	public final fun getRecommendersByTag (Ljava/lang/String;)Ljava/util/List;
+	public final fun getStories ()Ljava/util/List;
+	public final fun getStoriesByTag (Ljava/lang/String;)Ljava/util/List;
+	public final fun getStoryByToken (Ljava/lang/String;)Lai/releva/sdk/types/response/StoryResponse;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/RelevaResponse$Companion {
+	public final fun fromJson (Ljava/lang/String;)Lai/releva/sdk/types/response/RelevaResponse;
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/RelevaResponse;
+	public final fun jsonObjectToMap (Lorg/json/JSONObject;)Ljava/util/Map;
+}
+
+public final class ai/releva/sdk/types/response/StoryResponse {
+	public static final field Companion Lai/releva/sdk/types/response/StoryResponse$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/util/List;
+	public final fun component11 ()Ljava/util/List;
+	public final fun component12 ()Ljava/util/Map;
+	public final fun component2 ()Ljava/lang/Object;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/Integer;
+	public final fun component6 ()Ljava/lang/Integer;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/Map;)Lai/releva/sdk/types/response/StoryResponse;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/StoryResponse;Ljava/lang/String;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/Map;ILjava/lang/Object;)Lai/releva/sdk/types/response/StoryResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDelaySeconds ()Ljava/lang/Integer;
+	public final fun getEndBehavior ()Ljava/lang/String;
+	public final fun getMergeContext ()Ljava/util/Map;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getProgressIndicatorColor ()Ljava/lang/String;
+	public final fun getProgressIndicatorInactiveColor ()Ljava/lang/String;
+	public final fun getScrollPercentage ()Ljava/lang/Integer;
+	public final fun getSlides ()Ljava/util/List;
+	public final fun getStoryId ()Ljava/lang/Object;
+	public final fun getTags ()Ljava/util/List;
+	public final fun getToken ()Ljava/lang/String;
+	public final fun getTrigger ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/StoryResponse$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/StoryResponse;
+}
+
+public final class ai/releva/sdk/types/response/StorySlideResponse {
+	public static final field Companion Lai/releva/sdk/types/response/StorySlideResponse$Companion;
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Object;Ljava/lang/String;Ljava/util/Map;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/Object;Ljava/lang/String;Ljava/util/Map;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Object;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun component4 ()I
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/Object;Ljava/lang/String;Ljava/util/Map;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lai/releva/sdk/types/response/StorySlideResponse;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/StorySlideResponse;Ljava/lang/Object;Ljava/lang/String;Ljava/util/Map;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lai/releva/sdk/types/response/StorySlideResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActionLabel ()Ljava/lang/String;
+	public final fun getActionType ()Ljava/lang/String;
+	public final fun getActionUrl ()Ljava/lang/String;
+	public final fun getDesign ()Ljava/util/Map;
+	public final fun getDurationSeconds ()I
+	public final fun getHtml ()Ljava/lang/String;
+	public final fun getId ()Ljava/lang/Object;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/StorySlideResponse$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/StorySlideResponse;
+}
+
+public final class ai/releva/sdk/types/response/Template {
+	public static final field Companion Lai/releva/sdk/types/response/Template$Companion;
+	public fun <init> (ILjava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;)Lai/releva/sdk/types/response/Template;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/response/Template;ILjava/lang/String;ILjava/lang/Object;)Lai/releva/sdk/types/response/Template;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBody ()Ljava/lang/String;
+	public final fun getId ()I
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/response/Template$Companion {
+	public final fun fromMap (Ljava/util/Map;)Lai/releva/sdk/types/response/Template;
+}
+
+public final class ai/releva/sdk/types/tracking/ClickAttribution {
+	public static final field Companion Lai/releva/sdk/types/tracking/ClickAttribution$Companion;
+	public synthetic fun <init> (Ljava/util/Map;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun isEmpty ()Z
+	public final fun plus (Lai/releva/sdk/types/tracking/ClickAttribution;)Lai/releva/sdk/types/tracking/ClickAttribution;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/types/tracking/ClickAttribution$Companion {
+	public final fun fromFields (Ljava/util/Map;)Lai/releva/sdk/types/tracking/ClickAttribution;
+	public final fun fromUrl (Ljava/lang/String;)Lai/releva/sdk/types/tracking/ClickAttribution;
+}
+
+public final class ai/releva/sdk/types/tracking/PushRequest {
+	public fun <init> ()V
+	public final fun cart (Lai/releva/sdk/types/cart/Cart;)Lai/releva/sdk/types/tracking/PushRequest;
+	public final fun clickAttribution (Lai/releva/sdk/types/tracking/ClickAttribution;)Lai/releva/sdk/types/tracking/PushRequest;
+	public final fun currency (Ljava/lang/String;)Lai/releva/sdk/types/tracking/PushRequest;
+	public final fun customEvents (Ljava/util/List;)Lai/releva/sdk/types/tracking/PushRequest;
+	public final fun getCustomEvents ()Ljava/util/List;
+	public final fun getScreenToken ()Ljava/lang/String;
+	public final fun locale (Ljava/lang/String;)Lai/releva/sdk/types/tracking/PushRequest;
+	public final fun pageCategories (Ljava/util/List;)Lai/releva/sdk/types/tracking/PushRequest;
+	public final fun pageFilter (Lai/releva/sdk/types/filter/AbstractFilter;)Lai/releva/sdk/types/tracking/PushRequest;
+	public final fun pageProductIds (Ljava/util/List;)Lai/releva/sdk/types/tracking/PushRequest;
+	public final fun pageQuery (Ljava/lang/String;)Lai/releva/sdk/types/tracking/PushRequest;
+	public final fun productView (Lai/releva/sdk/types/product/ViewedProduct;)Lai/releva/sdk/types/tracking/PushRequest;
+	public final fun screenToken (Ljava/lang/String;)Lai/releva/sdk/types/tracking/PushRequest;
+	public final fun url (Ljava/lang/String;)Lai/releva/sdk/types/tracking/PushRequest;
+}
+
+public final class ai/releva/sdk/types/wishlist/WishlistProduct {
+	public fun <init> (Ljava/lang/String;Lai/releva/sdk/types/customfield/CustomFields;)V
+	public synthetic fun <init> (Ljava/lang/String;Lai/releva/sdk/types/customfield/CustomFields;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lai/releva/sdk/types/customfield/CustomFields;
+	public final fun copy (Ljava/lang/String;Lai/releva/sdk/types/customfield/CustomFields;)Lai/releva/sdk/types/wishlist/WishlistProduct;
+	public static synthetic fun copy$default (Lai/releva/sdk/types/wishlist/WishlistProduct;Ljava/lang/String;Lai/releva/sdk/types/customfield/CustomFields;ILjava/lang/Object;)Lai/releva/sdk/types/wishlist/WishlistProduct;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCustom ()Lai/releva/sdk/types/customfield/CustomFields;
+	public final fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toMap ()Ljava/util/Map;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class ai/releva/sdk/ui/banner/BannerDisplayManager {
+	public static final field Companion Lai/releva/sdk/ui/banner/BannerDisplayManager$Companion;
+	public fun <init> (Lai/releva/sdk/client/RelevaClient;Ljava/lang/String;Lkotlin/jvm/functions/Function1;)V
+	public final fun attach (Landroidx/appcompat/app/AppCompatActivity;)V
+	public final fun attach (Landroidx/fragment/app/Fragment;)V
+	public final fun dismissAll ()V
+}
+
+public final class ai/releva/sdk/ui/banner/BannerDisplayManager$Companion {
+}
+
+public final class ai/releva/sdk/ui/banner/DesignRenderer {
+	public static final field INSTANCE Lai/releva/sdk/ui/banner/DesignRenderer;
+	public final fun loadImageAsync (Ljava/lang/String;Landroid/widget/ImageView;)V
+	public final fun parseColor (Ljava/lang/Object;)Ljava/lang/Integer;
+	public final fun render (Landroid/content/Context;Ljava/util/Map;IZLkotlin/jvm/functions/Function1;)Landroid/view/View;
+	public static synthetic fun render$default (Lai/releva/sdk/ui/banner/DesignRenderer;Landroid/content/Context;Ljava/util/Map;IZLkotlin/jvm/functions/Function1;ILjava/lang/Object;)Landroid/view/View;
+	public final fun wrapWithBackgroundImage (Landroid/content/Context;Landroid/view/View;Ljava/util/Map;Z)Landroid/view/View;
+	public static synthetic fun wrapWithBackgroundImage$default (Lai/releva/sdk/ui/banner/DesignRenderer;Landroid/content/Context;Landroid/view/View;Ljava/util/Map;ZILjava/lang/Object;)Landroid/view/View;
+}
+
+public final class ai/releva/sdk/ui/nps/NpsDialogFragment : com/google/android/material/bottomsheet/BottomSheetDialogFragment {
+	public static final field Companion Lai/releva/sdk/ui/nps/NpsDialogFragment$Companion;
+	public fun <init> ()V
+	public fun onCreateDialog (Landroid/os/Bundle;)Landroid/app/Dialog;
+	public fun onDestroyView ()V
+	public fun onSaveInstanceState (Landroid/os/Bundle;)V
+}
+
+public final class ai/releva/sdk/ui/nps/NpsDialogFragment$Companion {
+	public final fun newInstance (Lai/releva/sdk/types/response/NpsConfig;)Lai/releva/sdk/ui/nps/NpsDialogFragment;
+	public final fun newInstance (Lai/releva/sdk/types/response/NpsConfig;Lkotlin/jvm/functions/Function4;Lkotlin/jvm/functions/Function0;)Lai/releva/sdk/ui/nps/NpsDialogFragment;
+	public static synthetic fun newInstance$default (Lai/releva/sdk/ui/nps/NpsDialogFragment$Companion;Lai/releva/sdk/types/response/NpsConfig;Lkotlin/jvm/functions/Function4;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lai/releva/sdk/ui/nps/NpsDialogFragment;
+}
+
+public final class ai/releva/sdk/ui/nps/NpsDisplayManager {
+	public static final field INSTANCE Lai/releva/sdk/ui/nps/NpsDisplayManager;
+	public final fun attach (Landroidx/fragment/app/FragmentActivity;)V
+	public final fun setOnSkip (Lkotlin/jvm/functions/Function0;)V
+	public final fun setOnSubmit (Lkotlin/jvm/functions/Function4;)V
+}
+
+public final class ai/releva/sdk/ui/story/StoryDisplayManager {
+	public static final field INSTANCE Lai/releva/sdk/ui/story/StoryDisplayManager;
+	public final fun attach (Landroidx/fragment/app/FragmentActivity;)V
+	public final fun clearQueue ()V
+	public final fun setClient (Lai/releva/sdk/client/RelevaClient;)V
+	public final fun setOnLinkTap (Lkotlin/jvm/functions/Function1;)V
+}
+
+public final class ai/releva/sdk/ui/story/StoryViewerActivity : androidx/appcompat/app/AppCompatActivity {
+	public static final field Companion Lai/releva/sdk/ui/story/StoryViewerActivity$Companion;
+	public static final field INTERACTIVE_VIEW_TAG Ljava/lang/String;
+	public fun <init> ()V
+	public fun finish ()V
+}
+
+public final class ai/releva/sdk/ui/story/StoryViewerActivity$Companion {
+	public final fun isAlive (Ljava/lang/String;)Z
+	public final fun launch (Landroid/content/Context;Lai/releva/sdk/types/response/StoryResponse;Lai/releva/sdk/client/RelevaClient;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;)Ljava/lang/String;
+	public static synthetic fun launch$default (Lai/releva/sdk/ui/story/StoryViewerActivity$Companion;Landroid/content/Context;Lai/releva/sdk/types/response/StoryResponse;Lai/releva/sdk/client/RelevaClient;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Ljava/lang/String;
+}
+
